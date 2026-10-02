@@ -1,0 +1,61 @@
+# Тайник на VPS: только сервер. Порт открыт лишь на 127.0.0.1 —
+# снаружи к нему ходит ваш nginx (см. deploy/setup.sh и DEPLOY.md).
+#
+# Звонки: TURN-сервер coturn включается скриптом deploy/setup-calls.sh
+# (он пишет в .env COMPOSE_PROFILES=calls и учётные данные TURN).
+#
+# Если на сервере нет своего веб-сервера, можно запустить вместе с Caddy:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d --build
+# Имя проекта фиксировано: от него зависят имена томов с данными
+name: e2e-messenger
+
+services:
+  tainik:
+    build: .
+    image: tainik-server:latest
+    restart: unless-stopped
+    environment:
+      TRUST_PROXY: "1"
+      QUEUE_TTL_DAYS: ${QUEUE_TTL_DAYS:-30}
+      MAX_CONN_PER_IP: ${MAX_CONN_PER_IP:-20}
+      DOMAIN: ${DOMAIN:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_HOST: ${TURN_HOST:-}
+      TURN_PORT: ${TURN_PORT:-3478}
+      TURNS_PORT: ${TURNS_PORT:-0}
+      STUN_FALLBACK: ${STUN_FALLBACK-stun:stun.l.google.com:19302}
+    ports:
+      - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
+    volumes:
+      - tainik-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # TURN-сервер для звонков из сетей, где прямое соединение невозможно (NAT).
+  # Пересылает только зашифрованный медиапоток (DTLS-SRTP) — прослушать звонок не может.
+  coturn:
+    image: coturn/coturn:latest
+    profiles: [calls]
+    restart: unless-stopped
+    network_mode: host # тысячи UDP-портов через проброс Docker работают плохо
+    # Свои параметры вместо стандартных (журнал в stdout и автоопределение IP)
+    command: ["-c", "/etc/coturn/turnserver.conf"]
+    volumes:
+      - ./deploy/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    tmpfs:
+      - /var/lib/coturn
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  tainik-data:

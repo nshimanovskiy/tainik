@@ -1,0 +1,28 @@
+# Необязательно: Caddy с автоматическим HTTPS — только для серверов, где порты 80/443
+# свободны (нет nginx/apache). Запуск:
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d --build
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Укажите DOMAIN в файле .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Укажите ACME_EMAIL в файле .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      tainik:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy-data:
+  caddy-config:

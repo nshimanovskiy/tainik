@@ -1,0 +1,245 @@
+// Хранилище сервера на встроенном SQLite (node:sqlite, без зависимостей).
+// Здесь только публичные ключи и зашифрованные конверты — открытого текста нет.
+import fs from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+
+const SCHEMA = `
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA foreign_keys = ON;
+PRAGMA busy_timeout = 5000;
+
+CREATE TABLE IF NOT EXISTS users (
+  name            TEXT PRIMARY KEY,
+  identity_dh     TEXT NOT NULL,
+  identity_sign   TEXT NOT NULL,
+  next_device_id  INTEGER NOT NULL,
+  created_at      INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS devices (
+  user        TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  id          INTEGER NOT NULL,
+  name        TEXT NOT NULL,
+  spk         TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  last_seen   INTEGER NOT NULL,
+  PRIMARY KEY (user, id)
+);
+CREATE TABLE IF NOT EXISTS opks (
+  user    TEXT NOT NULL,
+  device  INTEGER NOT NULL,
+  id      INTEGER NOT NULL,
+  pub     TEXT NOT NULL,
+  PRIMARY KEY (user, device, id),
+  FOREIGN KEY (user, device) REFERENCES devices(user, id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS queue (
+  seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+  qid            TEXT NOT NULL UNIQUE,
+  user           TEXT NOT NULL,
+  device         INTEGER NOT NULL,
+  sender         TEXT NOT NULL,
+  sender_device  INTEGER NOT NULL,
+  env_id         TEXT NOT NULL,
+  envelope       TEXT NOT NULL,
+  ts             INTEGER NOT NULL,
+  FOREIGN KEY (user, device) REFERENCES devices(user, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS queue_dst ON queue(user, device, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS queue_dedupe ON queue(user, device, sender, sender_device, env_id);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
+`;
+
+export class Store {
+  constructor(dir, { maxOpks = 200, maxQueue = 1000, maxDevices = 5 } = {}) {
+    fs.mkdirSync(dir, { recursive: true });
+    this.file = path.join(dir, 'tainik.db');
+    this.db = new DatabaseSync(this.file);
+    this.db.exec(SCHEMA);
+    // Миграции
+    const cols = this.db.prepare("SELECT name FROM pragma_table_info('users')").all().map((r) => r.name);
+    if (!cols.includes('presence_hidden')) this.db.exec('ALTER TABLE users ADD COLUMN presence_hidden INTEGER NOT NULL DEFAULT 0');
+    this.limits = { maxOpks, maxQueue, maxDevices };
+    const q = (sql) => this.db.prepare(sql);
+    this.s = {
+      user: q('SELECT name, identity_dh, identity_sign, next_device_id FROM users WHERE name = ?'),
+      insUser: q('INSERT INTO users(name, identity_dh, identity_sign, next_device_id, created_at) VALUES (?, ?, ?, 2, ?)'),
+      bumpDevice: q('UPDATE users SET next_device_id = next_device_id + 1 WHERE name = ?'),
+      deviceIds: q('SELECT id FROM devices WHERE user = ? ORDER BY id'),
+      device: q('SELECT id, name, spk, created_at, last_seen FROM devices WHERE user = ? AND id = ?'),
+      devices: q('SELECT id, name, created_at, last_seen FROM devices WHERE user = ? ORDER BY id'),
+      insDevice: q('INSERT INTO devices(user, id, name, spk, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)'),
+      delDevice: q('DELETE FROM devices WHERE user = ? AND id = ?'),
+      touch: q('UPDATE devices SET last_seen = ? WHERE user = ? AND id = ?'),
+      setSpk: q('UPDATE devices SET spk = ? WHERE user = ? AND id = ?'),
+      insOpk: q('INSERT OR IGNORE INTO opks(user, device, id, pub) VALUES (?, ?, ?, ?)'),
+      opkCount: q('SELECT COUNT(*) AS n FROM opks WHERE user = ? AND device = ?'),
+      firstOpk: q('SELECT id, pub FROM opks WHERE user = ? AND device = ? ORDER BY id LIMIT 1'),
+      delOpk: q('DELETE FROM opks WHERE user = ? AND device = ? AND id = ?'),
+      trimOpks: q(
+        'DELETE FROM opks WHERE user = ? AND device = ? AND id NOT IN (SELECT id FROM opks WHERE user = ? AND device = ? ORDER BY id DESC LIMIT ?)'
+      ),
+      enqueue: q(
+        'INSERT OR IGNORE INTO queue(qid, user, device, sender, sender_device, env_id, envelope, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ),
+      queueCount: q('SELECT COUNT(*) AS n FROM queue WHERE user = ? AND device = ?'),
+      dropOldest: q('DELETE FROM queue WHERE seq = (SELECT seq FROM queue WHERE user = ? AND device = ? ORDER BY seq LIMIT 1)'),
+      queue: q('SELECT qid, sender, envelope, ts FROM queue WHERE user = ? AND device = ? ORDER BY seq'),
+      queueItem: q('SELECT qid, sender, env_id FROM queue WHERE qid = ? AND user = ? AND device = ?'),
+      delQueue: q('DELETE FROM queue WHERE qid = ?'),
+      purgeOld: q('DELETE FROM queue WHERE ts < ?'),
+      presence: q('SELECT u.presence_hidden AS hidden, MAX(d.last_seen) AS last_seen FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'),
+      setPresenceHidden: q('UPDATE users SET presence_hidden = ? WHERE name = ?'),
+      stats: q('SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM devices) AS devices, (SELECT COUNT(*) FROM queue) AS queued'),
+    };
+  }
+
+  tx(fn) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const r = fn();
+      this.db.exec('COMMIT');
+      return r;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  // ----- пользователи и устройства -----
+  getUser(name) {
+    const r = this.s.user.get(name);
+    return r ? { name: r.name, identity: { dh: r.identity_dh, sign: r.identity_sign }, nextDeviceId: r.next_device_id } : null;
+  }
+  deviceIds(name) {
+    return this.s.deviceIds.all(name).map((r) => r.id);
+  }
+  getDevice(name, id) {
+    const r = this.s.device.get(name, id);
+    return r ? { id: r.id, name: r.name, spk: JSON.parse(r.spk), createdAt: r.created_at, lastSeen: r.last_seen } : null;
+  }
+  listDevices(name) {
+    return this.s.devices.all(name).map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, lastSeen: r.last_seen }));
+  }
+  _insertDevice(name, id, keys, now) {
+    this.s.insDevice.run(name, id, keys.name, JSON.stringify(keys.spk), now, now);
+    for (const k of keys.opks) this.s.insOpk.run(name, id, k.id, k.pub);
+  }
+  /** Новый аккаунт с первым устройством. Возвращает 1 или null, если имя занято. */
+  createAccount(name, identity, keys) {
+    return this.tx(() => {
+      if (this.s.user.get(name)) return null;
+      const now = Date.now();
+      this.s.insUser.run(name, identity.dh, identity.sign, now);
+      this._insertDevice(name, 1, keys, now);
+      return 1;
+    });
+  }
+  /** Ещё одно устройство аккаунта. Возвращает номер или null при превышении лимита. */
+  addDevice(name, keys) {
+    return this.tx(() => {
+      const u = this.s.user.get(name);
+      if (!u || this.s.deviceIds.all(name).length >= this.limits.maxDevices) return null;
+      const id = u.next_device_id;
+      this.s.bumpDevice.run(name);
+      this._insertDevice(name, id, keys, Date.now());
+      return id;
+    });
+  }
+  removeDevice(name, id) {
+    return this.s.delDevice.run(name, id).changes > 0; // очередь и ключи удаляются каскадом
+  }
+  touchDevice(name, id, ts = Date.now()) {
+    this.s.touch.run(ts, name, id);
+  }
+
+  // ----- prekey -----
+  setSpk(name, id, spk) {
+    this.s.setSpk.run(JSON.stringify(spk), name, id);
+  }
+  addOpks(name, id, opks) {
+    this.tx(() => {
+      for (const k of opks) this.s.insOpk.run(name, id, k.id, k.pub);
+      this.s.trimOpks.run(name, id, name, id, this.limits.maxOpks);
+    });
+  }
+  opkCount(name, id) {
+    return this.s.opkCount.get(name, id).n;
+  }
+  /** Выдаёт одноразовый ключ и сразу удаляет его (выдаётся ровно один раз). */
+  takeOpk(name, id) {
+    return this.tx(() => {
+      const k = this.s.firstOpk.get(name, id);
+      if (!k) return null;
+      this.s.delOpk.run(name, id, k.id);
+      return { id: k.id, pub: k.pub };
+    });
+  }
+
+  // ----- очередь зашифрованных конвертов -----
+  /** Возвращает false, если такой конверт уже в очереди (повторная отправка). */
+  enqueue(name, device, item) {
+    return this.tx(() => {
+      const r = this.s.enqueue.run(
+        item.qid,
+        name,
+        device,
+        item.from,
+        item.envelope.fromDevice,
+        item.envelope.id,
+        JSON.stringify(item.envelope),
+        item.ts
+      );
+      if (!r.changes) return false;
+      if (this.s.queueCount.get(name, device).n > this.limits.maxQueue) this.s.dropOldest.run(name, device);
+      return true;
+    });
+  }
+  queueFor(name, device) {
+    return this.s.queue.all(name, device).map((r) => ({ qid: r.qid, from: r.sender, envelope: JSON.parse(r.envelope), ts: r.ts }));
+  }
+  queueSize(name, device) {
+    return this.s.queueCount.get(name, device).n;
+  }
+  /** Удаляет подтверждённые конверты, возвращает [{ from, envId }] для уведомлений о доставке. */
+  ack(name, device, qids) {
+    return this.tx(() => {
+      const out = [];
+      for (const qid of qids) {
+        const r = this.s.queueItem.get(String(qid), name, device);
+        if (!r) continue;
+        this.s.delQueue.run(r.qid);
+        out.push({ from: r.sender, envId: r.env_id });
+      }
+      return out;
+    });
+  }
+  /** Срок хранения недоставленного: старше maxAgeMs — удаляется. */
+  purgeOlderThan(maxAgeMs) {
+    return this.s.purgeOld.run(Date.now() - maxAgeMs).changes;
+  }
+
+  /** { hidden, lastSeen } или null, если пользователя нет */
+  getPresence(name) {
+    const r = this.s.presence.get(name);
+    return r ? { hidden: !!r.hidden, lastSeen: r.last_seen || null } : null;
+  }
+  setPresenceHidden(name, hidden) {
+    this.s.setPresenceHidden.run(hidden ? 1 : 0, name);
+  }
+
+  stats() {
+    return this.s.stats.get();
+  }
+  check() {
+    return this.db.prepare('SELECT 1 AS ok').get().ok === 1;
+  }
+  close() {
+    try {
+      this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch {}
+    this.db.close();
+  }
+}

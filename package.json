@@ -1,0 +1,15 @@
+{
+  "name": "e2e-messenger",
+  "version": "0.6.0",
+  "description": "Тайник — E2E-мессенджер: X3DH + Double Ratchet, веб и десктоп. Без внешних зависимостей.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "license": "MIT"
+}

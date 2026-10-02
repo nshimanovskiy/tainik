@@ -1,0 +1,53 @@
+# coturn для Тайника. Файл deploy/turnserver.conf генерирует deploy/setup-calls.sh.
+
+listening-port=__PORT__
+# TURN поверх TLS отключён: для него нужен сертификат, читаемый контейнером.
+no-tls
+no-dtls
+
+# Диапазон портов для ретрансляции (UDP). Должен быть открыт у провайдера VPS.
+min-port=__MIN_PORT__
+max-port=__MAX_PORT__
+__EXTERNAL_IP__
+
+realm=__DOMAIN__
+server-name=__DOMAIN__
+fingerprint
+
+# Временные учётные данные от сервера Тайника (HMAC от общего секрета)
+use-auth-secret
+static-auth-secret=__SECRET__
+stale-nonce=600
+
+# Ограничения
+user-quota=12
+total-quota=1200
+max-bps=10000000
+no-cli
+no-multicast-peers
+no-tcp-relay
+
+# Запрет пересылки во внутренние сети (защита от SSRF через TURN)
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.0.2.0-192.0.2.255
+denied-peer-ip=192.88.99.0-192.88.99.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=198.51.100.0-198.51.100.255
+denied-peer-ip=203.0.113.0-203.0.113.255
+denied-peer-ip=224.0.0.0-255.255.255.255
+denied-peer-ip=::1
+denied-peer-ip=64:ff9b::-64:ff9b::ffff:ffff
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
+# Журнал выключен: IP-адреса собеседников не копятся.
+# Для отладки замените на:  log-file=stdout  и добавьте  verbose
+log-file=/dev/null
+no-stdout-log

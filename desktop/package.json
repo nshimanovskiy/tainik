@@ -1,0 +1,104 @@
+{
+  "name": "tainik-desktop",
+  "productName": "Tainik",
+  "version": "0.6.0",
+  "description": "Тайник — десктопный E2E-мессенджер (X3DH + Double Ratchet)",
+  "main": "main.cjs",
+  "private": true,
+  "author": "Tainik <noreply@example.com>",
+  "license": "MIT",
+  "scripts": {
+    "prepare-web": "node scripts/copy-web.mjs",
+    "start": "npm run prepare-web && electron .",
+    "dist": "npm run prepare-web && electron-builder --publish never",
+    "dist:win": "npm run prepare-web && electron-builder --win --publish never",
+    "dist:mac": "npm run prepare-web && electron-builder --mac --publish never",
+    "dist:linux": "npm run prepare-web && electron-builder --linux --publish never",
+    "set-version": "npm version --no-git-tag-version --allow-same-version"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.6"
+  },
+  "build": {
+    "appId": "dev.tainik.desktop",
+    "productName": "Tainik",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "lib.cjs",
+      "renderer/**/*",
+      "build/icon.png"
+    ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Тайник",
+      "createDesktopShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.social-networking",
+      "identity": null,
+      "extendInfo": {
+        "NSCameraUsageDescription": "Камера нужна для видеозвонков и сканирования QR-кода при привязке устройства.",
+        "NSMicrophoneUsageDescription": "Микрофон нужен для звонков."
+      }
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Network",
+      "maintainer": "Tainik <noreply@example.com>",
+      "synopsis": "E2E-мессенджер",
+      "executableName": "tainik"
+    },
+    "artifactName": "Tainik-${version}-${os}-${arch}.${ext}",
+    "publish": null
+  },
+  "homepage": "https://chat.sdsds.top"
+}

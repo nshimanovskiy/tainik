@@ -1,0 +1,17 @@
+# Caddy сам получает и продлевает сертификат Let's Encrypt для {$DOMAIN}.
+# Журнал запросов не ведётся (директивы `log` нет), чтобы не копить IP и время визитов.
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# WebSocket (/ws), веб-клиент и /healthz обслуживает сервер Тайника
+	reverse_proxy tainik:8080
+}
