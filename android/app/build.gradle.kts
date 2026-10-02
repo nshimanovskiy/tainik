@@ -1,5 +1,6 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import java.net.URI
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -35,9 +36,9 @@ fun defaultServer(): String {
     if (!Regex("^(wss?|https?)://", RegexOption.IGNORE_CASE).containsMatchIn(s)) s = "wss://$s"
     s = s.replaceFirst(Regex("^https:", RegexOption.IGNORE_CASE), "wss:")
         .replaceFirst(Regex("^http:", RegexOption.IGNORE_CASE), "ws:")
-    val u = java.net.URI(s)
+    val u = URI(s)
     val path = if (u.path.isNullOrEmpty() || u.path == "/") "/ws" else u.path
-    return java.net.URI(u.scheme, u.userInfo, u.host, u.port, path, u.query, null).toString()
+    return URI(u.scheme, u.userInfo, u.host, u.port, path, u.query, null).toString()
 }
 
 /** Копирует общий интерфейс (client/) и крипто-ядро (shared/) в ассеты приложения. */

@@ -138,6 +138,7 @@ export class MessengerClient extends Emitter {
     this._authExtra = null; // register / newDevice при первом входе
     this._inflight = new Set();
     this._pongWaiters = new Set();
+    this.pingTimeout = PING_TIMEOUT;
     this.ps = this._protocolStore();
     this.presence = new Map();
     this.presenceHidden = false;
@@ -464,7 +465,7 @@ export class MessengerClient extends Emitter {
     const ws = this.ws;
     // Сервер отвечает на ping сообщением pong без reqId (так и в старых версиях)
     const alive = await new Promise((resolve) => {
-      const t = setTimeout(() => done(false), PING_TIMEOUT);
+      const t = setTimeout(() => done(false), this.pingTimeout);
       const done = (v) => {
         clearTimeout(t);
         this._pongWaiters.delete(done);
