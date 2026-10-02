@@ -114,3 +114,72 @@ test('панель администратора: лимит попыток вх�
   assert.equal((await fetch(`${custom.base}/my-panel/`)).status, 200);
   assert.equal((await fetch(`${custom.base}/adminadminadmin/`)).status, 404);
 });
+
+const waitFor = (emitter, event, pred = () => true, ms = 8000) =>
+  new Promise((resolve, reject) => {
+    const t = setTimeout(() => (off(), reject(new Error('timeout: ' + event))), ms);
+    const off = emitter.on(event, (d) => pred(d) && (clearTimeout(t), off(), resolve(d)));
+  });
+
+test('панель администратора: последний IP, удаление аккаунта, блокировка IP', async (t) => {
+  const { base, mk, srv } = await setup(t);
+  const alice = mk();
+  const bob = mk();
+  await alice.register('alice');
+  await bob.register('bob');
+  const session = (await login(base, PASSWORD)).headers.get('set-cookie').split(';')[0];
+  const api = (name, body, headers = { 'X-Tainik-Admin': '1' }) =>
+    fetch(`${base}/adminadminadmin/api/${name}`, {
+      method: 'POST',
+      headers: { Cookie: session, 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+  const overview = async () => (await fetch(`${base}/adminadminadmin/api/overview`, { headers: { Cookie: session } })).json();
+
+  // Последний IP сохраняется и после отключения; пользователь видит IP своих устройств
+  const devs = await alice.listDevices();
+  assert.equal(devs[0].ip, '127.0.0.1');
+  assert.equal(srv.store.listDevices('alice')[0].lastIp, '127.0.0.1');
+  const o = await overview();
+  assert.equal(o.users.find((u) => u.name === 'alice').devices[0].lastIp, '127.0.0.1');
+
+  // Без своего заголовка (как у формы с чужого сайта) действие не выполняется
+  assert.equal((await api('delete-user', { name: 'bob' }, {})).status, 403);
+  assert.equal((await fetch(`${base}/adminadminadmin/api/ban`, { method: 'POST', headers: { 'X-Tainik-Admin': '1', 'Content-Type': 'application/json' }, body: '{"ip":"1.2.3.4"}' })).status, 401, 'без сессии нельзя');
+  assert.ok(srv.store.getUser('bob'));
+
+  // Удаление аккаунта: устройство получает сигнал, данные на сервере удалены, войти нельзя
+  const gone = waitFor(bob, 'error', (e) => e.code === 'account_deleted');
+  let r = await api('delete-user', { name: 'bob' });
+  assert.equal(r.status, 200);
+  await gone;
+  assert.equal(srv.store.getUser('bob'), null);
+  assert.equal(srv.store.listDevices('bob').length, 0);
+  assert.equal((await api('delete-user', { name: 'bob' })).status, 400);
+  const bob2 = mk();
+  bob2.account = bob.account; // то же устройство после перезапуска
+  await assert.rejects(bob2.connect({ timeout: 5000 }), (e) => e.code === 'account_deleted');
+  const newBob = mk();
+  await newBob.register('bob'); // имя освободилось
+
+  // Блокировка IP: текущие подключения обрываются, сайт и WebSocket закрыты, панель доступна
+  assert.equal((await api('ban', { ip: 'не адрес' })).status, 400);
+  const kicked = waitFor(alice, 'error', (e) => e.code === 'ip_banned');
+  r = await api('ban', { ip: '::ffff:127.0.0.1', note: 'спам' });
+  assert.equal(r.status, 200);
+  await kicked;
+  assert.deepEqual((await overview()).bans.map((b) => [b.ip, b.note]), [['127.0.0.1', 'спам']]);
+  assert.equal((await fetch(`${base}/`)).status, 403);
+  const blocked = mk();
+  blocked.account = alice.account;
+  await assert.rejects(blocked.connect({ timeout: 3000 }));
+  assert.equal(srv.store.listBans().length, 1, 'блокировка хранится в базе');
+
+  r = await api('unban', { ip: '127.0.0.1' });
+  assert.equal(r.status, 200);
+  assert.equal((await fetch(`${base}/`)).status, 200);
+  const again = mk();
+  again.account = alice.account;
+  await again.connect({ timeout: 5000 });
+  assert.equal(again.status, 'online');
+});

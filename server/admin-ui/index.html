@@ -41,6 +41,7 @@
             <th>Устройства и IP</th>
             <th>Регистрация</th>
             <th class="num">В очереди</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -48,8 +49,22 @@
       <p id="empty" class="muted center" hidden>Никого не найдено</p>
     </div>
 
+    <section class="bans">
+      <h2>Заблокированные IP</h2>
+      <form id="ban-form" class="ban-form" autocomplete="off">
+        <input id="ban-ip" placeholder="IP-адрес, например 203.0.113.7" spellcheck="false" required>
+        <input id="ban-note" placeholder="Заметка (необязательно)" maxlength="200">
+        <button type="submit">Заблокировать</button>
+      </form>
+      <p id="ban-error" class="error small" role="alert"></p>
+      <ul id="ban-list" class="ban-list"></ul>
+      <p id="no-bans" class="muted small">Заблокированных адресов нет.</p>
+    </section>
+
     <p class="note muted small">
-      IP показываются только у подключённых сейчас устройств и нигде не сохраняются.
+      Для каждого устройства хранится последний IP, с которого оно подключалось (его видит и сам пользователь в списке своих устройств).
+      С заблокированного IP нельзя подключиться к мессенджеру и открыть сайт; эта панель остаётся доступной.
+      Удаление аккаунта необратимо: устройства пользователя отключаются и стирают свои ключи, имя освобождается.
       Текст сообщений серверу неизвестен. Статус «в сети» здесь виден даже у тех, кто скрыл его от собеседников.
     </p>
     <p id="version" class="note muted small"></p>

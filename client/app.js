@@ -620,7 +620,9 @@ async function renderDevices() {
       const li = el('li');
       li.append(el('span', 'd-ico', /Приложение/.test(d.name) ? '🖥' : /Android|iOS/.test(d.name) ? '📱' : '🌐'));
       const body = el('div', 'd-body');
-      body.append(el('div', 'd-name', `${d.name} · №${d.id}`), el('div', 'd-meta', seenText(d)));
+      const meta = el('div', 'd-meta', seenText(d));
+      if (d.ip) meta.append(' · ', el('code', 'd-ip', d.ip));
+      body.append(el('div', 'd-name', `${d.name} · №${d.id}`), meta);
       li.append(body);
       if (!d.current) {
         const b = el('button', 'ghost', 'Отвязать');
@@ -749,13 +751,16 @@ client.on('status-change', ({ contact, id, status }) => {
 client.on('key-changed', (c) => toast(`⚠ Ключ пользователя ${c.username} изменился`, 6000));
 client.on('error', async ({ code, text }) => {
   if (code === 'logged_in_elsewhere') return toast(text, 0);
-  if (code === 'device_removed') {
-    // Устройство отвязано с другого устройства — стираем ключи здесь
+  if (code === 'device_removed' || code === 'account_deleted') {
+    // Устройство отвязано с другого устройства или аккаунт удалён — стираем ключи здесь
     const name = client.account?.username || '';
     await dropPush(false);
     await client.reset();
     current = null;
-    const text = `Это устройство отвязано от аккаунта ${name}. Ключи и переписка удалены.`;
+    const text =
+      code === 'account_deleted'
+        ? `Аккаунт ${name} удалён администратором сервера. Ключи и переписка на этом устройстве стёрты.`
+        : `Это устройство отвязано от аккаунта ${name}. Ключи и переписка удалены.`;
     if (await forgetActiveAccount()) {
       await settings.set('flash', text);
       return location.reload();
@@ -1705,7 +1710,7 @@ async function startOthers() {
       });
     });
     c.on('error', async ({ code }) => {
-      if (code !== 'device_removed') return;
+      if (code !== 'device_removed' && code !== 'account_deleted') return;
       c.disconnect();
       await c.reset();
       others.delete(acc.id);
@@ -1716,7 +1721,7 @@ async function startOthers() {
       }
       await saveAccounts();
       renderAccountsBadge();
-      toast(`Это устройство отвязано от аккаунта ${acc.username || ''}`);
+      toast(code === 'account_deleted' ? `Аккаунт ${acc.username || ''} удалён администратором` : `Это устройство отвязано от аккаунта ${acc.username || ''}`);
     });
     await recount();
     c.connect().catch(() => {});

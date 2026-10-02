@@ -1,6 +1,5 @@
-// Панель администратора: пользователи, их устройства, статус «в сети» и IP текущих подключений.
-// Только чтение. IP берутся из открытых соединений и нигде не сохраняются: отключилось
-// устройство — его IP в панели больше нет. Текста сообщений сервер не знает, и панель тоже.
+// Панель администратора: пользователи, их устройства, статус «в сети», текущий и последний IP
+// устройств; удаление аккаунтов и блокировка IP. Текста сообщений сервер не знает, и панель тоже.
 //
 // Включается переменной ADMIN_PASSWORD (не короче 12 символов). Адрес — ADMIN_PATH
 // (по умолчанию /adminadminadmin). Без пароля панели нет: адрес отвечает 404.
@@ -45,7 +44,7 @@ export function normalizeAdminPath(p) {
 /**
  * @returns {null | (req, res) => boolean}  обработчик: true, если запрос был к панели
  */
-export function createAdmin({ password, basePath, overview, clientIp, say = () => {} }) {
+export function createAdmin({ password, basePath, overview, actions = {}, clientIp, say = () => {} }) {
   if (!password) return null;
   if (String(password).length < MIN_PASSWORD) {
     say(`панель администратора выключена: ADMIN_PASSWORD короче ${MIN_PASSWORD} символов`);
@@ -147,6 +146,26 @@ export function createAdmin({ password, basePath, overview, clientIp, say = () =
 
     if (req.method === 'POST' && sub === '/login') {
       login(req, res).catch(() => send(res, 400, 'Ошибка'));
+      return true;
+    }
+    // Действия: только с сессией, только JSON и только со своим заголовком — чужой сайт
+    // не может отправить такой запрос из браузера администратора (CSRF).
+    const act = /^\/api\/(delete-user|ban|unban)$/.exec(sub);
+    if (req.method === 'POST' && act) {
+      const json = (status, obj) => send(res, status, JSON.stringify(obj), 'application/json; charset=utf-8');
+      if (!authed) return json(401, { error: 'unauthorized' }), true;
+      if (req.headers['x-tainik-admin'] !== '1' || !/^application\/json\b/.test(String(req.headers['content-type'] || ''))) {
+        return json(403, { error: 'forbidden' }), true;
+      }
+      readBody(req)
+        .then((text) => {
+          const body = JSON.parse(text || '{}');
+          if (act[1] === 'delete-user') actions.deleteUser(body.name);
+          else if (act[1] === 'ban') actions.ban(body.ip, body.note);
+          else actions.unban(body.ip);
+          json(200, { ok: true });
+        })
+        .catch((e) => json(400, { error: e instanceof SyntaxError ? 'Неверный запрос' : e.message || 'Ошибка' }));
       return true;
     }
     if (req.method === 'POST' && sub === '/logout') {

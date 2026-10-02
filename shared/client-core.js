@@ -77,6 +77,8 @@ export const ERROR_TEXT = {
   auth_failed: 'Не удалось подтвердить владение ключом',
   logged_in_elsewhere: 'Это устройство открыто в другом окне',
   device_removed: 'Это устройство отвязано от аккаунта',
+  account_deleted: 'Аккаунт удалён администратором сервера',
+  ip_banned: 'Доступ к серверу с вашего адреса заблокирован администратором',
   too_many_devices: 'Достигнут предел: 5 устройств на аккаунт',
   unknown_recipient: 'Такого пользователя нет',
   too_large: 'Сообщение слишком большое',
@@ -561,7 +563,7 @@ export class MessengerClient extends Emitter {
         return;
       case 'error': {
         if (msg.code === 'mismatched_devices') return this._serial(() => this._onMismatch(msg));
-        if (msg.code === 'device_removed') return this._fatal('device_removed');
+        if (msg.code === 'device_removed' || msg.code === 'account_deleted' || msg.code === 'ip_banned') return this._fatal(msg.code);
         if (msg.code === 'logged_in_elsewhere') {
           this._setStatus('replaced');
           return this._fatal(msg.code);

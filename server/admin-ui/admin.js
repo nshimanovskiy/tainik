@@ -32,6 +32,42 @@ function duration(ms) {
   return h < 24 ? `${h} ч. ${m % 60} мин.` : `${Math.floor(h / 24)} дн. ${h % 24} ч.`;
 }
 
+// Действия: JSON + свой заголовок (сервер отклонит запрос без него — защита от CSRF)
+async function act(name, body) {
+  const r = await fetch('api/' + name, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Tainik-Admin': '1' },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 401) return location.reload();
+  const res = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(res.error || 'Ошибка ' + r.status);
+  await load();
+}
+async function ban(ip) {
+  const note = prompt(`Заблокировать ${ip}? С этого адреса нельзя будет подключиться, текущие подключения оборвутся.\n\nЗаметка (необязательно):`, '');
+  if (note === null) return;
+  try {
+    await act('ban', { ip, note });
+  } catch (e) {
+    alert(e.message);
+  }
+}
+const banned = (ip) => !!ip && !!data?.bans.some((b) => b.ip === ip);
+function ipChip(ip, live) {
+  const box = el('span', 'ip-box');
+  box.append(el('code', 'ip' + (live ? '' : ' last') + (banned(ip) ? ' banned' : ''), ip));
+  if (!banned(ip)) {
+    const b = el('button', 'mini', 'блок');
+    b.type = 'button';
+    b.title = 'Заблокировать этот IP';
+    b.addEventListener('click', () => ban(ip));
+    box.append(b);
+  }
+  return box;
+}
+
 let data = null;
 let fetchedAt = 0;
 
@@ -53,7 +89,7 @@ function render() {
       (u) =>
         !q ||
         u.name.includes(q) ||
-        u.devices.some((d) => d.name.toLowerCase().includes(q) || (d.ip || '').includes(q))
+        u.devices.some((d) => d.name.toLowerCase().includes(q) || (d.ip || '').includes(q) || (d.lastIp || '').includes(q))
     )
     .sort((a, b) => b.online - a.online || (b.lastSeen || 0) - (a.lastSeen || 0) || a.name.localeCompare(b.name));
 
@@ -70,9 +106,10 @@ function render() {
       const row = el('div', 'device' + (d.online ? ' on' : ''));
       row.append(el('span', 'dev-name', `№${d.id} ${d.name}`));
       if (d.online) {
-        row.append(el('code', 'ip', d.ip || '—'));
+        if (d.ip) row.append(ipChip(d.ip, true));
         row.append(el('span', 'muted small', `с ${timeFmt.format(d.since)}`));
       } else {
+        if (d.lastIp) row.append(ipChip(d.lastIp, false));
         row.append(el('span', 'muted small', ago(d.lastSeen, now)));
       }
       devs.append(row);
@@ -80,11 +117,40 @@ function render() {
     if (!u.devices.length) devs.append(el('span', 'muted small', 'нет устройств'));
     const created = el('td', 'muted small', u.createdAt ? fullFmt.format(u.createdAt) : '—');
     const queued = el('td', 'num', String(u.queued));
-    tr.append(name, status, devs, created, queued);
+    const actions = el('td', 'actions');
+    const del = el('button', 'danger', 'Удалить');
+    del.type = 'button';
+    del.addEventListener('click', async () => {
+      const typed = prompt(
+        `Удалить аккаунт ${u.name} безвозвратно?\n\nЕго устройства отключатся и сотрут ключи и переписку, недоставленные сообщения пропадут, имя освободится.\n\nЧтобы подтвердить, введите имя пользователя:`
+      );
+      if (typed === null) return;
+      if (typed.trim().toLowerCase() !== u.name) return alert('Имя не совпало — аккаунт не удалён');
+      try {
+        await act('delete-user', { name: u.name });
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+    actions.append(del);
+    tr.append(name, status, devs, created, queued, actions);
     return tr;
   });
   $('rows').replaceChildren(...rows);
   $('empty').hidden = rows.length > 0;
+
+  const bans = data.bans.map((b) => {
+    const li = el('li');
+    li.append(el('code', 'ip banned', b.ip));
+    li.append(el('span', 'muted small', `${fullFmt.format(b.createdAt)}${b.note ? ' · ' + b.note : ''}`));
+    const un = el('button', 'ghost', 'Разблокировать');
+    un.type = 'button';
+    un.addEventListener('click', () => act('unban', { ip: b.ip }).catch((e) => alert(e.message)));
+    li.append(un);
+    return li;
+  });
+  $('ban-list').replaceChildren(...bans);
+  $('no-bans').hidden = bans.length > 0;
 }
 
 function renderUpdated() {
@@ -107,6 +173,17 @@ async function load() {
   renderUpdated();
 }
 
+$('ban-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('ban-error').textContent = '';
+  try {
+    await act('ban', { ip: $('ban-ip').value.trim(), note: $('ban-note').value.trim() });
+    $('ban-ip').value = '';
+    $('ban-note').value = '';
+  } catch (err) {
+    $('ban-error').textContent = err.message;
+  }
+});
 $('search').addEventListener('input', render);
 $('only-online').addEventListener('change', render);
 load();

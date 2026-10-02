@@ -3,6 +3,7 @@
 //   • публичные ключи: личность аккаунта, подписанный и одноразовые prekey устройств;
 //   • очередь зашифрованных конвертов для офлайн-устройств (до подтверждения доставки).
 import http from 'node:http';
+import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -132,6 +133,8 @@ export function startServer({
   const watchers = new Map(); // username -> Set(conn), кто следит за статусом пользователя
   const connsPerIp = new Map();
   const sockets = new Set(); // все WebSocket-соединения (для корректной остановки)
+  const allConns = new Set(); // принятые WebSocket-соединения (для блокировки IP)
+  const bans = new Set(store.listBans().map((b) => b.ip)); // заблокированные IP
   const ipBuckets = new Map(); // ip -> { provisions: [], auth: [] }
   // В журнал не пишем имена и IP: метаданные — тоже чувствительные данные.
   const say = (...a) => log && console.log(new Date().toISOString(), ...a);
@@ -196,6 +199,9 @@ export function startServer({
     }
     return req.socket.remoteAddress || 'unknown';
   }
+  // IPv4 через IPv6-сокет приходит как ::ffff:1.2.3.4 — храним и сравниваем в обычном виде
+  const normIp = (ip) => String(ip || '').trim().replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i, '$1').toLowerCase();
+  const ipOf = (req) => normIp(clientIp(req));
   const bucketsFor = (ip) => {
     if (!ipBuckets.has(ip)) ipBuckets.set(ip, { provisions: [], auth: [] });
     return ipBuckets.get(ip);
@@ -269,6 +275,8 @@ export function startServer({
         let mode;
         let keys = null;
         if (!u) {
+          // Устройство входит в аккаунт, которого больше нет, — его удалил администратор
+          if (!msg.register && msg.deviceId != null && !msg.newDevice) return error(conn, 'account_deleted');
           if (!msg.register) return error(conn, 'unknown_account');
           keys = await readDeviceKeys(identity, msg.register);
           if (!keys) return error(conn, 'bad_keys');
@@ -313,6 +321,7 @@ export function startServer({
             store.touchDevice(p.username, deviceId);
           }
         }
+        store.touchDevice(p.username, deviceId, Date.now(), state.ip); // последний IP устройства
         const key = addr(p.username, deviceId);
         const prev = online.get(key);
         if (prev && prev !== conn) {
@@ -487,12 +496,16 @@ export function startServer({
       // ----- управление своими устройствами -----
       case 'list-devices': {
         if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
-        const devices = store.listDevices(state.user).map((d) => ({
-          ...d,
-          online: online.has(addr(state.user, d.id)),
-          lastSeen: online.has(addr(state.user, d.id)) ? Date.now() : d.lastSeen,
-          current: d.id === state.device,
-        }));
+        const devices = store.listDevices(state.user).map(({ lastIp, ...d }) => {
+          const c = online.get(addr(state.user, d.id));
+          return {
+            ...d,
+            online: !!c,
+            lastSeen: c ? Date.now() : d.lastSeen,
+            ip: c?.meta?.ip || lastIp, // текущий IP или последний, с которого подключалось
+            current: d.id === state.device,
+          };
+        });
         return send(conn, { type: 'devices', reqId: msg.reqId, devices });
       }
 
@@ -595,6 +608,7 @@ export function startServer({
           online: !!conn,
           lastSeen: conn ? now : d.lastSeen,
           ip: conn?.meta?.ip ?? null,
+          lastIp: d.lastIp,
           since: conn?.meta?.since ?? null,
         };
       });
@@ -610,15 +624,53 @@ export function startServer({
       startedAt,
       totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued },
       users,
+      bans: store.listBans(),
     };
   }
+  // Действия администратора
+  const adminActions = {
+    deleteUser(name) {
+      name = String(name || '').toLowerCase();
+      if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
+      for (const c of onlineDevices(name)) {
+        send(c, { type: 'error', code: 'account_deleted' });
+        c.close(4003, 'deleted');
+      }
+      store.deleteUser(name);
+      for (const k of [...online.keys()]) if (k.startsWith(name + '.')) online.delete(k);
+      broadcastPresence(name);
+      say('администратор удалил аккаунт');
+    },
+    ban(ip, note = '') {
+      ip = normIp(ip);
+      if (!net.isIP(ip)) throw new Error('Неверный IP-адрес');
+      store.addBan(ip, String(note || '').slice(0, 200));
+      bans.add(ip);
+      // Отключить всех, кто сейчас подключён с этого адреса
+      for (const c of allConns) {
+        if (c.meta?.ip !== ip) continue;
+        send(c, { type: 'error', code: 'ip_banned' });
+        c.close(4004, 'banned');
+      }
+      say('администратор заблокировал IP');
+    },
+    unban(ip) {
+      ip = normIp(ip);
+      store.removeBan(ip);
+      bans.delete(ip);
+    },
+  };
   const adminHandler = admin?.password
-    ? createAdmin({ password: admin.password, basePath: admin.path, overview: adminOverview, clientIp, say })
+    ? createAdmin({ password: admin.password, basePath: admin.path, overview: adminOverview, actions: adminActions, clientIp: ipOf, say })
     : null;
   if (adminHandler) say('панель администратора включена');
 
   const server = http.createServer((req, res) => {
-    if (adminHandler && adminHandler(req, res)) return;
+    if (adminHandler && adminHandler(req, res)) return; // панель доступна и с заблокированного IP
+    if (bans.has(ipOf(req))) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Доступ запрещён');
+      return;
+    }
     if (req.url === '/healthz') {
       let ok = false;
       try {
@@ -638,7 +690,11 @@ export function startServer({
       socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
       return;
     }
-    const ip = clientIp(req);
+    const ip = ipOf(req);
+    if (bans.has(ip)) {
+      socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');
+      return;
+    }
     const n = connsPerIp.get(ip) || 0;
     if (n >= maxConnPerIp) {
       socket.end('HTTP/1.1 429 Too Many Requests\r\n\r\n');
@@ -657,6 +713,7 @@ export function startServer({
       socket,
       (conn) => {
         conn.meta = { ip, since: Date.now() }; // для панели администратора, на диск не пишется
+        allConns.add(conn);
         const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
@@ -671,6 +728,7 @@ export function startServer({
           chain = chain.then(() => handle(conn, state, msg)).catch((e) => say('ошибка', e?.message || e));
         });
         conn.on('close', () => {
+          allConns.delete(conn);
           for (const pid of state.pids) provisions.delete(pid);
           unwatchAll(conn, state);
           if (!state.user) return;

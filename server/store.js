@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS push_subs (
   PRIMARY KEY (user, device),
   FOREIGN KEY (user, device) REFERENCES devices(user, id) ON DELETE CASCADE
 );
+-- Заблокированные администратором IP-адреса
+CREATE TABLE IF NOT EXISTS ip_bans (
+  ip          TEXT PRIMARY KEY,
+  note        TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL
+);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -72,6 +78,8 @@ export class Store {
     // Миграции
     const cols = this.db.prepare("SELECT name FROM pragma_table_info('users')").all().map((r) => r.name);
     if (!cols.includes('presence_hidden')) this.db.exec('ALTER TABLE users ADD COLUMN presence_hidden INTEGER NOT NULL DEFAULT 0');
+    const dcols = this.db.prepare("SELECT name FROM pragma_table_info('devices')").all().map((r) => r.name);
+    if (!dcols.includes('last_ip')) this.db.exec('ALTER TABLE devices ADD COLUMN last_ip TEXT'); // последний IP устройства
     this.limits = { maxOpks, maxQueue, maxDevices };
     const q = (sql) => this.db.prepare(sql);
     this.s = {
@@ -80,10 +88,15 @@ export class Store {
       bumpDevice: q('UPDATE users SET next_device_id = next_device_id + 1 WHERE name = ?'),
       deviceIds: q('SELECT id FROM devices WHERE user = ? ORDER BY id'),
       device: q('SELECT id, name, spk, created_at, last_seen FROM devices WHERE user = ? AND id = ?'),
-      devices: q('SELECT id, name, created_at, last_seen FROM devices WHERE user = ? ORDER BY id'),
+      devices: q('SELECT id, name, created_at, last_seen, last_ip FROM devices WHERE user = ? ORDER BY id'),
       insDevice: q('INSERT INTO devices(user, id, name, spk, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)'),
       delDevice: q('DELETE FROM devices WHERE user = ? AND id = ?'),
       touch: q('UPDATE devices SET last_seen = ? WHERE user = ? AND id = ?'),
+      touchIp: q('UPDATE devices SET last_seen = ?, last_ip = ? WHERE user = ? AND id = ?'),
+      delUser: q('DELETE FROM users WHERE name = ?'),
+      bans: q('SELECT ip, note, created_at FROM ip_bans ORDER BY created_at DESC'),
+      addBan: q('INSERT INTO ip_bans(ip, note, created_at) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET note = excluded.note'),
+      delBan: q('DELETE FROM ip_bans WHERE ip = ?'),
       setSpk: q('UPDATE devices SET spk = ? WHERE user = ? AND id = ?'),
       insOpk: q('INSERT OR IGNORE INTO opks(user, device, id, pub) VALUES (?, ?, ?, ?)'),
       opkCount: q('SELECT COUNT(*) AS n FROM opks WHERE user = ? AND device = ?'),
@@ -118,7 +131,7 @@ export class Store {
            (SELECT COUNT(*) FROM push_subs p WHERE p.user = u.name) AS push
          FROM users u ORDER BY u.name`
       ),
-      adminDevices: q('SELECT user, id, name, created_at, last_seen FROM devices ORDER BY user, id'),
+      adminDevices: q('SELECT user, id, name, created_at, last_seen, last_ip FROM devices ORDER BY user, id'),
       stats: q('SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM devices) AS devices, (SELECT COUNT(*) FROM queue) AS queued'),
     };
   }
@@ -148,7 +161,7 @@ export class Store {
     return r ? { id: r.id, name: r.name, spk: JSON.parse(r.spk), createdAt: r.created_at, lastSeen: r.last_seen } : null;
   }
   listDevices(name) {
-    return this.s.devices.all(name).map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, lastSeen: r.last_seen }));
+    return this.s.devices.all(name).map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, lastSeen: r.last_seen, lastIp: r.last_ip || null }));
   }
   _insertDevice(name, id, keys, now) {
     this.s.insDevice.run(name, id, keys.name, JSON.stringify(keys.spk), now, now);
@@ -178,8 +191,25 @@ export class Store {
   removeDevice(name, id) {
     return this.s.delDevice.run(name, id).changes > 0; // очередь и ключи удаляются каскадом
   }
-  touchDevice(name, id, ts = Date.now()) {
-    this.s.touch.run(ts, name, id);
+  /** Отметить время последнего подключения (и IP, если передан). */
+  touchDevice(name, id, ts = Date.now(), ip = null) {
+    if (ip) this.s.touchIp.run(ts, ip, name, id);
+    else this.s.touch.run(ts, name, id);
+  }
+  /** Удалить аккаунт целиком: устройства, ключи, очередь и подписки удаляются каскадом. */
+  deleteUser(name) {
+    return this.s.delUser.run(name).changes > 0;
+  }
+
+  // ----- блокировки IP -----
+  listBans() {
+    return this.s.bans.all().map((r) => ({ ip: r.ip, note: r.note, createdAt: r.created_at }));
+  }
+  addBan(ip, note = '') {
+    this.s.addBan.run(ip, note, Date.now());
+  }
+  removeBan(ip) {
+    return this.s.delBan.run(ip).changes > 0;
   }
 
   // ----- prekey -----
@@ -286,7 +316,7 @@ export class Store {
     const devices = new Map();
     for (const d of this.s.adminDevices.all()) {
       if (!devices.has(d.user)) devices.set(d.user, []);
-      devices.get(d.user).push({ id: d.id, name: d.name, createdAt: d.created_at, lastSeen: d.last_seen });
+      devices.get(d.user).push({ id: d.id, name: d.name, createdAt: d.created_at, lastSeen: d.last_seen, lastIp: d.last_ip || null });
     }
     return this.s.adminUsers.all().map((u) => ({
       name: u.name,
