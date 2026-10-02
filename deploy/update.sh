@@ -48,6 +48,14 @@ for i in $(seq 1 30); do
   if R="$(curl -fsS --max-time 3 "http://127.0.0.1:${PORT:-8787}/healthz" 2>/dev/null)"; then
     echo "OK: ${R}"
     docker compose ps
+    # Профиль iPhone подписан (стоит хук certbot) — переподписать: новая версия могла его изменить
+    if [ -f /etc/letsencrypt/renewal-hooks/deploy/tainik-sign-profile.sh ]; then
+      if [ "$(id -u)" = 0 ]; then
+        ./deploy/sign-profile.sh --quiet || warn "не удалось переподписать профиль iPhone: sudo ./deploy/sign-profile.sh"
+      else
+        warn "профиль iPhone не переподписан (нужен root): sudo ./deploy/sign-profile.sh"
+      fi
+    fi
     exit 0
   fi
   sleep 1

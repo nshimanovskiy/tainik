@@ -3,6 +3,11 @@
 // пользователь подтверждает его в Настройках — и появляется значок. Открывается
 // он как отдельное приложение (без панелей Safari), со своим хранилищем и Web Push.
 // Профиль ничего не разрешает на телефоне: в нём только адрес, название и значок.
+//
+// Подпись: deploy/sign-profile.sh подписывает профиль сертификатом Let's Encrypt домена
+// (iOS показывает «Подтверждён» и имя домена) и кладёт его в папку данных как
+// tainik-signed.mobileconfig. Если такой файл есть, отдаётся он, иначе — неподписанный.
+// ?unsigned=1 — всегда неподписанный (его и подписывает скрипт).
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -82,9 +87,22 @@ export function buildWebclip({ host, icon, name = 'Тайник' }) {
 `;
 }
 
-export function createWebclipHandler({ root, domain }) {
+export const SIGNED_FILE = 'tainik-signed.mobileconfig';
+
+export function createWebclipHandler({ root, domain, dataDir }) {
   const iconFile = path.join(root, 'client', 'apple-touch-icon.png');
+  const signedFile = dataDir ? path.join(dataDir, SIGNED_FILE) : null;
   let icon = null;
+  // Подписанный профиль — DER (PKCS#7), начинается с SEQUENCE (0x30)
+  function readSigned() {
+    if (!signedFile) return null;
+    try {
+      const b = fs.readFileSync(signedFile);
+      return b.length > 100 && b[0] === 0x30 ? b : null;
+    } catch {
+      return null;
+    }
+  }
   return function handleWebclip(req, res) {
     const p = new URL(req.url, 'http://x').pathname;
     if (p === '/ios' || p === '/iphone') {
@@ -92,13 +110,15 @@ export function createWebclipHandler({ root, domain }) {
       return false;
     }
     if (p !== '/tainik.mobileconfig') return false;
+    const unsigned = new URL(req.url, 'http://x').searchParams.has('unsigned');
+    const signed = unsigned ? null : readSigned();
     const host = webclipHost(req, domain);
     if (!host) {
       res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Неизвестный адрес сервера');
       return true;
     }
     icon ||= fs.readFileSync(iconFile);
-    const body = buildWebclip({ host, icon });
+    const body = signed || buildWebclip({ host, icon });
     res.writeHead(200, {
       'Content-Type': 'application/x-apple-aspen-config',
       'Content-Disposition': 'attachment; filename="Tainik.mobileconfig"',

@@ -667,7 +667,7 @@ export function startServer({
     ? createAdmin({ password: admin.password, basePath: admin.path, overview: adminOverview, actions: adminActions, clientIp: ipOf, say })
     : null;
   if (adminHandler) say('панель администратора включена');
-  const webclip = createWebclipHandler({ root: ROOT, domain });
+  const webclip = createWebclipHandler({ root: ROOT, domain, dataDir });
 
   const server = http.createServer((req, res) => {
     if (adminHandler && adminHandler(req, res)) return; // панель доступна и с заблокированного IP
