@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Вызывается по SSH из GitHub Actions («Деплой сервера»).
-# Ключ Actions в authorized_keys привязан к этому скрипту (command=...), поэтому
-# с ним нельзя выполнить ничего другого — только обновление.
+# Ключ Actions (пользователь tainik-deploy) привязан к этому скрипту через
+# command="sudo -n …" в authorized_keys, а sudo разрешает только его.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 exec 9>/tmp/tainik-deploy.lock

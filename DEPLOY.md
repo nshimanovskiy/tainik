@@ -84,7 +84,7 @@ sudo ./deploy/connect-github.sh ВЛАДЕЛЕЦ/РЕПОЗИТОРИЙ
 Скрипт работает по шагам:
 1. Создаёт ключ **только для чтения** и просит добавить его в **Settings → Deploy keys** репозитория (галочку «Allow write access» не ставить).
 2. Подключает папку к репозиторию. Файлы проекта заменяются версией из GitHub, а `.env`, база, `backups/` и настройки TURN остаются на месте.
-3. Создаёт ключ для GitHub Actions и выводит значения для **Settings → Secrets and variables → Actions → New repository secret**: `DEPLOY_HOST`, `DEPLOY_PORT`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`, `DEPLOY_KEY`. Этот ключ привязан к `deploy/remote-deploy.sh` и может только запустить обновление: ни консоли, ни других команд, ни проброса портов. На сервере закрытая часть ключа не сохраняется.
+3. Создаёт пользователя `tainik-deploy` (вход root по SSH не нужен) и ключ для GitHub Actions и выводит значения для **Settings → Secrets and variables → Actions → New repository secret**: `DEPLOY_HOST`, `DEPLOY_PORT`, `DEPLOY_USER`, `DEPLOY_KNOWN_HOSTS`, `DEPLOY_KEY`. Этот ключ привязан к `deploy/remote-deploy.sh` (через `command=` и одно правило sudo) и может только запустить обновление: ни консоли, ни других команд, ни проброса портов. На сервере закрытая часть ключа не сохраняется.
 
 **Обновление:** GitHub → **Actions → «Деплой сервера» → Run workflow**. Сначала проходят тесты, затем сервер делает бэкап, забирает код, пересобирает контейнер и проверяет `/healthz`, а в конце workflow проверяет сайт снаружи. Ход обновления виден в логе Actions.
 

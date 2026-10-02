@@ -53,7 +53,7 @@ jobs:
         env:
           HOST: ${{ secrets.DEPLOY_HOST }}
           PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-          USER: ${{ secrets.DEPLOY_USER || 'root' }}
+          USER: ${{ secrets.DEPLOY_USER || 'tainik-deploy' }}
         run: |
           set +e
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
@@ -73,7 +73,7 @@ jobs:
               got="$(ssh-keyscan -p "$PORT" -T 10 "$HOST" 2>/dev/null | head -3 | tr '\n' ' ')"
               hint="Ключ сервера не совпал с DEPLOY_KNOWN_HOSTS. Сервер отвечает так: ${got:-не ответил}. Скопируйте секрет заново из вывода connect-github.sh целиком." ;;
             *"Permission denied"*)
-              hint="Сервер не принял ключ: проверьте, что DEPLOY_KEY вставлен целиком (с BEGIN/END), DEPLOY_USER=root и в sshd разрешён вход root по ключу (PermitRootLogin prohibit-password)." ;;
+              hint="Сервер не принял ключ: проверьте, что DEPLOY_KEY вставлен целиком (с BEGIN/END), DEPLOY_USER=tainik-deploy (если там root — запустите connect-github.sh заново и обновите секреты)." ;;
             *"Connection refused"*)
               hint="На ${HOST}:${PORT} SSH не слушает — проверьте DEPLOY_PORT." ;;
             *"timed out"*|*"No route"*)
