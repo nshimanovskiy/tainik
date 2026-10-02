@@ -1,13 +1,13 @@
 # Tainik
 
-**End-to-end encrypted messenger for the web and desktop, with zero runtime dependencies.**
+**End-to-end encrypted messenger for the web, desktop and Android, with zero runtime dependencies.**
 
 [Русская версия](README.ru.md) · [Releases](../../releases) · [Self-hosting guide](DEPLOY.md)
 
 Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the Signal protocol design: **X3DH** key agreement and the **Double Ratchet**. Messages are encrypted on your device; the server only relays ciphertext and never sees what you write.
 
 - 🔐 **End-to-end encryption.** X3DH + Double Ratchet, with forward secrecy and post-compromise security.
-- 💻 **Web and desktop.** Runs in the browser and as a native app for Windows, macOS and Linux (Electron). Both share one UI and one crypto core.
+- 💻 **Web, desktop and Android.** Runs in the browser, as a native app for Windows, macOS and Linux (Electron), and on Android (a dependency-free Kotlin shell). All share one UI and one crypto core.
 - 📞 **Voice & video calls with screen sharing.** WebRTC media (DTLS-SRTP) whose connection setup travels over the Double Ratchet channel, so the server cannot man-in-the-middle a call. Rings all your devices; an optional self-hosted TURN relay helps behind NAT.
 - 💬 **Telegram-style replies and deletion.** Quote-replies, "delete for me" (synced to all your devices) and "delete for everyone".
 - 🔔 **Notifications that work in the background.** The desktop app keeps running in the system tray (optional start at login). The web version uses Web Push, so notifications arrive even with the tab closed. Pushes carry only the sender's name, encrypted for your browser, and message text is hidden by default.
@@ -29,6 +29,7 @@ Grab the latest installer from **[Releases](../../releases)**:
 | macOS (Apple Silicon) | `Tainik-x.y.z-mac-arm64.dmg` |
 | macOS (Intel) | `Tainik-x.y.z-mac-x64.dmg` |
 | Linux | `Tainik-x.y.z-linux-x86_64.AppImage` or `.deb` |
+| Android 8.0+ | `Tainik-x.y.z-android.apk` |
 
 Builds are not code-signed yet. Windows SmartScreen and macOS Gatekeeper will warn on first launch, and the release notes explain how to proceed. Verify downloads against `SHA256SUMS.txt`.
 
@@ -37,7 +38,7 @@ Builds are not code-signed yet. Windows SmartScreen and macOS Gatekeeper will wa
 ```bash
 node --version   # Node.js 22.13+ is required (built-in SQLite)
 npm start        # server + web client at http://localhost:8080
-npm test         # 22 tests: protocol, client↔server, multi-device, server, desktop
+npm test         # 35 tests: protocol, client↔server, multi-device, server, desktop, Android bridge
 ```
 
 To try it alone, open `http://localhost:8080` in a normal window and in a private window, register two names, and add each other as contacts.
@@ -54,6 +55,16 @@ npm run dist     # build an installer for the current OS → desktop/dist/
 ```
 
 On first launch, enter your server address (`chat.example.com` or `ws://localhost:8080/ws`). To bake in a default server, run `TAINIK_SERVER=chat.example.com npm run dist`.
+
+### Android app from source
+
+```bash
+cd android
+./gradlew assembleDebug                                   # JDK 17+ and the Android SDK (or Android Studio)
+TAINIK_SERVER=chat.example.com ./gradlew assembleRelease  # bake in a default server
+```
+
+The Android app loads the UI from inside the APK (like `app://` on desktop), keeps keys in files encrypted under an Android Keystore key, and stays connected to *your* server through a foreground service, so it needs no Google push services. It requires a current Android System WebView (Ed25519 in WebCrypto shipped in 137). Screen sharing is not available on Android.
 
 ## Self-hosting
 
@@ -103,6 +114,7 @@ shared/              Code shared by every platform
   qr.js              Dependency-free QR encoder
 client/              UI (shared by web and desktop)
 desktop/             Electron shell: secure storage, app:// protocol, packaging
+android/             Android shell (Kotlin, no libraries): WebView, Keystore-backed storage, notifications, background service
 server/              Relay server: WebSocket (RFC 6455), SQLite store, Web Push (VAPID + RFC 8291), backups
 deploy/              setup / backup / update scripts, nginx, Caddy and systemd templates
 tests/               node:test suites
@@ -111,20 +123,20 @@ tests/               node:test suites
 
 ## Releasing
 
-Run **Actions → «Выпуск десктопа» → Run workflow** with a version, or push a `vX.Y.Z` tag. CI runs the tests, builds installers for all three platforms and publishes the release with checksums (tick «Черновик» for a draft). See [RELEASING.md](RELEASING.md).
+Run **Actions → «Выпуск приложений» → Run workflow** with a version, or push a `vX.Y.Z` tag. CI runs the tests, builds installers for all three desktop platforms plus the Android APK and publishes the release with checksums (tick «Черновик» for a draft). See [RELEASING.md](RELEASING.md).
 
 ## Limitations
 
 1. **Not audited.** The protocol is a from-spec implementation, not libsignal.
 2. **Unlinking does not revoke the identity key.** A stolen device stops receiving messages, but its identity key could still be used to link a new device. If a device is stolen, create a new account.
-3. **The web client is served by the server**, so a compromised server could ship modified JavaScript. Use the desktop app for stronger guarantees.
+3. **The web client is served by the server**, so a compromised server could ship modified JavaScript. Use the desktop or Android app for stronger guarantees.
 4. **Metadata** (who, to whom, when, and online status unless hidden) is visible to the server. During calls, peers see each other's IP addresses unless traffic goes through TURN.
 5. No group calls, groups, attachments or key backup yet. Web Push goes through the browser vendor's push service (Google, Mozilla, Apple), which learns *when* you receive messages. Message history is not transferred to newly linked devices.
 
 ## Roadmap
 
 - History transfer to new devices; sync of read and verified state
-- Mobile apps (React Native + `react-native-quick-crypto`), reusing `shared/` as is
+- iOS app (same approach as Android: a native shell around the shared UI)
 - Groups (MLS) and attachments
 
 ## License

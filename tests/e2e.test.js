@@ -454,3 +454,46 @@ test('статус «в сети»: подписка, «был(а)», скрыт
   assert.equal((await again).hidden, true);
   await bob.setPresenceVisible(true);
 });
+
+test('переподключение по сигналу: смена сети, «мёртвое» соединение', async (t) => {
+  const { mk } = await setup(t);
+  const alice = mk();
+  const bob = mk();
+  await alice.register('alice');
+  await bob.register('bob');
+  await bob.addContact('alice');
+
+  assert.equal(await alice.checkConnection(), true, 'живое соединение отвечает на ping');
+  assert.equal(alice.reconnectNow(), false, 'без restart живое соединение не трогаем');
+
+  // Сменилась сеть: закрываем соединение и сразу подключаемся заново, без таймера
+  const before = alice.ws;
+  const back = waitFor(alice, 'status', (s) => s === 'online');
+  assert.equal(alice.reconnectNow({ restart: true }), true);
+  await back;
+  assert.notEqual(alice.ws, before);
+  const got = incoming(alice, 'после смены сети');
+  await bob.sendText('alice', 'после смены сети');
+  await got;
+
+  // «Повисшее» соединение: ping уходит в пустоту — переподключаемся
+  alice.pingTimeout = 300;
+  alice.ws.send = () => {};
+  const again = waitFor(alice, 'status', (s) => s === 'online');
+  assert.equal(await alice.checkConnection(), false);
+  await again;
+  assert.equal(await alice.checkConnection(), true);
+
+  // Соединения нет и таймер переподключения ещё ждёт — подключаемся сразу
+  alice.ws.close();
+  await waitFor(alice, 'status', (s) => s === 'offline');
+  alice._retry = 10; // следующая попытка была бы через 15 с
+  const fast = waitFor(alice, 'status', (s) => s === 'online', 3000);
+  assert.equal(await alice.checkConnection(), false);
+  await fast;
+
+  // После disconnect() сигналы ничего не делают
+  alice.disconnect();
+  assert.equal(alice.reconnectNow({ restart: true }), false);
+  assert.equal(await alice.checkConnection(), false);
+});
