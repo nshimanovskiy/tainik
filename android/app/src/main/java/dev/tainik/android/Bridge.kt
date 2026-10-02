@@ -44,10 +44,11 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
             return host.reply(id, false, "Неверные аргументы")
         }
         when (method) {
-            "storage.get" -> onIo(id) { app.store.get(a.getString(0)) }
-            "storage.set" -> onIo(id) { app.store.set(a.getString(0), a.getString(1)); null }
-            "storage.del" -> onIo(id) { app.store.del(a.getString(0)); null }
-            "storage.clear" -> onIo(id) { app.store.clear(); null }
+            // Последний необязательный аргумент — хранилище аккаунта (пусто — основное)
+            "storage.get" -> onIo(id) { app.storeFor(a.optString(1)).get(a.getString(0)) }
+            "storage.set" -> onIo(id) { app.storeFor(a.optString(2)).set(a.getString(0), a.getString(1)); null }
+            "storage.del" -> onIo(id) { app.storeFor(a.optString(1)).del(a.getString(0)); null }
+            "storage.clear" -> onIo(id) { app.storeFor(a.optString(0)).clear(); null }
             "settings.get" -> onIo(id) { settings.get(a.getString(0)) }
             "settings.set" -> onIo(id) { settings.set(a.getString(0), a.getString(1)); null }
             "bg.get" -> onMain(id) { Background.state(app).toString() }
@@ -66,7 +67,10 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
             return
         }
         main.post {
-            Notifier.show(app, n.optString("title", "Тайник"), n.optString("body"), n.optString("chat"), n.optBoolean("call"))
+            Notifier.show(
+                app, n.optString("title", "Тайник"), n.optString("body"), n.optString("chat"),
+                n.optBoolean("call"), n.optBoolean("force"),
+            )
         }
     }
 

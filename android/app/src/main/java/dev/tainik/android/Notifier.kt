@@ -62,10 +62,11 @@ object Notifier {
         return PendingIntent.getActivity(ctx, code, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    fun show(app: TainikApp, title: String, body: String, chat: String, call: Boolean) {
+    fun show(app: TainikApp, title: String, body: String, chat: String, call: Boolean, force: Boolean = false) {
         if (!canPost(app)) return
-        // Окно открыто и в фокусе — о сообщениях не напоминаем (страница и так их показывает)
-        if (!call && app.inForeground) return
+        // Окно открыто и в фокусе — о сообщениях не напоминаем (страница и так их показывает).
+        // force — сообщение другому аккаунту: на экране его не видно, показываем.
+        if (!call && !force && app.inForeground) return
         val nm = app.getSystemService(NotificationManager::class.java)
         val pi = openIntent(app, chat, call)
         val text = body.ifEmpty { if (call) "Входящий звонок" else "Новое сообщение" }

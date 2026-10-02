@@ -22,6 +22,11 @@ class SecureStore {
     }
   }
 
+  /** Имя хранилища дополнительного аккаунта: часть имени файла, поэтому строго [a-z0-9]. */
+  static validNs(ns) {
+    return typeof ns === 'string' && /^[a-z0-9]{1,16}$/.test(ns);
+  }
+
   static validKey(k) {
     return typeof k === 'string' && k.length > 0 && k.length <= 256;
   }

@@ -12,6 +12,7 @@ Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the 
 - 💬 **Telegram-style replies and deletion.** Quote-replies, "delete for me" (synced to all your devices) and "delete for everyone".
 - 🔔 **Notifications that work in the background.** The desktop app keeps running in the system tray (optional start at login). The web version uses Web Push, so notifications arrive even with the tab closed. Pushes carry only the sender's name, encrypted for your browser, and message text is hidden by default.
 - 🟢 **Online status.** "online" / "last seen …" with live updates; you can hide your own status.
+- 👥 **Several accounts on one device.** Switch between them like in Telegram; inactive accounts stay connected, so their messages and notifications keep arriving.
 - 📱 **Multiple devices.** Up to 5 devices per account. Link a new one by scanning a QR code; sent messages sync across your devices.
 - ✅ **Key verification.** A 60-digit safety number, plus a warning that blocks sending if a contact's key changes.
 - 📦 **Zero dependencies.** Plain Node.js and the standard WebCrypto API. The server uses Node's built-in SQLite.
@@ -80,7 +81,7 @@ The script runs the server on `127.0.0.1`, adds an nginx site with WebSocket sup
 
 **Calls:** to make calls work across NATs, enable the bundled TURN relay with `sudo ./deploy/setup-calls.sh` (coturn, short-lived HMAC credentials, relaying to private networks blocked). The relay forwards only encrypted media.
 
-**What the server stores:** usernames, public keys, and **encrypted** messages waiting for offline devices. Those messages are deleted after delivery, or after 30 days. Logs contain no usernames, IPs or content. The server **can** see metadata: who talks to whom, and when.
+**What the server stores:** usernames, public keys, and **encrypted** messages waiting for offline devices. Those messages are deleted after delivery, or after 30 days. Logs contain no usernames, IPs or content. An optional read-only **admin panel** (enabled by `ADMIN_PASSWORD`) lists users, their online status and the IPs of currently connected devices; IPs are kept in memory only. The server **can** see metadata: who talks to whom, and when.
 
 ## How it works
 

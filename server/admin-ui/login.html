@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Тайник — вход для администратора</title>
+  <link rel="stylesheet" href="admin.css">
+  <script src="login.js" defer></script>
+</head>
+<body class="login-page">
+  <form class="login-card" method="post" action="login" autocomplete="off">
+    <h1>Тайник</h1>
+    <p class="muted">Панель администратора</p>
+    <label for="password">Пароль</label>
+    <input id="password" name="password" type="password" required autofocus autocomplete="current-password">
+    <button type="submit">Войти</button>
+    <p id="error" class="error" role="alert" hidden></p>
+  </form>
+</body>
+</html>

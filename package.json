@@ -1,6 +1,6 @@
 {
   "name": "e2e-messenger",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Тайник — E2E-мессенджер: X3DH + Double Ratchet, веб и десктоп. Без внешних зависимостей.",
   "type": "module",
   "private": true,

@@ -44,6 +44,7 @@
         <input id="server" name="server" placeholder="wss://chat.example.com/ws" spellcheck="false" autocapitalize="none">
         <p class="hint">Для проверки на своём компьютере: ws://localhost:8080/ws</p>
       </div>
+      <p id="auth-extra" class="hint" hidden>Новый аккаунт на этом устройстве. Остальные аккаунты продолжат работать.</p>
       <div class="tabs" role="tablist">
         <button type="button" id="tab-new" class="tab active" role="tab" aria-selected="true">Новый аккаунт</button>
         <button type="button" id="tab-link" class="tab" role="tab" aria-selected="false">Привязать устройство</button>
@@ -70,6 +71,7 @@
         <p id="link-error" class="error" role="alert"></p>
       </div>
 
+      <button type="button" id="auth-cancel" class="ghost wide" hidden>← Вернуться к своим аккаунтам</button>
       <p class="hint fine">Ключи создаются на устройстве и не покидают ваших устройств. Если удалить данные приложения на всех устройствах, аккаунт будет утерян — резервной копии нет.</p>
     </div>
   </section>
@@ -78,13 +80,16 @@
   <section id="app" class="screen" hidden>
     <aside id="sidebar">
       <header class="side-head">
-        <div class="me">
-          <span class="avatar" id="me-avatar"></span>
-          <div>
-            <div id="me-name" class="me-name"></div>
-            <div class="status"><span id="status-dot" class="dot"></span><span id="status-text"></span></div>
-          </div>
-        </div>
+        <button type="button" id="me-btn" class="me" title="Аккаунты: переключиться или добавить">
+          <span class="avatar-wrap">
+            <span class="avatar" id="me-avatar"></span>
+            <span id="accounts-badge" class="accounts-badge" hidden></span>
+          </span>
+          <span class="me-text">
+            <span class="me-line"><span id="me-name" class="me-name"></span><span class="me-caret" aria-hidden="true">▾</span></span>
+            <span class="status"><span id="status-dot" class="dot"></span><span id="status-text"></span></span>
+          </span>
+        </button>
         <button id="menu-btn" class="icon-btn" title="Меню" aria-label="Меню">⋯</button>
       </header>
       <form id="add-form" class="add-form" autocomplete="off">
@@ -174,6 +179,7 @@
     <form method="dialog" class="dialog-body">
       <h2>Аккаунт</h2>
       <p class="small">Это устройство: <b id="my-device"></b></p>
+      <button value="accounts" class="ghost wide">Аккаунты: переключиться или добавить…</button>
       <button value="devices" class="ghost wide">Устройства и привязка…</button>
       <label class="check"><input type="checkbox" id="presence-visible"> Показывать другим, что я в сети и когда был(а)</label>
       <h3 class="menu-sub">Уведомления</h3>
@@ -199,6 +205,18 @@
   </dialog>
 
   <!-- Устройства -->
+  <dialog id="accounts-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Аккаунты</h2>
+      <ul id="account-list" class="device-list account-list"></ul>
+      <p class="hint">Все аккаунты остаются на связи: сообщения и уведомления приходят по каждому. Для каждого аккаунта это устройство — отдельное, со своими ключами. Ответить на звонок можно в активном аккаунте.</p>
+      <div class="dialog-actions">
+        <button value="close" class="ghost">Закрыть</button>
+        <button type="button" id="account-add" class="primary">Добавить аккаунт</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="devices-dialog">
     <div class="dialog-body">
       <h2>Устройства</h2>

@@ -112,6 +112,13 @@ export class Store {
       delPush: q('DELETE FROM push_subs WHERE user = ? AND device = ?'),
       delPushOthers: q('DELETE FROM push_subs WHERE endpoint = ? AND NOT (user = ? AND device = ?)'),
       delPushIf: q('DELETE FROM push_subs WHERE user = ? AND device = ? AND endpoint = ?'),
+      adminUsers: q(
+        `SELECT u.name, u.created_at, u.presence_hidden AS hidden,
+           (SELECT COUNT(*) FROM queue q WHERE q.user = u.name) AS queued,
+           (SELECT COUNT(*) FROM push_subs p WHERE p.user = u.name) AS push
+         FROM users u ORDER BY u.name`
+      ),
+      adminDevices: q('SELECT user, id, name, created_at, last_seen FROM devices ORDER BY user, id'),
       stats: q('SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM devices) AS devices, (SELECT COUNT(*) FROM queue) AS queued'),
     };
   }
@@ -272,6 +279,23 @@ export class Store {
   delPushSub(name, device, endpoint = null) {
     if (endpoint) this.s.delPushIf.run(name, device, endpoint);
     else this.s.delPush.run(name, device);
+  }
+
+  /** Для панели администратора: пользователи и их устройства (только метаданные). */
+  adminOverview() {
+    const devices = new Map();
+    for (const d of this.s.adminDevices.all()) {
+      if (!devices.has(d.user)) devices.set(d.user, []);
+      devices.get(d.user).push({ id: d.id, name: d.name, createdAt: d.created_at, lastSeen: d.last_seen });
+    }
+    return this.s.adminUsers.all().map((u) => ({
+      name: u.name,
+      createdAt: u.created_at,
+      presenceHidden: !!u.hidden,
+      queued: u.queued,
+      push: u.push > 0,
+      devices: devices.get(u.name) || [],
+    }));
   }
 
   stats() {

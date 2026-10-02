@@ -22,6 +22,7 @@ function load() {
       setTimeout(() => {
         if (method === 'storage.get') return win.__tainikNative.done(id, true, store.has(a[0]) ? store.get(a[0]) : null);
         if (method === 'storage.set') return store.set(a[0], a[1]), win.__tainikNative.done(id, true, null);
+        if (method === 'storage.clear') return win.__tainikNative.done(id, true, null);
         if (method === 'version') return win.__tainikNative.done(id, true, JSON.stringify('0.8.0'));
         if (method === 'bg.get') return win.__tainikNative.done(id, true, JSON.stringify({ tray: true }));
         win.__tainikNative.done(id, false, 'Неизвестный вызов: ' + method);
@@ -78,7 +79,7 @@ test('android-мост: уведомления, звонок и открытие
   d.dismissNotice({ call: true });
   d.callActive(true, 'bob');
   assert.deepEqual(sync.slice(1, 4), [
-    ['notify', { title: 'bob', body: 'текст', chat: 'bob', call: true }],
+    ['notify', { title: 'bob', body: 'текст', chat: 'bob', call: true, force: false }],
     ['dismiss', { call: true, chat: '' }],
     ['call', true, 'bob'],
   ]);
@@ -92,4 +93,21 @@ test('android-мост: уведомления, звонок и открытие
   setPending('carol');
   win.__tainikNative.deliver();
   assert.deepEqual(opened, ['alice', 'carol']);
+});
+
+test('android-мост: хранилища аккаунтов разделены', async () => {
+  const { win, calls } = load();
+  const main = win.desktop.storage;
+  const other = win.desktop.storageFor('a1b2c3d4');
+  await main.get('account');
+  await other.get('account');
+  await other.set('account', { u: 'carol' });
+  await other.clear();
+  assert.deepEqual(calls, [
+    ['storage.get', ['account', '']],
+    ['storage.get', ['account', 'a1b2c3d4']],
+    ['storage.set', ['account', '{"u":"carol"}', 'a1b2c3d4']],
+    ['storage.clear', ['a1b2c3d4']],
+  ]);
+  assert.ok(Object.isFrozen(other));
 });

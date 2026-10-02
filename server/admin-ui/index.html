@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Тайник — администратор</title>
+  <link rel="stylesheet" href="admin.css">
+  <script src="admin.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <b>Тайник</b>
+      <span class="muted">администратор</span>
+    </div>
+    <span id="updated" class="muted small"></span>
+    <form method="post" action="logout"><button type="submit" class="ghost">Выйти</button></form>
+  </header>
+
+  <main>
+    <section class="tiles" aria-label="Сводка">
+      <div class="tile"><span>Пользователей</span><b id="t-users">—</b></div>
+      <div class="tile"><span>Сейчас в сети</span><b id="t-online">—</b></div>
+      <div class="tile"><span>Устройств</span><b id="t-devices">—</b></div>
+      <div class="tile"><span>Подключений</span><b id="t-conns">—</b></div>
+      <div class="tile"><span>Конвертов в очереди</span><b id="t-queued">—</b></div>
+    </section>
+
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="Поиск по имени, устройству или IP" spellcheck="false" autocomplete="off">
+      <label class="check"><input id="only-online" type="checkbox"> только в сети</label>
+    </section>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Пользователь</th>
+            <th>Статус</th>
+            <th>Устройства и IP</th>
+            <th>Регистрация</th>
+            <th class="num">В очереди</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="empty" class="muted center" hidden>Никого не найдено</p>
+    </div>
+
+    <p class="note muted small">
+      IP показываются только у подключённых сейчас устройств и нигде не сохраняются.
+      Текст сообщений серверу неизвестен. Статус «в сети» здесь виден даже у тех, кто скрыл его от собеседников.
+    </p>
+    <p id="version" class="note muted small"></p>
+  </main>
+</body>
+</html>

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, createHmac, createHash } from 'node:crypto';
 import { acceptUpgrade } from './ws.js';
 import { Store } from './store.js';
+import { createAdmin } from './admin.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
@@ -122,6 +123,8 @@ export function startServer({
   // Web Push: уведомления в браузер, когда вкладка закрыта. false — выключить.
   // { subject: 'mailto:…' | 'https://…', hosts: [...], fetch }
   push = {},
+  // Панель администратора: { password, path } (см. server/admin.js). Без пароля выключена.
+  admin = null,
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -575,7 +578,47 @@ export function startServer({
     }
   }
 
+  const startedAt = Date.now();
+  // Данные для панели администратора: IP — только у открытых сейчас соединений
+  function adminOverview() {
+    const now = Date.now();
+    let onlineUsers = 0;
+    let devicesTotal = 0;
+    let queued = 0;
+    const users = store.adminOverview().map((u) => {
+      const devices = u.devices.map((d) => {
+        const conn = online.get(addr(u.name, d.id));
+        return {
+          id: d.id,
+          name: d.name,
+          createdAt: d.createdAt,
+          online: !!conn,
+          lastSeen: conn ? now : d.lastSeen,
+          ip: conn?.meta?.ip ?? null,
+          since: conn?.meta?.since ?? null,
+        };
+      });
+      const isOn = devices.some((d) => d.online);
+      if (isOn) onlineUsers++;
+      devicesTotal += devices.length;
+      queued += u.queued;
+      return { ...u, devices, online: isOn, lastSeen: Math.max(0, ...devices.map((d) => d.lastSeen || 0)) || null };
+    });
+    return {
+      version: VERSION,
+      now,
+      startedAt,
+      totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued },
+      users,
+    };
+  }
+  const adminHandler = admin?.password
+    ? createAdmin({ password: admin.password, basePath: admin.path, overview: adminOverview, clientIp, say })
+    : null;
+  if (adminHandler) say('панель администратора включена');
+
   const server = http.createServer((req, res) => {
+    if (adminHandler && adminHandler(req, res)) return;
     if (req.url === '/healthz') {
       let ok = false;
       try {
@@ -613,6 +656,7 @@ export function startServer({
       req,
       socket,
       (conn) => {
+        conn.meta = { ip, since: Date.now() }; // для панели администратора, на диск не пишется
         const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
@@ -719,6 +763,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
               env.VAPID_SUBJECT ||
               (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
           },
+    admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,
   });
   let stopping = false;
   const stop = async () => {

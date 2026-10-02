@@ -3,13 +3,20 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 
+function storageFor(ns) {
+  ns = ns ? String(ns) : undefined;
+  return {
+    get: (k) => ipcRenderer.invoke('store:get', k, ns),
+    set: (k, v) => ipcRenderer.invoke('store:set', k, v, ns),
+    del: (k) => ipcRenderer.invoke('store:del', k, ns),
+    clear: () => ipcRenderer.invoke('store:clear', ns),
+  };
+}
+
 contextBridge.exposeInMainWorld('desktop', {
-  storage: {
-    get: (k) => ipcRenderer.invoke('store:get', k),
-    set: (k, v) => ipcRenderer.invoke('store:set', k, v),
-    del: (k) => ipcRenderer.invoke('store:del', k),
-    clear: () => ipcRenderer.invoke('store:clear'),
-  },
+  storage: storageFor(''),
+  // Хранилище дополнительного аккаунта (у каждого свой зашифрованный файл)
+  storageFor,
   settings: {
     get: (k) => ipcRenderer.invoke('settings:get', k),
     set: (k, v) => ipcRenderer.invoke('settings:set', k, v),

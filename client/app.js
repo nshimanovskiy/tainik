@@ -28,11 +28,43 @@ if (!window.isSecureContext || !globalThis.crypto?.subtle || (!desktop && !windo
 const settings = desktop
   ? desktop.settings
   : { get: async (k) => webSettings.get(k), set: async (k, v) => webSettings.set(k, v) };
-const storage = desktop ? desktop.storage : new IdbStorage('tainik-v3');
 const sameOriginWs = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
 const DEFAULT_SERVER = desktop ? config.defaultServer || 'ws://localhost:8080/ws' : sameOriginWs;
 
-const client = new MessengerClient({ url: DEFAULT_SERVER, storage });
+// ---------- Аккаунты ----------
+// На одном устройстве может быть несколько аккаунтов. Для каждого это устройство —
+// отдельное «устройство» аккаунта со своими ключами, переписка хранится раздельно:
+// 'main' — исходное хранилище (как до появления нескольких аккаунтов), у остальных — своё
+// (IndexedDB tainik-v3-<id>, файл в десктопе, папка на Android).
+// Активный аккаунт показан в интерфейсе, остальные работают в фоне (см. startOthers).
+const MAX_ACCOUNTS = 5;
+const ACCOUNT_ID = /^(main|a[0-9a-f]{8})$/;
+function storageFor(id) {
+  const ns = id === 'main' ? '' : id;
+  if (desktop) return ns ? desktop.storageFor(ns) : desktop.storage;
+  return new IdbStorage(ns ? `tainik-v3-${ns}` : 'tainik-v3');
+}
+async function loadAccounts() {
+  try {
+    const list = JSON.parse((await settings.get('accounts')) || '[]');
+    return Array.isArray(list) ? list.filter((a) => a && ACCOUNT_ID.test(a.id)) : [];
+  } catch {
+    return [];
+  }
+}
+let accounts = await loadAccounts();
+if (!accounts.length) accounts = [{ id: 'main' }];
+let activeId = (await settings.get('active-account')) || accounts[0].id;
+if (!accounts.some((a) => a.id === activeId)) activeId = accounts[0].id;
+// Брошенные пустые места (начали добавлять аккаунт и передумали) убираем
+accounts = accounts.filter((a) => a.username || a.id === activeId || a.id === 'main');
+const activeAccount = () => accounts.find((a) => a.id === activeId);
+const savedAccounts = () => accounts.filter((a) => a.username);
+const saveAccounts = () => settings.set('accounts', JSON.stringify(accounts));
+
+const client = new MessengerClient({ url: DEFAULT_SERVER, storage: storageFor(activeId) });
+let ownUnread = 0;
+const others = new Map(); // id → { acc, client, unread } — остальные аккаунты, работают в фоне
 let current = null;
 
 // ---------- Утилиты ----------
@@ -90,6 +122,9 @@ function previewOf(m) {
 function showAuth() {
   $('auth').hidden = false;
   $('app').hidden = true;
+  const others = savedAccounts().filter((a) => a.id !== activeId);
+  $('auth-cancel').hidden = !others.length;
+  $('auth-extra').hidden = !others.length;
   if (desktop) {
     $('server-field').hidden = false;
     if (!$('server').value) $('server').value = DEFAULT_SERVER;
@@ -104,6 +139,17 @@ async function showApp() {
   setStatus(client.status);
   await renderContacts();
   initNotifications().catch((e) => console.warn('notifications', e));
+  const after = await settings.get('open-chat-after-switch');
+  if (after) {
+    await settings.set('open-chat-after-switch', '');
+    pendingNoticeChat = after;
+  }
+  const flash = await settings.get('flash');
+  if (flash) {
+    await settings.set('flash', '');
+    toast(flash, 6000);
+  }
+  startOthers().catch((e) => console.warn('accounts', e));
   if (pendingNoticeChat) {
     const chat = pendingNoticeChat;
     pendingNoticeChat = null;
@@ -158,6 +204,7 @@ $('auth-form').addEventListener('submit', async (e) => {
     client.url = server;
     await client.register(name, { deviceName: deviceName() });
     await settings.set('server', server);
+    await rememberAccount();
     await showApp();
   } catch (err) {
     $('auth-error').textContent = err.code === 'timeout' ? 'Сервер недоступен' : err.message;
@@ -230,6 +277,7 @@ $('link-start').addEventListener('click', async () => {
     await linking.done;
     linking = null;
     await settings.set('server', server);
+    await rememberAccount();
     await showApp();
     toast('Устройство привязано. Контакты перенесены, старая переписка — нет.', 6000);
   } catch (err) {
@@ -288,7 +336,8 @@ async function renderContacts() {
   });
   $('contacts').replaceChildren(frag);
   $('no-contacts').hidden = all.length > 0;
-  setUnread(all.reduce((n, c) => n + (c.unread || 0), 0));
+  ownUnread = all.reduce((n, c) => n + (c.unread || 0), 0);
+  setUnread(ownUnread + othersUnread());
 }
 
 $('add-form').addEventListener('submit', async (e) => {
@@ -536,10 +585,13 @@ $('menu-btn').addEventListener('click', async () => {
 $('menu-dialog').addEventListener('close', async () => {
   const v = $('menu-dialog').returnValue;
   if (v === 'devices') return openDevices();
+  if (v === 'accounts') return openAccounts();
   if (v !== 'reset') return;
-  if (!confirm('Стереть ключи и переписку на этом устройстве? Другие устройства аккаунта продолжат работать.')) return;
+  if (!confirm('Стереть ключи и переписку этого аккаунта на этом устройстве? Другие устройства аккаунта и другие аккаунты здесь продолжат работать.')) return;
+  if (calls.busy) calls.hangup();
   await dropPush(true);
   await client.reset();
+  await forgetActiveAccount();
   location.reload();
 });
 
@@ -699,11 +751,17 @@ client.on('error', async ({ code, text }) => {
   if (code === 'logged_in_elsewhere') return toast(text, 0);
   if (code === 'device_removed') {
     // Устройство отвязано с другого устройства — стираем ключи здесь
+    const name = client.account?.username || '';
     await dropPush(false);
     await client.reset();
     current = null;
+    const text = `Это устройство отвязано от аккаунта ${name}. Ключи и переписка удалены.`;
+    if (await forgetActiveAccount()) {
+      await settings.set('flash', text);
+      return location.reload();
+    }
     showAuth();
-    $('auth-error').textContent = 'Это устройство отвязано от аккаунта. Ключи и переписка удалены.';
+    $('auth-error').textContent = text;
     return;
   }
   toast(text);
@@ -751,9 +809,9 @@ function serviceWorker() {
   return swReady;
 }
 
-async function showNotice({ title, body, chat, tag, call = false }) {
+async function showNotice({ title, body, chat, tag, call = false, force = false }) {
   if (!(await notifPrefs()).enabled) return;
-  if (desktop) return desktop.notify({ title, body, chat, call });
+  if (desktop) return desktop.notify({ title, body, chat, call, force });
   const opts = { body, tag, renotify: true, icon: '/icon-192.png', badge: '/badge-72.png', data: { chat }, requireInteraction: call };
   const reg = await serviceWorker();
   try {
@@ -774,6 +832,15 @@ async function notifyMessage(contact, message) {
 let pendingNoticeChat = null;
 async function openChatFromNotice(chat) {
   if (!chat) return;
+  const at = chat.lastIndexOf('@');
+  if (at > 0) {
+    const id = chat.slice(at + 1);
+    chat = chat.slice(0, at);
+    if (id !== activeId && accounts.some((a) => a.id === id && a.username)) {
+      await settings.set('open-chat-after-switch', chat);
+      return switchAccount(id);
+    }
+  }
   // Приложение могло только что запуститься по нажатию на уведомление: откроем после входа
   if (!client.account || $('app').hidden) return void (pendingNoticeChat = chat);
   if ((await client.contacts())[chat]) openChat(chat);
@@ -961,7 +1028,8 @@ function acquireInstanceLock() {
     return;
   }
   if (await client.load()) {
-    client.url = (await settings.get('server')) || DEFAULT_SERVER;
+    client.url = activeAccount().server || (await settings.get('server')) || DEFAULT_SERVER;
+    if (activeAccount().username !== client.account.username) await rememberAccount();
     await showApp();
     client.connect().catch((err) => toast(err.message, 0));
   } else {
@@ -1471,7 +1539,186 @@ window.__tainikBack = () => {
 window.__tainikShowCall = () => expandCall();
 // Сеть вернулась или телефон проснулся: проверить соединение, при необходимости — переподключиться.
 window.__tainikWake = (restart = false) => {
-  if (!client.account) return;
-  if (restart) client.reconnectNow({ restart: true });
-  else client.checkConnection().catch(() => {});
+  for (const c of [client, ...[...others.values()].map((o) => o.client)]) {
+    if (!c.account) continue;
+    if (restart) c.reconnectNow({ restart: true });
+    else c.checkConnection().catch(() => {});
+  }
 };
+
+
+// ---------- Несколько аккаунтов ----------
+
+function othersUnread() {
+  let n = 0;
+  for (const o of others.values()) n += o.unread;
+  return n;
+}
+function renderAccountsBadge() {
+  const n = othersUnread();
+  $('accounts-badge').hidden = !n;
+  $('accounts-badge').textContent = n > 99 ? '99+' : String(n);
+  setUnread(ownUnread + n);
+  if ($('accounts-dialog').open) renderAccounts();
+}
+
+async function rememberAccount() {
+  const a = activeAccount();
+  a.username = client.account.username;
+  a.server = client.url;
+  await saveAccounts();
+  await settings.set('active-account', activeId);
+}
+
+/** Убрать активный аккаунт из списка. true — есть другой, на который переключились. */
+async function forgetActiveAccount() {
+  const a = activeAccount();
+  if (a.id === 'main') {
+    delete a.username;
+    delete a.server;
+  } else {
+    accounts = accounts.filter((x) => x.id !== a.id);
+  }
+  if (!accounts.length) accounts = [{ id: 'main' }];
+  const next = savedAccounts()[0];
+  activeId = next ? next.id : accounts[0].id;
+  await saveAccounts();
+  await settings.set('active-account', activeId);
+  return !!next;
+}
+
+async function switchAccount(id) {
+  if (id === activeId) return;
+  if (calls.busy) {
+    if (!confirm('Идёт звонок. Переключить аккаунт? Звонок завершится.')) return;
+    calls.hangup();
+  }
+  await settings.set('active-account', id);
+  // Страница загружается заново с другим аккаунтом: у каждого свои ключи и переписка,
+  // и состояние шифрования одного аккаунта никогда не используется дважды.
+  location.reload();
+}
+
+async function addAccount() {
+  if (savedAccounts().length >= MAX_ACCOUNTS) return toast(`На одном устройстве — не больше ${MAX_ACCOUNTS} аккаунтов`);
+  let slot = accounts.find((a) => !a.username && a.id !== activeId);
+  if (!slot) {
+    const rnd = crypto.getRandomValues(new Uint8Array(4));
+    slot = { id: 'a' + [...rnd].map((b) => b.toString(16).padStart(2, '0')).join('') };
+    accounts.push(slot);
+  }
+  await saveAccounts();
+  await switchAccount(slot.id);
+}
+
+$('auth-cancel').addEventListener('click', async () => {
+  const back = savedAccounts().find((a) => a.id !== activeId);
+  if (!back) return;
+  if (activeId !== 'main') accounts = accounts.filter((a) => a.id !== activeId);
+  await saveAccounts();
+  await switchAccount(back.id);
+});
+
+function renderAccounts() {
+  const list = savedAccounts().map((a) => {
+    const li = el('li', a.id === activeId ? 'active' : '');
+    const av = el('span', 'avatar');
+    paintAvatar(av, a.username);
+    const body = el('div', 'd-body');
+    body.append(el('div', 'd-name', a.username));
+    let host = '';
+    try {
+      host = new URL(a.server || DEFAULT_SERVER).host;
+    } catch {}
+    const o = others.get(a.id);
+    const st = a.id === activeId ? STATUS_TEXT[client.status] : o ? STATUS_TEXT[o.client.status] : 'не подключён';
+    body.append(el('div', 'd-meta', `${host} · ${st || ''}`));
+    li.append(av, body);
+    if (a.id === activeId) li.append(el('span', 'a-state', 'открыт'));
+    else {
+      if (o?.unread) li.append(el('span', 'badge', String(o.unread)));
+      li.title = 'Переключиться';
+      li.addEventListener('click', () => switchAccount(a.id));
+    }
+    return li;
+  });
+  $('account-list').replaceChildren(...list);
+  $('account-add').disabled = savedAccounts().length >= MAX_ACCOUNTS;
+}
+function openAccounts() {
+  renderAccounts();
+  $('accounts-dialog').showModal();
+}
+$('me-btn').addEventListener('click', openAccounts);
+$('account-add').addEventListener('click', () => {
+  $('accounts-dialog').close();
+  addAccount();
+});
+client.on('status', () => $('accounts-dialog').open && renderAccounts());
+
+async function notifyOther(acc, contact, message) {
+  const { preview } = await notifPrefs();
+  const text = preview && message.content?.t === 'text' ? String(message.content.body || '').replace(/\s+/g, ' ').slice(0, 160) : '';
+  await showNotice({
+    title: `${contact} → ${acc.username}`,
+    body: text || 'Новое сообщение',
+    chat: `${contact}@${acc.id}`,
+    tag: `msg:${acc.id}:${contact}`,
+    force: true,
+  });
+}
+
+/** Остальные аккаунты: подключаются в фоне, принимают сообщения, считают непрочитанные. */
+async function startOthers() {
+  for (const acc of savedAccounts()) {
+    if (acc.id === activeId || others.has(acc.id)) continue;
+    const c = new MessengerClient({ url: acc.server || DEFAULT_SERVER, storage: storageFor(acc.id) });
+    const item = { acc, client: c, unread: 0 };
+    others.set(acc.id, item);
+    try {
+      if (!(await c.load())) throw new Error('нет ключей');
+    } catch (e) {
+      console.warn('аккаунт', acc.username, e);
+      others.delete(acc.id);
+      continue;
+    }
+    c.url = acc.server || DEFAULT_SERVER;
+    const recount = async () => {
+      item.unread = Object.values(await c.contacts()).reduce((n, x) => n + (x.unread || 0), 0);
+      renderAccountsBadge();
+    };
+    c.on('contacts', recount);
+    c.on('status', () => $('accounts-dialog').open && renderAccounts());
+    c.on('message', ({ contact, message }) => {
+      recount();
+      if (message.dir === 'in') notifyOther(acc, contact, message);
+    });
+    // Звонок на неактивный аккаунт: принять его можно только в активном — подсказываем
+    c.on('call-signal', ({ from, data }) => {
+      if (data?.kind !== 'offer') return;
+      showNotice({
+        title: `${from} → ${acc.username}`,
+        body: 'Звонит. Откройте этот аккаунт, чтобы ответить',
+        chat: `${from}@${acc.id}`,
+        tag: `msg:${acc.id}:${from}`,
+        force: true,
+      });
+    });
+    c.on('error', async ({ code }) => {
+      if (code !== 'device_removed') return;
+      c.disconnect();
+      await c.reset();
+      others.delete(acc.id);
+      accounts = accounts.filter((a) => a.id !== acc.id || a.id === 'main');
+      if (acc.id === 'main') {
+        delete acc.username;
+        delete acc.server;
+      }
+      await saveAccounts();
+      renderAccountsBadge();
+      toast(`Это устройство отвязано от аккаунта ${acc.username || ''}`);
+    });
+    await recount();
+    c.connect().catch(() => {});
+  }
+}

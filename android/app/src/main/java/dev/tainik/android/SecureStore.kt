@@ -29,7 +29,7 @@ import javax.crypto.spec.SecretKeySpec
  * Записи сохраняются сразу и атомарно (AtomicFile + fsync): состояние храповика нельзя терять.
  * Вызывается из одного потока (Bridge), но методы на всякий случай синхронизированы.
  */
-class SecureStore(base: File) {
+class SecureStore(base: File, name: String = "store") {
     private companion object {
         const val TAG = "TainikStore"
         const val ALIAS = "tainik-store-master"
@@ -37,7 +37,7 @@ class SecureStore(base: File) {
         const val IV = 12
     }
 
-    private val dir = File(base, "store")
+    private val dir = File(base, name)
     private val cache = HashMap<String, String?>()
     private var dataKey: SecretKey? = null
     private val random = SecureRandom()

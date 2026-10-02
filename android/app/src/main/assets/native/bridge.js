@@ -25,6 +25,16 @@
   }
   const parsed = (missing) => (text) => (text == null ? missing : JSON.parse(text));
 
+  function storageFor(ns) {
+    ns = ns ? String(ns) : '';
+    return Object.freeze({
+      get: (k) => call('storage.get', String(k), ns).then(parsed(undefined)),
+      set: (k, v) => call('storage.set', String(k), JSON.stringify(v ?? null), ns).then(() => undefined),
+      del: (k) => call('storage.del', String(k), ns).then(() => undefined),
+      clear: () => call('storage.clear', ns).then(() => undefined),
+    });
+  }
+
   let openChatHandler = null;
   function deliver() {
     if (!openChatHandler) return;
@@ -34,12 +44,9 @@
 
   const api = {
     platform: 'android',
-    storage: Object.freeze({
-      get: (k) => call('storage.get', String(k)).then(parsed(undefined)),
-      set: (k, v) => call('storage.set', String(k), JSON.stringify(v ?? null)).then(() => undefined),
-      del: (k) => call('storage.del', String(k)).then(() => undefined),
-      clear: () => call('storage.clear').then(() => undefined),
-    }),
+    storage: storageFor(''),
+    // Хранилище дополнительного аккаунта (своя папка, свой ключ данных)
+    storageFor,
     settings: Object.freeze({
       get: (k) => call('settings.get', String(k)).then(parsed(null)),
       set: (k, v) => call('settings.set', String(k), JSON.stringify(v ?? null)).then(() => undefined),
@@ -52,6 +59,7 @@
           body: String(n?.body ?? ''),
           chat: String(n?.chat ?? ''),
           call: !!n?.call,
+          force: !!n?.force, // сообщение другому аккаунту — показать, даже если окно открыто
         })
       ),
     dismissNotice: (n) => N.dismissNotice(JSON.stringify({ call: !!n?.call, chat: String(n?.chat ?? '') })),

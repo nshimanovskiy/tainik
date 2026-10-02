@@ -17,6 +17,15 @@ class TainikApp : Application() {
         private set
 
     private var hostRef: WebHost? = null
+    private val extraStores = HashMap<String, SecureStore>()
+
+    /** Хранилище аккаунта: основной — store, дополнительные — store-<ns>. Только из потока моста. */
+    @Synchronized
+    fun storeFor(ns: String?): SecureStore {
+        if (ns.isNullOrEmpty()) return store
+        require(Regex("^[a-z0-9]{1,16}$").matches(ns)) { "Неверное имя хранилища" }
+        return extraStores.getOrPut(ns) { SecureStore(noBackupFilesDir, "store-$ns") }
+    }
 
     /** WebView с интерфейсом. Создаётся при первом обращении (только из главного потока). */
     val host: WebHost

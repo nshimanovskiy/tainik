@@ -28,6 +28,9 @@ services:
       TURN_PORT: ${TURN_PORT:-3478}
       TURNS_PORT: ${TURNS_PORT:-0}
       STUN_FALLBACK: ${STUN_FALLBACK-stun:stun.l.google.com:19302}
+      # Панель администратора (пользователи, статус, IP текущих подключений). Без пароля выключена.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_PATH: ${ADMIN_PATH:-/adminadminadmin}
     ports:
       - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
     volumes:

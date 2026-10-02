@@ -38,6 +38,24 @@ if (!app.requestSingleInstanceLock()) {
 
 let win = null;
 let store = null;
+// Хранилища дополнительных аккаунтов: свой файл на каждый (tainik-store-v3-<ns>.bin)
+const extraStores = new Map();
+const newStore = (file) =>
+  new SecureStore({
+    file,
+    encrypt: (s) => safeStorage.encryptString(s),
+    decrypt: (b) => safeStorage.decryptString(b),
+  });
+function storeFor(ns) {
+  if (ns == null || ns === '') return store;
+  if (!SecureStore.validNs(ns)) throw new Error('bad namespace');
+  if (!extraStores.has(ns)) extraStores.set(ns, newStore(path.join(app.getPath('userData'), `tainik-store-v3-${ns}.bin`)));
+  return extraStores.get(ns);
+}
+function flushStores() {
+  store?.flushSync();
+  for (const s of extraStores.values()) s.flushSync();
+}
 let settings = {};
 let tray = null;
 let quitting = false; // true — окно действительно закрывается (выход), а не прячется в трей
@@ -86,11 +104,7 @@ function openStore() {
   }
   const file = path.join(app.getPath('userData'), 'tainik-store-v3.bin');
   try {
-    return new SecureStore({
-      file,
-      encrypt: (s) => safeStorage.encryptString(s),
-      decrypt: (b) => safeStorage.decryptString(b),
-    });
+    return newStore(file);
   } catch (e) {
     dialog.showErrorBox('Тайник', 'Не удалось расшифровать локальные данные: ' + e.message);
     app.exit(1);
@@ -252,10 +266,10 @@ function registerIpc() {
     return k;
   };
   ipcMain.handle('app:version', guard(() => app.getVersion()));
-  ipcMain.handle('store:get', guard((k) => store.get(key(k))));
-  ipcMain.handle('store:set', guard((k, v) => store.set(key(k), v)));
-  ipcMain.handle('store:del', guard((k) => store.del(key(k))));
-  ipcMain.handle('store:clear', guard(() => store.clear()));
+  ipcMain.handle('store:get', guard((k, ns) => storeFor(ns).get(key(k))));
+  ipcMain.handle('store:set', guard((k, v, ns) => storeFor(ns).set(key(k), v)));
+  ipcMain.handle('store:del', guard((k, ns) => storeFor(ns).del(key(k))));
+  ipcMain.handle('store:clear', guard((ns) => storeFor(ns).clear()));
   ipcMain.handle('settings:get', guard((k) => (typeof k === 'string' ? settings[k] ?? null : null)));
   ipcMain.handle(
     'settings:set',
@@ -379,7 +393,7 @@ function createWindow(forceShow = false) {
   // Windows: выход из системы / выключение — не мешаем закрыться
   win.on('session-end', () => {
     quitting = true;
-    store?.flushSync();
+    flushStores();
   });
   win.on('closed', () => (win = null));
   win.loadURL(APP_ORIGIN + '/index.html');
@@ -463,14 +477,14 @@ app.whenReady().then(() => {
   if (backgroundOn()) createTray();
   powerMonitor.on('shutdown', () => {
     quitting = true; // macOS/Linux: выключение компьютера
-    store?.flushSync();
+    flushStores();
   });
   app.on('activate', showWindow); // клик по значку в доке macOS
 });
 
 app.on('before-quit', () => {
   quitting = true;
-  if (store) store.flushSync();
+  if (store) flushStores();
 });
 
 app.on('window-all-closed', () => {

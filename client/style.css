@@ -107,8 +107,24 @@ input, textarea {
   min-height: 0;
 }
 .side-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 14px 10px; }
-.me { display: flex; gap: 10px; align-items: center; min-width: 0; }
-.me-name { font-weight: 650; }
+.me { display: flex; gap: 10px; align-items: center; min-width: 0; background: none; border: 0; padding: 4px 8px 4px 4px; margin: -4px; border-radius: 12px; text-align: left; color: inherit; cursor: pointer; }
+.me:hover { background: var(--accent-soft); }
+.me-text { display: flex; flex-direction: column; min-width: 0; }
+.me-line { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.me-name { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me-caret { color: var(--muted); font-size: 11px; }
+.accounts-badge {
+  position: absolute; top: -4px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700;
+  display: grid; place-items: center; border: 2px solid var(--panel);
+}
+.account-list li { cursor: pointer; }
+.account-list li.active { border-color: var(--accent); cursor: default; }
+.account-list li:not(.active):hover { border-color: var(--accent); }
+.account-list .badge { margin-left: auto; }
+.account-list .a-state { font-size: 12px; color: var(--accent); font-weight: 600; margin-left: auto; white-space: nowrap; }
+#auth-extra { margin: 0 0 10px; }
+#auth-cancel { margin-top: 12px; }
 .status { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot.online { background: var(--ok); }

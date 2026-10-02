@@ -50,3 +50,8 @@ test('десктоп: протокол app:// не выпускает за пр�
   assert.equal(resolveAppPath(base, 'app://evil/index.html'), null);
   assert.equal(resolveAppPath(base, 'file:///etc/passwd'), null);
 });
+
+test('десктоп: имя хранилища дополнительного аккаунта — только [a-z0-9]', () => {
+  for (const ok of ['a1b2c3d4', 'x', 'abc123']) assert.equal(SecureStore.validNs(ok), true, ok);
+  for (const bad of ['', '../x', 'A1', 'a-b', 'a/b', 'a'.repeat(17), null, 5]) assert.equal(SecureStore.validNs(bad), false, String(bad));
+});
