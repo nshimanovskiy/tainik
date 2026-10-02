@@ -1,0 +1,62 @@
+name: Тесты и сборка десктопа
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  # Проверка, что образ сервера собирается и проходит healthcheck
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t tainik-server:ci .
+      - name: Запуск и /healthz
+        run: |
+          docker run -d --name t -p 8080:8080 --read-only --tmpfs /tmp tainik-server:ci
+          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/healthz && exit 0; sleep 1; done
+          docker logs t; exit 1
+
+  desktop:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install
+      - run: npm run dist
+        env:
+          # без сертификатов сборка не подписывается (см. README)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # адрес вашего сервера по умолчанию: Settings → Variables → TAINIK_SERVER
+          TAINIK_SERVER: ${{ vars.TAINIK_SERVER || 'chat.sdsds.top' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tainik-${{ matrix.os }}
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+          if-no-files-found: error
