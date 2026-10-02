@@ -1,0 +1,75 @@
+# Обновление сервера кнопкой: Actions → «Деплой сервера» → Run workflow.
+# Сначала тесты, затем SSH на сервер с ключом, который может только запустить
+# deploy/update.sh (см. deploy/connect-github.sh), затем проверка /healthz.
+name: Деплой сервера
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Проверка секретов
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          KEY: ${{ secrets.DEPLOY_KEY }}
+          KNOWN: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          missing=""
+          [ -n "$HOST" ] || missing="$missing DEPLOY_HOST"
+          [ -n "$KEY" ] || missing="$missing DEPLOY_KEY"
+          [ -n "$KNOWN" ] || missing="$missing DEPLOY_KNOWN_HOSTS"
+          if [ -n "$missing" ]; then
+            echo "::error::Не заданы секреты:$missing. Запустите на сервере deploy/connect-github.sh и добавьте выданные значения."
+            exit 1
+          fi
+
+      - name: SSH-ключ
+        env:
+          KEY: ${{ secrets.DEPLOY_KEY }}
+          KNOWN: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts
+
+      - name: Обновление на сервере
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          USER: ${{ secrets.DEPLOY_USER || 'root' }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$PORT" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 \
+            "$USER@$HOST" deploy
+
+      - name: Проверка сайта
+        env:
+          SITE: ${{ vars.TAINIK_SERVER || 'chat.sdsds.top' }}
+        run: |
+          for i in $(seq 1 10); do
+            if curl -fsS "https://${SITE}/healthz"; then echo; exit 0; fi
+            sleep 3
+          done
+          echo "::error::https://${SITE}/healthz не отвечает"
+          exit 1
+
+      - name: Убрать ключ
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
