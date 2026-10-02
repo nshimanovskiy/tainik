@@ -17,6 +17,8 @@ const el = (tag, cls, text) => {
 // В десктопе (Electron) preload-скрипт даёт window.desktop: системное защищённое
 // хранилище и настройки. В браузере — IndexedDB с шифрованием и localStorage.
 const desktop = window.desktop || null;
+// Android-приложение даёт тот же мост, что и десктоп, с platform: 'android'
+const android = desktop?.platform === 'android';
 
 if (!window.isSecureContext || !globalThis.crypto?.subtle || (!desktop && !window.indexedDB)) {
   $('unsupported').hidden = false;
@@ -102,6 +104,11 @@ async function showApp() {
   setStatus(client.status);
   await renderContacts();
   initNotifications().catch((e) => console.warn('notifications', e));
+  if (pendingNoticeChat) {
+    const chat = pendingNoticeChat;
+    pendingNoticeChat = null;
+    openChatFromNotice(chat);
+  }
 }
 
 function setStatus(s) {
@@ -244,14 +251,22 @@ $('link-copy').addEventListener('click', async () => {
 });
 
 // ---------- Контакты ----------
+// Перерисовки идут подряд (contacts, status, presence, сообщения из очереди) и
+// внутри ждут хранилище. Строим список целиком и применяем только последнюю
+// перерисовку — иначе вызовы перемешиваются и в списке появляются дубли.
+let contactsGen = 0;
 async function renderContacts() {
+  const gen = ++contactsGen;
   const all = Object.values(await client.contacts()).sort((a, b) => b.lastTs - a.lastTs);
-  const ul = $('contacts');
-  ul.replaceChildren();
-  $('no-contacts').hidden = all.length > 0;
-  setUnread(all.reduce((n, c) => n + (c.unread || 0), 0));
+  const lasts = [];
   for (const c of all) {
     const msgs = await client.messages(c.username);
+    lasts.push(msgs[msgs.length - 1]);
+    if (gen !== contactsGen) return;
+  }
+  if (gen !== contactsGen) return;
+  const frag = document.createDocumentFragment();
+  all.forEach((c, i) => {
     const li = el('li');
     const btn = el('button', c.username === current ? 'active' : '');
     const avWrap = el('span', 'avatar-wrap');
@@ -264,13 +279,16 @@ async function renderContacts() {
     top.append(el('span', 'c-name', c.username));
     if (c.keyChanged) top.append(el('span', 'shield warn', '⚠ ключ изменён'));
     else if (c.verified) top.append(el('span', 'shield', '✔ проверен'));
-    body.append(top, el('div', 'c-preview', previewOf(msgs[msgs.length - 1])));
+    body.append(top, el('div', 'c-preview', previewOf(lasts[i])));
     btn.append(avWrap, body);
     if (c.unread && c.username !== current) btn.append(el('span', 'badge', String(c.unread)));
     btn.addEventListener('click', () => openChat(c.username));
     li.append(btn);
-    ul.append(li);
-  }
+    frag.append(li);
+  });
+  $('contacts').replaceChildren(frag);
+  $('no-contacts').hidden = all.length > 0;
+  setUnread(all.reduce((n, c) => n + (c.unread || 0), 0));
 }
 
 $('add-form').addEventListener('submit', async (e) => {
@@ -422,10 +440,13 @@ function messageNode(m) {
   return li;
 }
 
+let chatGen = 0;
 async function renderChat() {
   if (!current) return;
+  const gen = ++chatGen;
   await renderHeader();
   const list = await client.messages(current);
+  if (gen !== chatGen) return;
   const ol = $('messages');
   ol.replaceChildren(el('li', 'e2e-note', '🔒 Сообщения в этом чате защищены сквозным шифрованием'));
   let lastDay = '';
@@ -750,8 +771,11 @@ async function notifyMessage(contact, message) {
   await showNotice({ title: contact, body: text || 'Новое сообщение', chat: contact, tag: 'msg:' + contact });
 }
 
+let pendingNoticeChat = null;
 async function openChatFromNotice(chat) {
-  if (!chat || !client.account) return;
+  if (!chat) return;
+  // Приложение могло только что запуститься по нажатию на уведомление: откроем после входа
+  if (!client.account || $('app').hidden) return void (pendingNoticeChat = chat);
   if ((await client.contacts())[chat]) openChat(chat);
 }
 if (desktop?.onOpenChat) desktop.onOpenChat((chat) => openChatFromNotice(chat));
@@ -874,7 +898,8 @@ async function fillNotifSettings() {
   $('notif-preview').checked = preview;
   $('notif-preview').disabled = !enabled;
   let hint;
-  if (desktop) hint = 'Приложение получает сообщения, пока запущено, в том числе свёрнутым в трей.';
+  if (android) hint = 'Пока включена работа в фоне, приложение само держит связь с вашим сервером — без Google и других push-сервисов.';
+  else if (desktop) hint = 'Приложение получает сообщения, пока запущено, в том числе свёрнутым в трей.';
   else if (!webNotif) hint = 'Этот браузер не поддерживает уведомления.';
   else if (isIOS && !standalone) hint = 'На iPhone и iPad уведомления работают, если добавить Тайник на экран «Домой»: «Поделиться» → «На экран „Домой“».';
   else if (Notification.permission === 'denied') hint = 'Уведомления запрещены для этого сайта в настройках браузера (значок слева от адреса).';
@@ -888,7 +913,15 @@ async function fillNotifSettings() {
     $('bg-settings').hidden = false;
     $('bg-tray').checked = bg.tray;
     $('bg-autostart').checked = bg.autostart;
-    $('bg-autostart').disabled = !bg.autostartSupported;
+    $('bg-autostart').disabled = !bg.autostartSupported || (android && !bg.tray);
+    if (android) {
+      $('bg-tray-text').textContent = 'Получать сообщения и звонки, когда приложение закрыто (в шторке будет значок «Тайник на связи»)';
+      $('bg-autostart-text').textContent = 'Включать после перезагрузки телефона';
+      $('bg-hint').hidden = false;
+      $('bg-hint').textContent = bg.batteryOptimized
+        ? 'Система может усыплять Тайник для экономии батареи — тогда сообщения придут с задержкой. Разрешите работу без ограничений, когда телефон спросит, или в настройках приложения → «Батарея».'
+        : 'На некоторых телефонах (Xiaomi, Huawei, Samsung и др.) дополнительно нужно разрешить автозапуск в настройках приложения.';
+    }
   }
 }
 $('notif-enabled').addEventListener('change', async (e) => {
@@ -906,6 +939,7 @@ for (const id of ['bg-tray', 'bg-autostart']) {
       e.target.checked = !e.target.checked;
       toast(err.message || 'Не удалось изменить настройку');
     }
+    if (android) fillNotifSettings();
   });
 }
 
@@ -977,7 +1011,22 @@ function setVideo(node, stream, show) {
   }
 }
 
+// Нативной оболочке важно знать о звонке: снять уведомление «Входящий звонок»
+// и, пока идёт разговор, не дать системе отнять микрофон в фоне.
+let nativeCallActive = false;
+let callNoticeUp = false;
+function syncNativeCall(c) {
+  const active = !!c && ['preparing', 'outgoing', 'connecting', 'active'].includes(c.phase);
+  if (active !== nativeCallActive && desktop?.callActive) desktop.callActive(active, c?.peer || '');
+  nativeCallActive = active;
+  if (callNoticeUp && c?.phase !== 'incoming') {
+    callNoticeUp = false;
+    desktop?.dismissNotice?.({ call: true });
+  }
+}
+
 function renderCall(c) {
+  syncNativeCall(c);
   const box = $('call');
   if (!c) {
     box.hidden = true;
@@ -1037,6 +1086,7 @@ function renderCall(c) {
   const inCall = c.phase === 'active' || c.phase === 'connecting';
   $('call-cam').disabled = !inCall;
   $('call-screen').disabled = !inCall || !(navigator.mediaDevices?.getDisplayMedia);
+  $('call-screen').hidden = android; // WebView в Android не умеет показывать экран
 
   if (c.phase === 'active' && !callTicker) {
     callTicker = setInterval(() => {
@@ -1051,6 +1101,7 @@ function renderCall(c) {
     document.title = `📞 ${c.peer} — входящий звонок`;
     if (!document.hasFocus() && notifiedCall !== c.id) {
       notifiedCall = c.id;
+      callNoticeUp = true;
       showNotice({ title: c.peer, body: c.video ? 'Входящий видеозвонок' : 'Входящий звонок', chat: c.peer, tag: 'call:' + c.peer, call: true });
     }
   } else {
@@ -1258,3 +1309,23 @@ $('presence-visible').addEventListener('change', async (e) => {
     toast(err.message);
   }
 });
+
+
+// ---------- Мобильное приложение ----------
+// Системная кнопка «Назад»: закрыть меню или диалог, выйти из чата.
+// false — назад некуда, приложение уйдёт в фон (и продолжит работать).
+window.__tainikBack = () => {
+  if (!$('msg-menu').hidden) return closeMenu(), true;
+  const dlg = [...document.querySelectorAll('dialog[open]')].pop();
+  if (dlg) return dlg.close(), true;
+  if (reply) return setReply(null), true;
+  if (calls.busy) return false;
+  if ($('app').classList.contains('in-chat')) return $('back-btn').click(), true;
+  return false;
+};
+// Сеть вернулась или телефон проснулся: проверить соединение, при необходимости — переподключиться.
+window.__tainikWake = (restart = false) => {
+  if (!client.account) return;
+  if (restart) client.reconnectNow({ restart: true });
+  else client.checkConnection().catch(() => {});
+};

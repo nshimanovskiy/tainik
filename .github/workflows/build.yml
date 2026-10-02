@@ -1,8 +1,8 @@
-name: Тесты и сборка десктопа
+name: Тесты и сборки
 
 on:
   push:
-    branches: [main]
+    branches: [main, android]
   pull_request:
   workflow_dispatch:
 
@@ -73,4 +73,24 @@ jobs:
             desktop/dist/*.dmg
             desktop/dist/*.AppImage
             desktop/dist/*.deb
+          if-no-files-found: error
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Сборка APK
+        run: android/scripts/ci-gradle.sh assembleDebug
+        env:
+          TAINIK_SERVER: ${{ vars.TAINIK_SERVER || 'chat.sdsds.top' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tainik-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error

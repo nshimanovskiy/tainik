@@ -63,6 +63,7 @@ function cleanText(c, tsFallback = Date.now()) {
   return out;
 }
 const REQUEST_TIMEOUT = 10_000;
+const PING_TIMEOUT = 8_000;
 const MAX_SEND_ATTEMPTS = 4;
 const AUTH_CONTEXT = 'tainik/v3/auth';
 
@@ -136,6 +137,7 @@ export class MessengerClient extends Emitter {
     this._retryTimer = null;
     this._authExtra = null; // register / newDevice при первом входе
     this._inflight = new Set();
+    this._pongWaiters = new Set();
     this.ps = this._protocolStore();
     this.presence = new Map();
     this.presenceHidden = false;
@@ -414,16 +416,65 @@ export class MessengerClient extends Emitter {
     };
     ws.onclose = () => {
       if (this.ws !== ws) return;
-      this.ws = null;
-      this._inflight.clear();
-      for (const p of this._pending.values()) p.reject(errorOf('offline'));
-      this._pending.clear();
+      this._dropSocket();
       if (this._stopped) return;
       this._setStatus('offline');
       const delay = Math.min(15000, 1000 * 2 ** this._retry++);
       this._retryTimer = setTimeout(() => this._open(), delay);
     };
     ws.onerror = () => {};
+  }
+
+  _dropSocket() {
+    const ws = this.ws;
+    this.ws = null;
+    this._inflight.clear();
+    for (const p of this._pending.values()) p.reject(errorOf('offline'));
+    this._pending.clear();
+    if (ws) {
+      ws.onclose = null;
+      try {
+        ws.close();
+      } catch {}
+    }
+  }
+
+  /**
+   * Переподключиться сразу, не дожидаясь таймера (сеть вернулась, телефон проснулся).
+   * restart — закрыть и текущее соединение: после смены сети оно может быть «мёртвым».
+   */
+  reconnectNow({ restart = false } = {}) {
+    if (this._stopped || !this.account) return false;
+    if (this.ws && !restart) return false;
+    clearTimeout(this._retryTimer);
+    this._retry = 0;
+    if (this.ws) this._dropSocket();
+    this._open();
+    return true;
+  }
+
+  /**
+   * Проверяет, что соединение живое: запрос ping должен получить ответ.
+   * Нет соединения или ответа — переподключается. Возвращает true, если связь была.
+   */
+  async checkConnection() {
+    if (this._stopped || !this.account) return false;
+    if (!this.ws) return (this.reconnectNow(), false);
+    if (this.ws.readyState !== 1) return false; // ещё подключаемся
+    const ws = this.ws;
+    // Сервер отвечает на ping сообщением pong без reqId (так и в старых версиях)
+    const alive = await new Promise((resolve) => {
+      const t = setTimeout(() => done(false), PING_TIMEOUT);
+      const done = (v) => {
+        clearTimeout(t);
+        this._pongWaiters.delete(done);
+        resolve(v);
+      };
+      this._pongWaiters.add(done);
+      if (!this._send({ type: 'ping' })) done(false);
+    });
+    if (!alive && this.ws === ws) this.reconnectNow({ restart: true });
+    return alive;
   }
 
   _send(obj) {
@@ -469,6 +520,9 @@ export class MessengerClient extends Emitter {
         this._send({ type: 'auth-proof', sig: await edSign(this.account.identity.sign.priv, data) });
         return;
       }
+      case 'pong':
+        for (const done of [...this._pongWaiters]) done(true);
+        return;
       case 'ready':
         this._retry = 0;
         if (this.account.deviceId !== msg.deviceId) {

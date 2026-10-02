@@ -7,3 +7,10 @@ desktop/dist/
 .env.bak.*
 backups/
 deploy/turnserver.conf
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/dist/
+*.jks
+*.keystore
