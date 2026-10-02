@@ -19,6 +19,7 @@ class MainActivity : Activity() {
     companion object {
         const val ACTION_OPEN_CHAT = "dev.tainik.android.OPEN_CHAT"
         const val EXTRA_CHAT = "chat"
+        const val ACTION_SHOW_CALL = "dev.tainik.android.SHOW_CALL"
     }
 
     private lateinit var root: FrameLayout
@@ -68,6 +69,11 @@ class MainActivity : Activity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent != null && intent.action == ACTION_SHOW_CALL) {
+            app.host.showCall()
+            intent.action = Intent.ACTION_MAIN
+            return
+        }
         if (intent == null || intent.action != ACTION_OPEN_CHAT) return
         val chat = intent.getStringExtra(EXTRA_CHAT)
         if (!chat.isNullOrEmpty()) app.host.openChat(chat)

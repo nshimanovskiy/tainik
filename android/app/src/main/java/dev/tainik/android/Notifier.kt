@@ -111,13 +111,21 @@ object Notifier {
         }
     }
 
+    /** Открыть приложение и развернуть идущий звонок. */
+    private fun showCallIntent(ctx: Context): PendingIntent {
+        val i = Intent(ctx, MainActivity::class.java)
+            .setAction(MainActivity.ACTION_SHOW_CALL)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        return PendingIntent.getActivity(ctx, 1, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
     fun serviceNotification(ctx: Context, callPeer: String?): Notification {
         val b = Notification.Builder(ctx, CH_SERVICE)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(BRAND)
             .setOngoing(true)
             .setShowWhen(false)
-            .setContentIntent(openIntent(ctx, null))
+            .setContentIntent(if (callPeer != null) showCallIntent(ctx) else openIntent(ctx, null))
         if (callPeer != null) {
             b.setContentTitle("Звонок: $callPeer").setContentText("Нажмите, чтобы вернуться к звонку")
                 .setCategory(Notification.CATEGORY_CALL)

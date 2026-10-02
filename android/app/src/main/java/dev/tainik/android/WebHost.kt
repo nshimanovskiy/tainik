@@ -135,6 +135,11 @@ class WebHost(private val app: TainikApp) {
         webView.evaluateJavascript("window.__tainikWake && window.__tainikWake($restart)", null)
     }
 
+    /** Развернуть свёрнутый звонок (нажали на уведомление «Звонок: …»). */
+    fun showCall() {
+        if (!destroyed && bridgeReady) webView.evaluateJavascript("window.__tainikShowCall && window.__tainikShowCall()", null)
+    }
+
     fun openChat(chat: String) {
         pendingChat = chat
         if (!destroyed && bridgeReady) webView.evaluateJavascript("window.__tainikNative && __tainikNative.deliver()", null)

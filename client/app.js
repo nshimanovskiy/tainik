@@ -1000,6 +1000,35 @@ function callStatusText(c) {
   return '';
 }
 
+// Окошки с видео подстраиваются под пропорции картинки: вертикальная камера телефона
+// и экран любого размера показываются целиком, а не обрезаются рамкой 16:10.
+function trackAspect(video, box = video) {
+  const apply = () => {
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) return;
+    box.style.aspectRatio = `${w} / ${h}`;
+    box.classList.toggle('portrait', h > w);
+    // Камера собеседника на весь экран обрезается, только если ориентации совпадают
+    if (video === $('remote-main')) video.classList.toggle('mismatch', h > w !== video.clientHeight > video.clientWidth);
+  };
+  video.addEventListener('loadedmetadata', apply);
+  video.addEventListener('resize', apply);
+  window.addEventListener('resize', apply);
+}
+for (const v of document.querySelectorAll('video.fit-aspect')) trackAspect(v);
+trackAspect($('remote-main'));
+trackAspect($('call-float-video'), $('call-float'));
+
+// MediaStream на каждый свой трек — один и тот же, иначе видео перезапускается при каждой перерисовке
+const localStreams = new WeakMap();
+function streamOf(track) {
+  if (!track) return null;
+  let s = localStreams.get(track);
+  if (!s) localStreams.set(track, (s = new MediaStream([track])));
+  return s;
+}
+
 function setVideo(node, stream, show) {
   if (show) {
     if (node.srcObject !== stream) node.srcObject = stream;
@@ -1025,19 +1054,69 @@ function syncNativeCall(c) {
   }
 }
 
+// Свёрнутый звонок: экран звонка прячется, сверху — полоска «вернуться к звонку»,
+// а видео собеседника (если есть) — в маленьком окошке, которое можно перетаскивать.
+// Разговор продолжается, можно переписываться в любых чатах.
+let callMinimized = false;
+let callSwap = false; // экран и камера собеседника поменяны местами
+let shownCallId = null;
+let endedToastFor = null;
+const canMinimize = (c) => !!c && c.phase !== 'incoming' && c.phase !== 'ended';
+
+function minimizeCall() {
+  if (!canMinimize(calls.call)) return false;
+  callMinimized = true;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  renderCall(calls.call);
+  return true;
+}
+function expandCall() {
+  if (!calls.call) return;
+  callMinimized = false;
+  renderCall(calls.call);
+}
+
+function renderMini(c, main) {
+  const on = !!c && callMinimized && c.phase !== 'ended';
+  $('call-mini').hidden = !on;
+  document.body.classList.toggle('call-min', on);
+  const float = on && !!main;
+  setVideo($('call-float-video'), float ? main : null, float);
+  $('call-float').hidden = !float;
+  if (!on) return;
+  $('call-mini-name').textContent = c.peer;
+  $('call-mini-status').textContent = callStatusText(c);
+  const micOff = !c.local.mic || !c.local.mic.enabled;
+  $('call-mini-mic').classList.toggle('off', micOff);
+  $('call-mini-mic').setAttribute('aria-pressed', String(micOff));
+}
+
 function renderCall(c) {
   syncNativeCall(c);
+  if ((c?.id ?? null) !== shownCallId) {
+    shownCallId = c?.id ?? null;
+    callMinimized = false;
+    callSwap = false;
+  }
+  if (c?.phase === 'incoming') callMinimized = false;
   const box = $('call');
   if (!c) {
     box.hidden = true;
+    renderMini(null, null);
     clearInterval(callTicker);
     callTicker = null;
-    for (const id of ['remote-main', 'remote-pip', 'local-pip']) setVideo($(id), null, false);
+    for (const id of ['remote-main', 'remote-pip', 'local-pip', 'local-screen']) setVideo($(id), null, false);
     $('remote-audio').srcObject = null;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     document.title = baseTitle();
     return;
   }
-  box.hidden = false;
+  // Звонок закончился, пока был свёрнут, — не разворачиваем, просто сообщаем
+  box.hidden = callMinimized;
+  if (c.phase === 'ended' && callMinimized && endedToastFor !== c.id) {
+    endedToastFor = c.id;
+    toast(`${c.peer}: ${callStatusText(c).toLowerCase()}`);
+  }
   $('call-name').textContent = c.peer;
   $('call-top-name').textContent = c.peer;
   paintAvatar($('call-avatar'), c.peer);
@@ -1051,25 +1130,28 @@ function renderCall(c) {
     $('remote-audio').play().catch(() => {});
   }
 
-  // Видео: экран собеседника — главный, камера — в углу
+  // Видео: экран собеседника — главный, камера — в окошке (нажатие меняет их местами)
   const live = c.phase === 'active' || c.phase === 'connecting';
   const rScreen = live && c.remoteState.screen && c.remote.screen.getTracks().length > 0;
   const rCam = live && c.remoteState.cam && c.remote.cam.getTracks().length > 0;
-  const main = rScreen ? c.remote.screen : rCam ? c.remote.cam : null;
+  const both = rScreen && rCam;
+  const main = both && callSwap ? c.remote.cam : rScreen ? c.remote.screen : rCam ? c.remote.cam : null;
+  const pip = both ? (callSwap ? c.remote.screen : c.remote.cam) : null;
   setVideo($('remote-main'), main, !!main);
-  $('remote-main').classList.toggle('cover', !rScreen);
-  setVideo($('remote-pip'), c.remote.cam, rScreen && rCam);
+  $('remote-main').classList.toggle('cover', !!main && main === c.remote.cam);
+  setVideo($('remote-pip'), pip, !!pip);
+  $('remote-pip').classList.toggle('contain', pip === c.remote.screen);
   $('call-placeholder').hidden = !!main;
   $('call-topbar').hidden = !main;
+  $('call-fullscreen').hidden = !main || android || !document.fullscreenEnabled;
 
-  // Своё превью: камера (зеркально) или показываемый экран
-  const mine = c.local.cam || c.local.screen;
-  const localStream = mine ? new MediaStream([mine]) : null;
-  const lp = $('local-pip');
-  if (mine && lp.srcObject?.getTracks()[0] !== mine) lp.srcObject = localStream;
-  lp.hidden = !mine || c.phase === 'ended';
-  lp.classList.toggle('screen', !c.local.cam && !!c.local.screen);
-  $('sharing-badge').hidden = !c.local.screen;
+  // Своё превью: камера (зеркально) и показываемый экран — отдельно, экран целиком
+  const ended = c.phase === 'ended';
+  setVideo($('local-pip'), streamOf(c.local.cam), !!c.local.cam && !ended);
+  setVideo($('local-screen'), streamOf(c.local.screen), !!c.local.screen && !ended);
+  $('sharing-badge').hidden = !c.local.screen || ended;
+  $('call-minimize').hidden = !canMinimize(c);
+  renderMini(c, main);
 
   // Кнопки
   $('call-incoming').hidden = c.phase !== 'incoming';
@@ -1094,6 +1176,7 @@ function renderCall(c) {
         const t = callStatusText(calls.call);
         $('call-status').textContent = t;
         $('call-top-status').textContent = t;
+        $('call-mini-status').textContent = t;
       }
     }, 1000);
   }
@@ -1123,6 +1206,66 @@ $('call-accept-audio').addEventListener('click', () => calls.accept({ video: fal
 $('call-accept-video').addEventListener('click', () => calls.accept({ video: true }).catch((e) => toast(e.message)));
 $('call-decline').addEventListener('click', () => calls.decline());
 $('call-hangup').addEventListener('click', () => calls.hangup());
+
+// Свернуть и развернуть звонок
+$('call-minimize').addEventListener('click', minimizeCall);
+$('call-mini-open').addEventListener('click', expandCall);
+$('call-mini-mic').addEventListener('click', () => calls.toggleMic());
+$('call-mini-hangup').addEventListener('click', () => calls.hangup());
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || $('call').hidden || document.fullscreenElement || document.querySelector('dialog[open]')) return;
+  minimizeCall();
+});
+$('remote-pip').addEventListener('click', () => {
+  callSwap = !callSwap;
+  renderCall(calls.call);
+});
+function toggleFullscreen() {
+  if (android || !document.fullscreenEnabled) return;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else $('call').requestFullscreen().catch(() => {});
+}
+$('call-fullscreen').addEventListener('click', toggleFullscreen);
+$('remote-main').addEventListener('dblclick', toggleFullscreen);
+
+// Окошко с видео свёрнутого звонка: перетаскивается, нажатие — вернуться к звонку
+{
+  const f = $('call-float');
+  let drag = null;
+  const clampTo = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
+  const place = (x, y) => {
+    const r = f.getBoundingClientRect();
+    f.style.left = clampTo(x, 8, innerWidth - r.width - 8) + 'px';
+    f.style.top = clampTo(y, 52, innerHeight - r.height - 8) + 'px';
+    f.style.right = 'auto';
+    f.style.bottom = 'auto';
+  };
+  f.addEventListener('pointerdown', (e) => {
+    drag = { x: e.clientX, y: e.clientY, r: f.getBoundingClientRect(), moved: false };
+    f.setPointerCapture(e.pointerId);
+  });
+  f.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    const dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+    drag.moved = true;
+    f.classList.add('dragging');
+    place(drag.r.left + dx, drag.r.top + dy);
+  });
+  f.addEventListener('pointerup', () => {
+    if (drag && !drag.moved) expandCall();
+    drag = null;
+    f.classList.remove('dragging');
+  });
+  f.addEventListener('pointercancel', () => {
+    drag = null;
+    f.classList.remove('dragging');
+  });
+  window.addEventListener('resize', () => {
+    if (f.style.left) place(parseFloat(f.style.left), parseFloat(f.style.top));
+  });
+}
 $('call-mic').addEventListener('click', () => calls.toggleMic());
 $('call-cam').addEventListener('click', () => calls.toggleCamera().catch(() => toast('Камера недоступна')));
 $('call-screen').addEventListener('click', () =>
@@ -1318,11 +1461,14 @@ window.__tainikBack = () => {
   if (!$('msg-menu').hidden) return closeMenu(), true;
   const dlg = [...document.querySelectorAll('dialog[open]')].pop();
   if (dlg) return dlg.close(), true;
+  if (!$('call').hidden && minimizeCall()) return true;
   if (reply) return setReply(null), true;
-  if (calls.busy) return false;
+  if (!$('call').hidden) return false; // входящий звонок: уйти в фон, звонок продолжит звонить
   if ($('app').classList.contains('in-chat')) return $('back-btn').click(), true;
   return false;
 };
+// Нажали на уведомление «Звонок: …» — развернуть звонок
+window.__tainikShowCall = () => expandCall();
 // Сеть вернулась или телефон проснулся: проверить соединение, при необходимости — переподключиться.
 window.__tainikWake = (restart = false) => {
   if (!client.account) return;

@@ -240,10 +240,25 @@
   </dialog>
 
   <!-- Звонок -->
+  <!-- Свёрнутый звонок: полоска сверху и окошко с видео собеседника -->
+  <div id="call-mini" class="call-mini" hidden>
+    <button id="call-mini-open" class="call-mini-open" type="button" aria-label="Вернуться к звонку">
+      <span class="call-mini-dot" aria-hidden="true"></span>
+      <b id="call-mini-name"></b>
+      <span id="call-mini-status" class="call-mini-status"></span>
+      <span class="call-mini-hint">вернуться к звонку</span>
+    </button>
+    <button id="call-mini-mic" class="call-mini-btn" type="button" aria-label="Микрофон" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg></button>
+    <button id="call-mini-hangup" class="call-mini-btn danger" type="button" aria-label="Завершить звонок"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1a1 1 0 0 1-.56.9 11.5 11.5 0 0 0-2.66 1.85 1 1 0 0 1-1.4 0L.29 13.08a1 1 0 0 1 0-1.41A16.9 16.9 0 0 1 12 7c4.5 0 8.6 1.76 11.7 4.67a1 1 0 0 1 0 1.41l-2.48 2.48a1 1 0 0 1-1.4 0 11.3 11.3 0 0 0-2.67-1.85 1 1 0 0 1-.56-.9v-3.1A15 15 0 0 0 12 9z"/></svg></button>
+  </div>
+  <div id="call-float" class="call-float" hidden title="Вернуться к звонку">
+    <video id="call-float-video" autoplay playsinline muted></video>
+  </div>
+
   <section id="call" class="call-overlay" hidden aria-live="polite">
     <div class="call-stage">
       <video id="remote-main" class="remote-main" autoplay playsinline muted></video>
-      <video id="remote-pip" class="remote-pip" autoplay playsinline muted hidden></video>
+      <video id="remote-pip" class="pip remote-pip fit-aspect" autoplay playsinline muted hidden title="Поменять местами"></video>
       <div id="call-placeholder" class="call-placeholder">
         <span class="avatar call-avatar" id="call-avatar"></span>
         <div id="call-name" class="call-name"></div>
@@ -254,8 +269,17 @@
         <span id="call-top-name"></span> · <span id="call-top-status"></span>
         <span class="call-e2e-mini" title="Сквозное шифрование">🔒</span>
       </div>
-      <video id="local-pip" class="local-pip" autoplay playsinline muted hidden></video>
-      <div id="sharing-badge" class="sharing-badge" hidden>Вы показываете экран</div>
+      <div class="local-previews">
+        <div id="sharing-badge" class="sharing-badge" hidden>Вы показываете экран</div>
+        <video id="local-screen" class="pip local-screen fit-aspect" autoplay playsinline muted hidden title="Так собеседник видит ваш экран"></video>
+        <video id="local-pip" class="pip local-pip fit-aspect" autoplay playsinline muted hidden></video>
+      </div>
+      <button id="call-minimize" class="call-corner left" type="button" aria-label="Свернуть звонок" title="Свернуть: звонок продолжится, а вы сможете переписываться">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7.4 8.6 12 13.2l4.6-4.6L18 10l-6 6-6-6z"/></svg>
+      </button>
+      <button id="call-fullscreen" class="call-corner right" type="button" aria-label="Во весь экран" title="Во весь экран" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v2H6v4H4zm10 0h6v6h-2V6h-4zM4 14h2v4h4v2H4zm14 0h2v6h-6v-2h4z"/></svg>
+      </button>
       <audio id="remote-audio" autoplay></audio>
     </div>
 

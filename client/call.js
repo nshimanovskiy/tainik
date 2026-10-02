@@ -14,7 +14,9 @@
 const RING_TIMEOUT = 45_000;
 const ICE_GATHER_TIMEOUT = 4_000;
 const DISCONNECT_GRACE = 10_000;
-const SCREEN_MAX_BITRATE = 2_500_000;
+const SCREEN_MAX_BITRATE = 3_000_000;
+const SCREEN_MAX_WIDTH = 1920;
+const SCREEN_MAX_HEIGHT = 1080;
 
 const T_AUDIO = 0;
 const T_CAM = 1;
@@ -264,7 +266,12 @@ export class CallManager {
       return;
     }
     if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('Трансляция экрана не поддерживается на этом устройстве');
-    const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: 30, max: 30 } }, audio: false });
+    // Не больше 1080p: экран 2K/4K при битрейте в пару мегабит и приоритете разрешения
+    // превращается в слайд-шоу. Пропорции экрана сохраняются.
+    const s = await navigator.mediaDevices.getDisplayMedia({
+      video: { width: { max: SCREEN_MAX_WIDTH }, height: { max: SCREEN_MAX_HEIGHT }, frameRate: { ideal: 30, max: 30 } },
+      audio: false,
+    });
     const track = s.getVideoTracks()[0];
     if (!this.call || this.call !== c) return track.stop();
     track.contentHint = 'detail'; // текст на экране важнее плавности

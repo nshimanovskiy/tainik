@@ -292,14 +292,33 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
 .call-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .remote-main { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
 .remote-main.cover { object-fit: cover; }
-.remote-pip, .local-pip {
-  position: absolute; width: clamp(120px, 22vw, 260px); aspect-ratio: 16 / 10;
+.remote-main.cover.mismatch { object-fit: contain; }
+.pip.contain { object-fit: contain; background: #000; }
+.pip {
+  width: clamp(120px, 22vw, 260px); aspect-ratio: 16 / 10; max-height: 38vh;
   object-fit: cover; border-radius: 14px; background: #1a221f;
   box-shadow: 0 6px 24px rgba(0,0,0,.45); border: 1px solid rgba(255,255,255,.12);
 }
-.local-pip { right: 16px; bottom: 16px; transform: scaleX(-1); }
-.local-pip.screen { transform: none; }
-.remote-pip { left: 16px; bottom: 16px; }
+/* Вертикальное видео (камера телефона) — уже, чтобы не занимало пол-экрана */
+.pip.portrait { width: clamp(84px, 12vw, 150px); }
+.remote-pip { position: absolute; left: 16px; bottom: 16px; cursor: pointer; z-index: 2; }
+.local-previews {
+  position: absolute; right: 16px; bottom: 16px; z-index: 2;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+}
+.local-pip { transform: scaleX(-1); }
+/* Свой экран — целиком, без обрезки и без зеркала */
+.local-screen { object-fit: contain; background: #000; outline: 2px solid #c0392b; outline-offset: -2px; }
+.call-corner {
+  position: absolute; top: 10px; z-index: 3; width: 42px; height: 42px; padding: 9px;
+  border-radius: 50%; background: rgba(0,0,0,.45); backdrop-filter: blur(6px);
+  display: grid; place-items: center;
+}
+.call-corner svg { width: 24px; height: 24px; fill: #eef5f2; }
+.call-corner:hover { background: rgba(0,0,0,.65); }
+.call-corner.left { left: 12px; }
+.call-corner.right { right: 12px; }
+.call-overlay:fullscreen .call-controls { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(transparent, rgba(0,0,0,.6)); }
 .call-placeholder {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 16px;
@@ -315,10 +334,7 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
   backdrop-filter: blur(6px); white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis;
 }
 .call-e2e-mini { margin-left: 4px; }
-.sharing-badge {
-  position: absolute; top: 12px; right: 16px; background: #c0392b; color: #fff;
-  font-size: 13px; padding: 5px 12px; border-radius: 20px;
-}
+.sharing-badge { background: #c0392b; color: #fff; font-size: 13px; padding: 5px 12px; border-radius: 20px; }
 .call-controls {
   display: flex; justify-content: center; gap: clamp(10px, 3vw, 22px);
   padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); background: #0d1210;
@@ -353,8 +369,45 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
   .call-ctl svg { width: 52px; height: 52px; padding: 14px; }
   .call-ctl span { display: none; }
   #call-incoming .call-ctl span { display: block; }
-  .local-pip { width: 110px; right: 10px; bottom: 10px; }
-  .remote-pip { width: 110px; left: 10px; bottom: 10px; }
+  .pip { width: 110px; }
+  .pip.portrait { width: 76px; }
+  .local-previews { right: 10px; bottom: 10px; }
+  .remote-pip { left: 10px; bottom: 10px; }
+}
+
+/* Свёрнутый звонок */
+.call-mini {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 40; height: 44px;
+  display: flex; align-items: center; gap: 6px; padding: 0 8px 0 0;
+  background: #1f6f5c; color: #f2fbf7; box-shadow: 0 2px 10px rgba(0,0,0,.18);
+}
+.call-mini-open {
+  flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 0 14px; background: none; color: inherit; font-size: 14px; text-align: left;
+}
+.call-mini-open b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-mini-status { font-variant-numeric: tabular-nums; opacity: .9; white-space: nowrap; }
+.call-mini-hint { opacity: .7; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.call-mini-dot { width: 8px; height: 8px; border-radius: 50%; background: #7ff0c2; flex: none; animation: call-pulse 1.6s ease-in-out infinite; }
+@keyframes call-pulse { 50% { opacity: .35; } }
+.call-mini-btn { width: 34px; height: 34px; padding: 7px; border-radius: 50%; background: rgba(255,255,255,.16); display: grid; place-items: center; flex: none; }
+.call-mini-btn svg { width: 20px; height: 20px; fill: #fff; }
+.call-mini-btn.off { background: #eef5f2; }
+.call-mini-btn.off svg { fill: #0d1210; }
+.call-mini-btn.danger { background: #d64541; }
+body.call-min #app { height: calc(100% - 44px); margin-top: 44px; }
+.call-float {
+  position: fixed; z-index: 45; right: 16px; bottom: 96px; width: clamp(150px, 24vw, 300px);
+  aspect-ratio: 16 / 10; border-radius: 14px; overflow: hidden; background: #000; cursor: grab;
+  box-shadow: 0 8px 30px rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.12); touch-action: none;
+}
+.call-float.portrait { width: clamp(96px, 14vw, 170px); }
+.call-float video { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+.call-float.dragging { cursor: grabbing; }
+@media (max-width: 720px) {
+  .call-mini-hint { display: none; }
+  .call-float { width: 132px; bottom: 84px; }
+  .call-float.portrait { width: 92px; }
 }
 
 /* ---------- Статус, ответы, меню сообщения ---------- */
