@@ -117,5 +117,7 @@ jobs:
           tag_name: v${{ needs.meta.outputs.version }}
           name: Тайник ${{ needs.meta.outputs.version }}
           body_path: notes.md
-          draft: true
+          # по тегу — сразу публикуется; ручной запуск (Run workflow) — черновик для проверки
+          draft: ${{ github.event_name == 'workflow_dispatch' }}
+          make_latest: ${{ github.event_name != 'workflow_dispatch' }}
           files: out/*
