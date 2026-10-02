@@ -26,8 +26,12 @@ jobs:
       - name: Запуск и /healthz
         run: |
           docker run -d --name t -p 8080:8080 --read-only --tmpfs /tmp tainik-server:ci
-          for i in $(seq 1 20); do curl -fsS http://127.0.0.1:8080/healthz && exit 0; sleep 1; done
-          docker logs t; exit 1
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/healthz && exit 0; sleep 1; done
+          docker ps -a
+          docker logs t 2>&1 | tail -30
+          # Последние строки журнала — в аннотацию, чтобы их было видно на странице запуска
+          echo "::error title=Контейнер не ответил на /healthz::$(docker ps -a --format '{{.Status}}' -f name=t) — $(docker logs t 2>&1 | tail -6 | tr '\n' ' ')"
+          exit 1
 
   desktop:
     needs: test
