@@ -25,11 +25,21 @@ jobs:
       - run: docker build -t tainik-server:ci .
       - name: Запуск и /healthz
         run: |
-          docker run -d --name t -p 8080:8080 --read-only --tmpfs /tmp tainik-server:ci
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/healthz && exit 0; sleep 1; done
+          set +e
+          # Порт на хосте выбирает Docker — на раннере 8080 может быть занят
+          out="$(docker run -d --name t -p 127.0.0.1::8080 --read-only --tmpfs /tmp tainik-server:ci 2>&1)"
+          if [ $? -ne 0 ]; then
+            echo "::error title=docker run не удался::$(echo "$out" | tr '\n' ' ')"
+            exit 1
+          fi
+          PORT="$(docker port t 8080/tcp | head -1 | sed 's/.*://')"
+          echo "Контейнер слушает 127.0.0.1:${PORT}"
+          for i in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:${PORT}/healthz" && exit 0
+            sleep 1
+          done
           docker ps -a
           docker logs t 2>&1 | tail -30
-          # Последние строки журнала — в аннотацию, чтобы их было видно на странице запуска
           echo "::error title=Контейнер не ответил на /healthz::$(docker ps -a --format '{{.Status}}' -f name=t) — $(docker logs t 2>&1 | tail -6 | tr '\n' ' ')"
           exit 1
 
