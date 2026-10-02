@@ -55,9 +55,32 @@ jobs:
           PORT: ${{ secrets.DEPLOY_PORT || '22' }}
           USER: ${{ secrets.DEPLOY_USER || 'root' }}
         run: |
+          set +e
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 \
-            "$USER@$HOST" deploy
+            "$USER@$HOST" deploy 2> >(tee ssh-err.log >&2)
+          rc=$?
+          if [ $rc -eq 0 ]; then exit 0; fi
+          if [ $rc -ne 255 ]; then
+            echo "::error title=Обновление на сервере завершилось с ошибкой ($rc)::Подробности — в логе этого шага выше."
+            exit $rc
+          fi
+          # 255 — не удалось подключиться по SSH. Объясняем причину.
+          err="$(grep -v '^Warning' ssh-err.log | tail -3 | tr '\n' ' ')"
+          hint="Проверьте секреты DEPLOY_HOST / DEPLOY_PORT."
+          case "$err" in
+            *"Host key verification failed"*|*"REMOTE HOST IDENTIFICATION"*|*"No "*"host key is known"*)
+              got="$(ssh-keyscan -p "$PORT" -T 10 "$HOST" 2>/dev/null | head -3 | tr '\n' ' ')"
+              hint="Ключ сервера не совпал с DEPLOY_KNOWN_HOSTS. Сервер отвечает так: ${got:-не ответил}. Скопируйте секрет заново из вывода connect-github.sh целиком." ;;
+            *"Permission denied"*)
+              hint="Сервер не принял ключ: проверьте, что DEPLOY_KEY вставлен целиком (с BEGIN/END), DEPLOY_USER=root и в sshd разрешён вход root по ключу (PermitRootLogin prohibit-password)." ;;
+            *"Connection refused"*)
+              hint="На ${HOST}:${PORT} SSH не слушает — проверьте DEPLOY_PORT." ;;
+            *"timed out"*|*"No route"*)
+              hint="Сервер ${HOST}:${PORT} недоступен из GitHub — проверьте DEPLOY_HOST/DEPLOY_PORT и файрвол провайдера." ;;
+          esac
+          echo "::error title=Не удалось подключиться по SSH::${hint} Ответ ssh: ${err}"
+          exit 255
 
       - name: Проверка сайта
         env:
