@@ -92,10 +92,17 @@ touch "$AUTH" && chmod 600 "$AUTH"
 sed -i '/ tainik-actions$/d' "$AUTH"   # старый ключ Actions, если был
 echo "command=\"${DIR}/deploy/remote-deploy.sh\",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty $(cat "$ACT_KEY.pub")" >> "$AUTH"
 
-SSH_PORT="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"
+# Порт SSH: sshd -T (может не работать при запуске через ssh.socket) → ssh.socket → конфиг → 22
+SSH_PORT="$( { sshd -T 2>/dev/null || true; } | awk '/^port /{print $2; exit}' || true)"
+if [ -z "$SSH_PORT" ]; then
+  SSH_PORT="$( { systemctl show ssh.socket -p Listen 2>/dev/null || true; } | grep -oE '[0-9]+ \(Stream\)' | head -1 | cut -d' ' -f1 || true)"
+fi
+if [ -z "$SSH_PORT" ]; then
+  SSH_PORT="$( { cat /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true; } | awk 'tolower($1)=="port"{print $2; exit}' || true)"
+fi
 SSH_PORT="${SSH_PORT:-22}"
-ROOT_LOGIN="$(sshd -T 2>/dev/null | awk '/^permitrootlogin /{print $2; exit}')"
-[ "$ROOT_LOGIN" = "no" ] && warn "В sshd запрещён вход root (PermitRootLogin no) — включите 'prohibit-password' или 'forced-commands-only'."
+ROOT_LOGIN="$( { sshd -T 2>/dev/null || true; } | awk '/^permitrootlogin /{print $2; exit}' || true)"
+if [ "$ROOT_LOGIN" = "no" ]; then warn "В sshd запрещён вход root (PermitRootLogin no) — включите 'prohibit-password' или 'forced-commands-only'."; fi
 HOST="$(grep '^DOMAIN=' .env 2>/dev/null | cut -d= -f2- || true)"
 IP="$(curl -4fsS --max-time 8 https://api.ipify.org || true)"
 HOST_FOR_SSH="${IP:-$HOST}"
