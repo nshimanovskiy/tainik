@@ -4,6 +4,7 @@
 //   • очередь зашифрованных конвертов для офлайн-устройств (до подтверждения доставки).
 import http from 'node:http';
 import net from 'node:net';
+import dns from 'node:dns';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -663,8 +664,49 @@ export function startServer({
       bans.delete(ip);
     },
   };
+  // Откуда можно открыть панель: с самого сервера. Это
+  //  • запросы через nginx с IP сервера (его внешние адреса берутся из DNS домена — DOMAIN)
+  //    или с 127.0.0.1 — например, браузер через VPN/прокси на этом же сервере;
+  //  • прямые запросы к порту контейнера (он открыт только на 127.0.0.1 хоста), т. е. с самого
+  //    сервера или через SSH-туннель: у них нет заголовков прокси и адрес — локальный.
+  // ADMIN_ALLOW_IPS — дополнительные адреса через запятую; any — снять ограничение.
+  const adminAllowAny = (admin?.allowIps || []).includes('any');
+  const adminAllowIps = new Set(['127.0.0.1', '::1', ...(admin?.allowIps || []).filter((x) => x !== 'any').map(normIp)]);
+  let adminHostIps = new Set();
+  async function resolveAdminHosts() {
+    const found = new Set();
+    for (const h of admin?.allowHosts || []) {
+      try {
+        for (const a of await dns.promises.lookup(h, { all: true })) found.add(normIp(a.address));
+      } catch {}
+    }
+    adminHostIps = found;
+  }
+  const isPrivateIp = (ip) =>
+    /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip) || ip === '::1' || /^f[cd][0-9a-f]{2}:/i.test(ip) || /^fe80:/i.test(ip);
+  function adminAllowed(req) {
+    if (adminAllowAny) return true;
+    const proxied = req.headers['x-real-ip'] || req.headers['x-forwarded-for'];
+    if (!proxied && isPrivateIp(normIp(req.socket.remoteAddress))) return true;
+    const ip = ipOf(req);
+    return adminAllowIps.has(ip) || adminHostIps.has(ip);
+  }
+  let adminDnsTimer = null;
+  if (admin?.password && admin.allowHosts?.length) {
+    resolveAdminHosts();
+    adminDnsTimer = setInterval(resolveAdminHosts, 3600_000);
+    adminDnsTimer.unref?.();
+  }
   const adminHandler = admin?.password
-    ? createAdmin({ password: admin.password, basePath: admin.path, overview: adminOverview, actions: adminActions, clientIp: ipOf, say })
+    ? createAdmin({
+        password: admin.password,
+        basePath: admin.path,
+        overview: adminOverview,
+        actions: adminActions,
+        clientIp: ipOf,
+        allowed: adminAllowed,
+        say,
+      })
     : null;
   if (adminHandler) say('панель администратора включена');
   const webclip = createWebclipHandler({ root: ROOT, domain });
@@ -788,6 +830,7 @@ export function startServer({
         async close() {
           clearInterval(heartbeat);
           clearInterval(janitor);
+          clearInterval(adminDnsTimer);
           for (const s of sockets) s.destroy();
           server.closeAllConnections?.();
           await new Promise((r) => server.close(r));
@@ -827,7 +870,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
               (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
           },
     domain: env.DOMAIN || null,
-    admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,
+    admin: env.ADMIN_PASSWORD
+      ? {
+          password: env.ADMIN_PASSWORD,
+          path: env.ADMIN_PATH || '/adminadminadmin',
+          // по умолчанию — только с самого сервера; дополнительно — ADMIN_ALLOW_IPS
+          allowIps: String(env.ADMIN_ALLOW_IPS || '').split(',').map((s) => s.trim()).filter(Boolean),
+          allowHosts: [env.DOMAIN, env.ADMIN_SERVER_HOST].filter(Boolean),
+        }
+      : null,
   });
   let stopping = false;
   const stop = async () => {

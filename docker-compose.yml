@@ -31,6 +31,8 @@ services:
       # Панель администратора (пользователи, статус, IP текущих подключений). Без пароля выключена.
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_PATH: ${ADMIN_PATH:-/adminadminadmin}
+      # Панель открывается только с самого сервера; дополнительные адреса — через запятую
+      ADMIN_ALLOW_IPS: ${ADMIN_ALLOW_IPS:-}
     ports:
       - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
     volumes:

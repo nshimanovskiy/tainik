@@ -1,5 +1,7 @@
 // Панель администратора: пользователи, их устройства, статус «в сети», текущий и последний IP
 // устройств; удаление аккаунтов и блокировка IP. Текста сообщений сервер не знает, и панель тоже.
+// Открывается только с разрешённых адресов (по умолчанию — с самого сервера, см. allowed()):
+// для всех остальных её адрес выглядит как несуществующая страница.
 //
 // Включается переменной ADMIN_PASSWORD (не короче 12 символов). Адрес — ADMIN_PATH
 // (по умолчанию /adminadminadmin). Без пароля панели нет: адрес отвечает 404.
@@ -44,7 +46,7 @@ export function normalizeAdminPath(p) {
 /**
  * @returns {null | (req, res) => boolean}  обработчик: true, если запрос был к панели
  */
-export function createAdmin({ password, basePath, overview, actions = {}, clientIp, say = () => {} }) {
+export function createAdmin({ password, basePath, overview, actions = {}, clientIp, allowed = () => true, say = () => {} }) {
   if (!password) return null;
   if (String(password).length < MIN_PASSWORD) {
     say(`панель администратора выключена: ADMIN_PASSWORD короче ${MIN_PASSWORD} символов`);
@@ -137,6 +139,7 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
   return function handleAdmin(req, res) {
     const url = new URL(req.url, 'http://x');
     if (url.pathname !== base && !url.pathname.startsWith(base + '/')) return false;
+    if (!allowed(req)) return false; // чужой адрес: дальше ответит обычный сайт — «не найдено»
     const sub = url.pathname.slice(base.length) || '/';
     if (sub === '/' && url.pathname === base) {
       redirect(res, `${base}/`); // относительные адреса скриптов работают только со слэшем
