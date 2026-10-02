@@ -1,0 +1,9 @@
+node_modules/
+data/
+desktop/renderer/
+desktop/dist/
+*.log
+.env
+.env.bak.*
+backups/
+deploy/turnserver.conf

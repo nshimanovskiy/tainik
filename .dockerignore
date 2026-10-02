@@ -1,0 +1,10 @@
+.git
+.github
+node_modules
+data
+backups
+desktop
+tests
+deploy
+*.md
+.env
