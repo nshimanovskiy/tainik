@@ -1,0 +1,121 @@
+# Выпуск десктопной версии на GitHub Releases.
+# Запускается тегом вида v1.2.3:   git tag v0.4.0 && git push origin v0.4.0
+# Можно и вручную: Actions → «Выпуск десктопа» → Run workflow (указав версию).
+name: Выпуск десктопа
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Версия без «v», например 0.4.0'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  # Адрес сервера по умолчанию в приложении. Переопределяется переменной
+  # репозитория TAINIK_SERVER (Settings → Secrets and variables → Actions → Variables).
+  TAINIK_SERVER: ${{ vars.TAINIK_SERVER || 'chat.sdsds.top' }}
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          V="${{ github.event.inputs.version }}"
+          [ -n "$V" ] || V="${GITHUB_REF_NAME#v}"
+          [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "Неверная версия: $V"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+
+  build:
+    needs: [meta, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win
+          - os: macos-latest
+            target: --mac
+          - os: ubuntu-latest
+            target: --linux
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run set-version -- "${{ needs.meta.outputs.version }}"
+      - run: npm run prepare-web
+      - name: Сборка
+        run: npx electron-builder ${{ matrix.target }} --publish never
+        env:
+          # Без сертификатов сборка не подписывается (см. RELEASING.md)
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+          if-no-files-found: error
+
+  release:
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Контрольные суммы
+        run: |
+          cd out
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Описание выпуска
+        run: |
+          V="${{ needs.meta.outputs.version }}"
+          {
+            echo "## Тайник $V"
+            echo
+            if [ -f CHANGELOG.md ]; then
+              awk -v v="$V" '$0 ~ "^## " {p = index($0, v) > 0; next} p' CHANGELOG.md
+              echo
+            fi
+            cat .github/release-notes.md
+            echo
+            echo "Сервер по умолчанию: \`${TAINIK_SERVER}\` (можно изменить при первом входе)."
+          } > notes.md
+          cat notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.meta.outputs.version }}
+          name: Тайник ${{ needs.meta.outputs.version }}
+          body_path: notes.md
+          draft: true
+          files: out/*
