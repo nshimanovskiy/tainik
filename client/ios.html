@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Установить Тайник на iPhone</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Тайник">
+  <meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111513" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="install.css">
+  <script type="module" src="install.js"></script>
+</head>
+<body>
+  <main class="install">
+    <header class="hero">
+      <img src="apple-touch-icon.png" alt="" width="84" height="84" class="app-icon">
+      <h1>Тайник для iPhone и iPad</h1>
+      <p class="muted">Мессенджер со сквозным шифрованием — значком на экране «Домой», как обычное приложение: без панелей Safari, с уведомлениями и звонками.</p>
+    </header>
+
+    <!-- Уже открыт с экрана «Домой» -->
+    <section id="installed" class="card ok" hidden>
+      <h2>✓ Тайник уже установлен</h2>
+      <p>Вы открыли его с экрана «Домой». <a href="/">Перейти к чатам →</a></p>
+    </section>
+
+    <!-- Не iPhone: показать QR, чтобы открыть страницу на телефоне -->
+    <section id="not-ios" class="card" hidden>
+      <h2>Откройте эту страницу на iPhone</h2>
+      <p>Наведите камеру iPhone на код — откроется эта страница в Safari.</p>
+      <div id="qr" class="qr" aria-label="QR-код этой страницы"></div>
+      <p class="muted small" id="page-url"></p>
+    </section>
+
+    <!-- iOS, но не Safari -->
+    <section id="not-safari" class="card warn" hidden>
+      <h2>Откройте в Safari</h2>
+      <p>Установить приложение на экран «Домой» можно только из Safari. Скопируйте адрес и откройте его в Safari.</p>
+      <button type="button" id="copy-url" class="primary">Скопировать адрес</button>
+    </section>
+
+    <!-- Старый iOS -->
+    <section id="old-ios" class="card warn" hidden>
+      <h2>Нужна iOS 18.4 или новее</h2>
+      <p>Шифрование Тайника использует возможности Safari, которые появились в iOS 18.4. Обновите iPhone: Настройки → Основные → Обновление ПО.</p>
+    </section>
+
+    <section id="steps" class="card">
+      <h2>Установка в три шага</h2>
+      <ol class="steps">
+        <li>
+          <b>Скачайте профиль</b>
+          <a id="get-profile" class="primary big" href="/tainik.mobileconfig">Установить Тайник</a>
+          <span class="muted small">Safari спросит: «Разрешить загрузку профиля?» — нажмите «Разрешить».</span>
+        </li>
+        <li>
+          <b>Установите его в Настройках</b>
+          <span>Откройте <b>Настройки</b> → вверху появится «Профиль загружен» → <b>Установить</b>, введите код-пароль телефона и ещё раз «Установить».</span>
+          <span class="muted small">Если строки нет: Настройки → Основные → VPN и управление устройством → «Тайник».</span>
+        </li>
+        <li>
+          <b>Откройте Тайник с экрана «Домой»</b>
+          <span>Появится значок с замком. Войдите или создайте аккаунт уже в нём и включите уведомления.</span>
+        </li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Что важно знать</h2>
+      <ul class="notes">
+        <li><b>Профиль безопасен.</b> В нём только адрес сервера, название и значок — он не даёт доступа к телефону, данным или переписке. iOS пометит его «Не подтверждён» — так выглядит любой профиль, не подписанный сертификатом.</li>
+        <li><b>У приложения на экране «Домой» своё хранилище</b>, отдельное от Safari. Если вы уже пользовались Тайником в Safari, в приложении выберите «Привязать устройство» и подтвердите код в Safari (⋯ → Устройства) — или просто создайте аккаунт заново.</li>
+        <li><b>Уведомления</b> приходят, когда приложение закрыто, — разрешите их при первом входе (⋯ → Уведомления).</li>
+        <li><b>Удалить:</b> удерживайте значок → «Удалить закладку», а профиль — в Настройки → Основные → VPN и управление устройством.</li>
+      </ul>
+      <details class="manual">
+        <summary>Установить без профиля</summary>
+        <p>Откройте <a href="/">главную страницу</a> в Safari → кнопка «Поделиться» <span aria-hidden="true">⬆︎</span> → «На экран „Домой“» → «Добавить». Результат тот же.</p>
+      </details>
+    </section>
+
+    <p class="muted small center">Android, Windows, macOS и Linux — <a href="/">веб-версия</a> и приложения со страницы проекта.</p>
+  </main>
+</body>
+</html>

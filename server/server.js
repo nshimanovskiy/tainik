@@ -11,6 +11,7 @@ import { randomBytes, createHmac, createHash } from 'node:crypto';
 import { acceptUpgrade } from './ws.js';
 import { Store } from './store.js';
 import { createAdmin } from './admin.js';
+import { createWebclipHandler } from './webclip.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
@@ -126,6 +127,8 @@ export function startServer({
   push = {},
   // Панель администратора: { password, path } (см. server/admin.js). Без пароля выключена.
   admin = null,
+  // Домен для профиля iPhone (/tainik.mobileconfig); без него — из заголовка Host
+  domain = null,
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -664,6 +667,7 @@ export function startServer({
     ? createAdmin({ password: admin.password, basePath: admin.path, overview: adminOverview, actions: adminActions, clientIp: ipOf, say })
     : null;
   if (adminHandler) say('панель администратора включена');
+  const webclip = createWebclipHandler({ root: ROOT, domain });
 
   const server = http.createServer((req, res) => {
     if (adminHandler && adminHandler(req, res)) return; // панель доступна и с заблокированного IP
@@ -671,6 +675,7 @@ export function startServer({
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Доступ запрещён');
       return;
     }
+    if (webclip(req, res)) return; // профиль iPhone; /ios → страница установки
     if (req.url === '/healthz') {
       let ok = false;
       try {
@@ -821,6 +826,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
               env.VAPID_SUBJECT ||
               (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
           },
+    domain: env.DOMAIN || null,
     admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,
   });
   let stopping = false;

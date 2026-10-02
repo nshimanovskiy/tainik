@@ -122,6 +122,8 @@ function previewOf(m) {
 function showAuth() {
   $('auth').hidden = false;
   $('app').hidden = true;
+  // Safari на iPhone/iPad: предложить установить на экран «Домой» (там своё хранилище и пуши)
+  $('ios-install').hidden = !(isIOS && !standalone && !desktop);
   const others = savedAccounts().filter((a) => a.id !== activeId);
   $('auth-cancel').hidden = !others.length;
   $('auth-extra').hidden = !others.length;

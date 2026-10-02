@@ -31,6 +31,7 @@ Grab the latest installer from **[Releases](../../releases)**:
 | macOS (Intel) | `Tainik-x.y.z-mac-x64.dmg` |
 | Linux | `Tainik-x.y.z-linux-x86_64.AppImage` or `.deb` |
 | Android 8.0+ | `Tainik-x.y.z-android.apk` |
+| iPhone / iPad (iOS 18.4+) | Open `https://your-server/ios` in Safari and tap «Установить Тайник»: a configuration profile adds a home-screen web app (no App Store needed) |
 
 Builds are not code-signed yet. Windows SmartScreen and macOS Gatekeeper will warn on first launch, and the release notes explain how to proceed. Verify downloads against `SHA256SUMS.txt`.
 
