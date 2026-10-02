@@ -14,8 +14,12 @@ const {
   Notification,
   desktopCapturer,
   systemPreferences,
+  Tray,
+  Menu,
+  nativeImage,
+  powerMonitor,
 } = require('electron');
-const { SecureStore, resolveAppPath, MIME, CSP } = require('./lib.cjs');
+const { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry } = require('./lib.cjs');
 // Хранилище v3 (несколько устройств) несовместимо с v2 — отдельный файл
 
 const RENDERER_DIR = path.join(__dirname, 'renderer');
@@ -35,6 +39,14 @@ if (!app.requestSingleInstanceLock()) {
 let win = null;
 let store = null;
 let settings = {};
+let tray = null;
+let quitting = false; // true — окно действительно закрывается (выход), а не прячется в трей
+const isMac = process.platform === 'darwin';
+const isWin = process.platform === 'win32';
+const isLinux = process.platform === 'linux';
+const BUILD = path.join(__dirname, 'build');
+// Запуск при входе в систему — сразу в фоне, без окна (определяется после app.whenReady)
+let startHidden = process.argv.includes('--hidden');
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 
 function loadSettings() {
@@ -86,6 +98,144 @@ function openStore() {
   }
 }
 
+// ---------- Окно, трей, автозапуск ----------
+const backgroundOn = () => settings.tray !== '0'; // по умолчанию при закрытии окна остаёмся в фоне
+
+function showWindow() {
+  if (!win) createWindow(true);
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function quitApp() {
+  quitting = true;
+  app.quit();
+}
+
+// Автозапуск. В несобранном виде (npm start) не включаем: в систему записался бы путь к electron.
+const autostartSupported = () => app.isPackaged && (isWin || isMac || isLinux);
+const winExe = () => process.env.PORTABLE_EXECUTABLE_FILE || process.execPath; // переносная версия — свой .exe
+const linuxAutostartFile = () => path.join(app.getPath('appData'), 'autostart', 'tainik.desktop'); // ~/.config/autostart
+
+function getAutostart() {
+  if (!autostartSupported()) return false;
+  if (isLinux) return fs.existsSync(linuxAutostartFile());
+  if (isWin) return app.getLoginItemSettings({ path: winExe(), args: ['--hidden'] }).openAtLogin;
+  return app.getLoginItemSettings().openAtLogin;
+}
+
+function setAutostart(on) {
+  if (!autostartSupported()) throw new Error('Автозапуск доступен в собранном приложении');
+  if (isLinux) {
+    const file = linuxAutostartFile();
+    if (on) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, linuxAutostartEntry(process.env.APPIMAGE || process.execPath), { mode: 0o644 });
+    } else {
+      fs.rmSync(file, { force: true });
+    }
+  } else if (isWin) {
+    app.setLoginItemSettings({ openAtLogin: on, path: winExe(), args: ['--hidden'] });
+  } else {
+    app.setLoginItemSettings({ openAtLogin: on, openAsHidden: true });
+  }
+  updateTrayMenu();
+}
+
+function trayIcon() {
+  if (isMac) {
+    const img = nativeImage.createFromPath(path.join(BUILD, 'trayTemplate.png')); // @2x подхватывается сам
+    img.setTemplateImage(true);
+    return img;
+  }
+  const img = nativeImage.createFromPath(path.join(BUILD, 'tray.png'));
+  return isWin ? img.resize({ width: 16, height: 16, quality: 'best' }) : img;
+}
+
+function createTray() {
+  if (tray) return;
+  try {
+    tray = new Tray(trayIcon());
+  } catch (e) {
+    console.error('tray', e); // нет области уведомлений (например, GNOME без расширения) — окно откроет повторный запуск
+    tray = null;
+    return;
+  }
+  tray.setToolTip('Тайник');
+  if (!isMac) tray.on('click', showWindow);
+  updateTrayMenu();
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Открыть Тайник', click: showWindow },
+      { type: 'separator' },
+      {
+        label: 'Запускать при входе в систему',
+        type: 'checkbox',
+        checked: getAutostart(),
+        enabled: autostartSupported(),
+        click: (item) => {
+          try {
+            setAutostart(item.checked);
+          } catch (e) {
+            dialog.showErrorBox('Тайник', e.message);
+          }
+        },
+      },
+      { type: 'separator' },
+      { label: 'Выйти', click: quitApp },
+    ])
+  );
+}
+
+function setBackground(on) {
+  settings.tray = on ? '1' : '0';
+  saveSettings();
+  if (on) createTray();
+  else if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+}
+
+// Уведомления: по одному на чат (новое заменяет старое); ссылки держим, иначе сборщик мусора
+// уберёт объект и клик по уведомлению перестанет работать.
+const notices = new Map();
+function showNotice({ title, body, chat, call }) {
+  if (!Notification.isSupported()) return;
+  const key = (call ? 'call:' : 'msg:') + chat;
+  notices.get(key)?.close();
+  const n = new Notification({
+    title,
+    body,
+    silent: false,
+    urgency: call ? 'critical' : 'normal',
+    timeoutType: call ? 'never' : 'default',
+    icon: isLinux ? path.join(BUILD, 'icon.png') : undefined,
+  });
+  n.on('click', () => {
+    showWindow();
+    if (chat) win?.webContents.send('open-chat', chat);
+  });
+  n.on('close', () => notices.get(key) === n && notices.delete(key));
+  notices.set(key, n);
+  n.show();
+}
+
+let overlay = null;
+function setBadge(count) {
+  if (isMac || isLinux) app.setBadgeCount(count); // док macOS, Unity/KDE на Linux
+  if (isWin && win) {
+    overlay ||= nativeImage.createFromPath(path.join(BUILD, 'badge.png'));
+    win.setOverlayIcon(count ? overlay : null, count ? `Непрочитанных: ${count}` : '');
+  }
+  tray?.setToolTip(count ? `Тайник — непрочитанных: ${count}` : 'Тайник');
+}
+
 // IPC принимаем только от нашей страницы
 function fromApp(event) {
   const url = event.senderFrame && event.senderFrame.url;
@@ -115,18 +265,30 @@ function registerIpc() {
       saveSettings();
     })
   );
-  ipcMain.on('notify', (event, body) => {
-    if (!fromApp(event) || !Notification.isSupported()) return;
-    if (win && win.isFocused()) return;
-    const n = new Notification({ title: 'Тайник', body: String(body).slice(0, 120), silent: false });
-    n.on('click', () => {
-      if (!win) return;
-      if (win.isMinimized()) win.restore();
-      win.show();
-      win.focus();
-    });
-    n.show();
+  ipcMain.on('notify', (event, n) => {
+    if (!fromApp(event) || !n || typeof n !== 'object') return;
+    if (win && win.isVisible() && win.isFocused()) return;
+    const chat = /^[a-z0-9_]{3,32}$/.test(n.chat) ? n.chat : '';
+    showNotice({ title: String(n.title || 'Тайник').slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call });
+    if (win) {
+      // Входящий звонок: показываем окно из трея (без перехвата фокуса), иначе мигаем на панели задач
+      if (n.call && !win.isVisible()) win.showInactive();
+      win.flashFrame(true);
+    }
   });
+  ipcMain.on('badge', (event, n) => {
+    if (!fromApp(event)) return;
+    setBadge(Math.max(0, Math.min(9999, Math.floor(Number(n) || 0))));
+  });
+  ipcMain.handle('bg:get', guard(() => ({ tray: backgroundOn(), autostart: getAutostart(), autostartSupported: autostartSupported() })));
+  ipcMain.handle(
+    'bg:set',
+    guard((k, v) => {
+      if (k === 'tray') return setBackground(!!v);
+      if (k === 'autostart') return setAutostart(!!v);
+      throw new Error('bad key');
+    })
+  );
 }
 
 function registerAppProtocol() {
@@ -172,7 +334,7 @@ function pickSource(list) {
   });
 }
 
-function createWindow() {
+function createWindow(forceShow = false) {
   win = new BrowserWindow({
     width: 1100,
     height: 740,
@@ -191,9 +353,34 @@ function createWindow() {
       webSecurity: true,
       spellcheck: true,
       devTools: !app.isPackaged,
+      // В фоне (окно спрятано) таймеры переподключения и пинга не должны засыпать
+      backgroundThrottling: false,
     },
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    if (forceShow || !startHidden) win.show();
+  });
+  win.on('focus', () => win.flashFrame(false));
+  // Закрытие окна — уход в фон: соединение остаётся, сообщения и звонки приходят
+  win.on('close', (e) => {
+    if (quitting || !backgroundOn()) return;
+    e.preventDefault();
+    win.hide();
+    if (!settings.backgroundHintShown) {
+      settings.backgroundHintShown = '1';
+      saveSettings();
+      showNotice({
+        title: 'Тайник работает в фоне',
+        body: tray ? 'Открыть или выйти — через значок в трее. Отключить: меню ⋯ → «Работа в фоне».' : 'Открыть снова — запустите Тайник. Отключить: меню ⋯ → «Работа в фоне».',
+        chat: '',
+      });
+    }
+  });
+  // Windows: выход из системы / выключение — не мешаем закрыться
+  win.on('session-end', () => {
+    quitting = true;
+    store?.flushSync();
+  });
   win.on('closed', () => (win = null));
   win.loadURL(APP_ORIGIN + '/index.html');
 }
@@ -211,14 +398,15 @@ app.on('web-contents-created', (_e, contents) => {
 });
 
 app.on('second-instance', () => {
-  if (!win) return;
-  if (win.isMinimized()) win.restore();
-  win.show();
-  win.focus();
+  if (store) showWindow();
 });
 
 app.whenReady().then(() => {
   if (process.platform === 'win32') app.setAppUserModelId('dev.tainik.desktop');
+  if (isMac) {
+    const li = app.getLoginItemSettings();
+    startHidden ||= !!(li.wasOpenedAtLogin || li.wasOpenedAsHidden);
+  }
   loadSettings();
   store = openStore();
   if (!store) return;
@@ -272,12 +460,16 @@ app.whenReady().then(() => {
   registerAppProtocol();
   registerIpc();
   createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (backgroundOn()) createTray();
+  powerMonitor.on('shutdown', () => {
+    quitting = true; // macOS/Linux: выключение компьютера
+    store?.flushSync();
   });
+  app.on('activate', showWindow); // клик по значку в доке macOS
 });
 
 app.on('before-quit', () => {
+  quitting = true;
   if (store) store.flushSync();
 });
 

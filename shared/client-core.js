@@ -67,6 +67,8 @@ const MAX_SEND_ATTEMPTS = 4;
 const AUTH_CONTEXT = 'tainik/v3/auth';
 
 export const ERROR_TEXT = {
+  push_disabled: 'Уведомления на этом сервере выключены',
+  bad_subscription: 'Этот браузер не поддерживает уведомления Тайника',
   bad_username: 'Имя: 3–32 символа, латиница в нижнем регистре, цифры и _',
   bad_keys: 'Сервер отклонил ключи',
   username_taken: 'Это имя уже занято',
@@ -137,6 +139,7 @@ export class MessengerClient extends Emitter {
     this.ps = this._protocolStore();
     this.presence = new Map();
     this.presenceHidden = false;
+    this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
 
   // Хранилище протокола — тот же набор операций, что у Store-интерфейсов libsignal.
@@ -473,6 +476,7 @@ export class MessengerClient extends Emitter {
           if (!this._authExtra) await this.storage.set('account', this.account);
         }
         this.presenceHidden = !!msg.presenceHidden;
+        this.push = { vapidKey: msg.vapidKey || null, endpoint: msg.pushEndpoint || null };
         this._setStatus('online');
         this._subscribePresence().catch(() => {});
         if (this._firstReady) {
@@ -581,6 +585,16 @@ export class MessengerClient extends Emitter {
   async setPresenceVisible(visible) {
     await this._request({ type: 'set-presence-visibility', visible: !!visible });
     this.presenceHidden = !visible;
+  }
+
+  /**
+   * Подписка Web Push этого устройства (из PushSubscription.toJSON()) или null — отписаться.
+   * Сервер будит устройство пушем, только когда оно не в сети.
+   */
+  async setPushSubscription(sub) {
+    const subscription = sub ? { endpoint: sub.endpoint, keys: { p256dh: sub.keys?.p256dh, auth: sub.keys?.auth } } : null;
+    await this._request({ type: 'push-subscribe', subscription });
+    this.push = { ...this.push, endpoint: subscription ? subscription.endpoint : null };
   }
 
   // ---------- Контакты ----------
@@ -820,7 +834,9 @@ export class MessengerClient extends Emitter {
       if (!(await hasSession(this.ps, { name, device: d }))) continue; // устройство исчезло — сервер подскажет
       messages.push({ deviceId: d, envelope: await encrypt(this.ps, { name, device: d }, item.content, item.id) });
     }
-    if (!this._send({ type: 'send', to: name, id: item.id, cid, messages })) this._inflight.delete(cid);
+    // notify: обычное сообщение — серверу можно разбудить офлайн-устройство пушем (служебные — нет)
+    const notify = item.kind === 'msg';
+    if (!this._send({ type: 'send', to: name, id: item.id, cid, messages, notify })) this._inflight.delete(cid);
   }
 
   /** Закреплённая личность получателя (для себя — своя). Бросает key_changed, если ключ изменился. */
@@ -901,7 +917,7 @@ export class MessengerClient extends Emitter {
    * устройства, которые сейчас в сети. Без deviceIds — всем устройствам собеседника.
    * @returns {Promise<number[]>} номера устройств, которым сообщение доставлено
    */
-  async sendEphemeral(name, content, { deviceIds = null } = {}) {
+  async sendEphemeral(name, content, { deviceIds = null, notify = undefined } = {}) {
     name = String(name).toLowerCase();
     let targets = deviceIds ? [...new Set(deviceIds.map(Number))] : null;
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -921,7 +937,7 @@ export class MessengerClient extends Emitter {
       });
       if (targets && !messages.length) return [];
       try {
-        const r = await this._request({ type: 'send-ephemeral', to: name, id, targets: targets ? 'subset' : 'all', messages });
+        const r = await this._request({ type: 'send-ephemeral', to: name, id, targets: targets ? 'subset' : 'all', messages, notify });
         return r.delivered || [];
       } catch (e) {
         if (e.code !== 'mismatched_devices') throw e;

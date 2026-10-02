@@ -14,7 +14,25 @@ contextBridge.exposeInMainWorld('desktop', {
     get: (k) => ipcRenderer.invoke('settings:get', k),
     set: (k, v) => ipcRenderer.invoke('settings:set', k, v),
   },
-  notify: (body) => ipcRenderer.send('notify', String(body)),
+  // Системное уведомление: { title, body, chat, call }. Клик открывает окно и чат.
+  notify: (n) =>
+    ipcRenderer.send('notify', {
+      title: String(n?.title ?? 'Тайник'),
+      body: String(n?.body ?? ''),
+      chat: String(n?.chat ?? ''),
+      call: !!n?.call,
+    }),
+  onOpenChat: (handler) => {
+    ipcRenderer.removeAllListeners('open-chat');
+    ipcRenderer.on('open-chat', (_e, chat) => handler(String(chat)));
+  },
+  // Счётчик непрочитанных: значок в доке/панели задач и подсказка у значка в трее
+  setBadge: (n) => ipcRenderer.send('badge', Number(n) || 0),
+  // Работа в фоне: { tray, autostart, autostartSupported }
+  background: {
+    get: () => ipcRenderer.invoke('bg:get'),
+    set: (key, value) => ipcRenderer.invoke('bg:set', String(key), !!value),
+  },
   version: () => ipcRenderer.invoke('app:version'),
   // Выбор экрана/окна для трансляции. handler(list) → Promise<id | null>
   onPickSource: (handler) => {

@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS queue (
 CREATE INDEX IF NOT EXISTS queue_dst ON queue(user, device, seq);
 CREATE UNIQUE INDEX IF NOT EXISTS queue_dedupe ON queue(user, device, sender, sender_device, env_id);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+-- Подписки Web Push: адрес push-сервиса браузера и его ключи (по одной на устройство)
+CREATE TABLE IF NOT EXISTS push_subs (
+  user        TEXT NOT NULL,
+  device      INTEGER NOT NULL,
+  endpoint    TEXT NOT NULL,
+  p256dh      TEXT NOT NULL,
+  auth        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (user, device),
+  FOREIGN KEY (user, device) REFERENCES devices(user, id) ON DELETE CASCADE
+);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -92,6 +103,15 @@ export class Store {
       purgeOld: q('DELETE FROM queue WHERE ts < ?'),
       presence: q('SELECT u.presence_hidden AS hidden, MAX(d.last_seen) AS last_seen FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'),
       setPresenceHidden: q('UPDATE users SET presence_hidden = ? WHERE name = ?'),
+      getMeta: q('SELECT value FROM meta WHERE key = ?'),
+      setMeta: q('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
+      setPush: q(
+        'INSERT INTO push_subs(user, device, endpoint, p256dh, auth, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user, device) DO UPDATE SET endpoint = excluded.endpoint, p256dh = excluded.p256dh, auth = excluded.auth, created_at = excluded.created_at'
+      ),
+      getPush: q('SELECT endpoint, p256dh, auth FROM push_subs WHERE user = ? AND device = ?'),
+      delPush: q('DELETE FROM push_subs WHERE user = ? AND device = ?'),
+      delPushOthers: q('DELETE FROM push_subs WHERE endpoint = ? AND NOT (user = ? AND device = ?)'),
+      delPushIf: q('DELETE FROM push_subs WHERE user = ? AND device = ? AND endpoint = ?'),
       stats: q('SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM devices) AS devices, (SELECT COUNT(*) FROM queue) AS queued'),
     };
   }
@@ -228,6 +248,30 @@ export class Store {
   }
   setPresenceHidden(name, hidden) {
     this.s.setPresenceHidden.run(hidden ? 1 : 0, name);
+  }
+
+  // ----- служебные значения (ключи VAPID) -----
+  getMeta(key) {
+    return this.s.getMeta.get(key)?.value ?? null;
+  }
+  setMeta(key, value) {
+    this.s.setMeta.run(key, value);
+  }
+
+  // ----- подписки Web Push -----
+  setPushSub(name, device, sub) {
+    // Один браузер — одна подписка: если в нём раньше был другой аккаунт, его подписку убираем
+    this.s.delPushOthers.run(sub.endpoint, name, device);
+    this.s.setPush.run(name, device, sub.endpoint, sub.keys.p256dh, sub.keys.auth, Date.now());
+  }
+  getPushSub(name, device) {
+    const r = this.s.getPush.get(name, device);
+    return r ? { endpoint: r.endpoint, keys: { p256dh: r.p256dh, auth: r.auth } } : null;
+  }
+  /** Удаляет подписку; с endpoint — только если она не успела смениться. */
+  delPushSub(name, device, endpoint = null) {
+    if (endpoint) this.s.delPushIf.run(name, device, endpoint);
+    else this.s.delPush.run(name, device);
   }
 
   stats() {

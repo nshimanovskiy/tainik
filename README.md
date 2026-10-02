@@ -10,6 +10,7 @@ Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the 
 - 💻 **Web and desktop.** Runs in the browser and as a native app for Windows, macOS and Linux (Electron). Both share one UI and one crypto core.
 - 📞 **Voice & video calls with screen sharing.** WebRTC media (DTLS-SRTP) whose connection setup travels over the Double Ratchet channel, so the server cannot man-in-the-middle a call. Rings all your devices; an optional self-hosted TURN relay helps behind NAT.
 - 💬 **Telegram-style replies and deletion.** Quote-replies, "delete for me" (synced to all your devices) and "delete for everyone".
+- 🔔 **Notifications that work in the background.** The desktop app keeps running in the system tray (optional start at login). The web version uses Web Push, so notifications arrive even with the tab closed. Pushes carry only the sender's name, encrypted for your browser, and message text is hidden by default.
 - 🟢 **Online status.** "online" / "last seen …" with live updates; you can hide your own status.
 - 📱 **Multiple devices.** Up to 5 devices per account. Link a new one by scanning a QR code; sent messages sync across your devices.
 - ✅ **Key verification.** A 60-digit safety number, plus a warning that blocks sending if a contact's key changes.
@@ -24,7 +25,7 @@ Grab the latest installer from **[Releases](../../releases)**:
 
 | Platform | File |
 |---|---|
-| Windows 10/11 | `Tainik-x.y.z-win-x64.exe` |
+| Windows 10/11 | `Tainik-x.y.z-win-x64.exe` (installer) or `Tainik-x.y.z-win-x64-portable.exe` (no install) |
 | macOS (Apple Silicon) | `Tainik-x.y.z-mac-arm64.dmg` |
 | macOS (Intel) | `Tainik-x.y.z-mac-x64.dmg` |
 | Linux | `Tainik-x.y.z-linux-x86_64.AppImage` or `.deb` |
@@ -102,7 +103,7 @@ shared/              Code shared by every platform
   qr.js              Dependency-free QR encoder
 client/              UI (shared by web and desktop)
 desktop/             Electron shell: secure storage, app:// protocol, packaging
-server/              Relay server: WebSocket (RFC 6455), SQLite store, backups
+server/              Relay server: WebSocket (RFC 6455), SQLite store, Web Push (VAPID + RFC 8291), backups
 deploy/              setup / backup / update scripts, nginx, Caddy and systemd templates
 tests/               node:test suites
 .github/workflows/   CI and desktop release pipeline
@@ -110,7 +111,7 @@ tests/               node:test suites
 
 ## Releasing
 
-Run **Actions → «Выпуск десктопа» → Run workflow** with a version, or push a `vX.Y.Z` tag. CI runs the tests, builds installers for all three platforms and creates a draft release with checksums. See [RELEASING.md](RELEASING.md).
+Run **Actions → «Выпуск десктопа» → Run workflow** with a version, or push a `vX.Y.Z` tag. CI runs the tests, builds installers for all three platforms and publishes the release with checksums (tick «Черновик» for a draft). See [RELEASING.md](RELEASING.md).
 
 ## Limitations
 
@@ -118,7 +119,7 @@ Run **Actions → «Выпуск десктопа» → Run workflow** with a ve
 2. **Unlinking does not revoke the identity key.** A stolen device stops receiving messages, but its identity key could still be used to link a new device. If a device is stolen, create a new account.
 3. **The web client is served by the server**, so a compromised server could ship modified JavaScript. Use the desktop app for stronger guarantees.
 4. **Metadata** (who, to whom, when, and online status unless hidden) is visible to the server. During calls, peers see each other's IP addresses unless traffic goes through TURN.
-5. No group calls, groups, attachments, push notifications or key backup yet. Message history is not transferred to newly linked devices.
+5. No group calls, groups, attachments or key backup yet. Web Push goes through the browser vendor's push service (Google, Mozilla, Apple), which learns *when* you receive messages. Message history is not transferred to newly linked devices.
 
 ## Roadmap
 

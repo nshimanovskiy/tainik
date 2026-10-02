@@ -101,6 +101,7 @@ async function showApp() {
   paintAvatar($('me-avatar'), client.account.username);
   setStatus(client.status);
   await renderContacts();
+  initNotifications().catch((e) => console.warn('notifications', e));
 }
 
 function setStatus(s) {
@@ -248,6 +249,7 @@ async function renderContacts() {
   const ul = $('contacts');
   ul.replaceChildren();
   $('no-contacts').hidden = all.length > 0;
+  setUnread(all.reduce((n, c) => n + (c.unread || 0), 0));
   for (const c of all) {
     const msgs = await client.messages(c.username);
     const li = el('li');
@@ -507,6 +509,7 @@ $('menu-btn').addEventListener('click', async () => {
     $('my-version-row').hidden = false;
   }
   $('my-device').textContent = `${client.account.deviceName || 'Устройство'} (№${client.account.deviceId})`;
+  await fillNotifSettings();
   $('menu-dialog').showModal();
 });
 $('menu-dialog').addEventListener('close', async () => {
@@ -514,6 +517,7 @@ $('menu-dialog').addEventListener('close', async () => {
   if (v === 'devices') return openDevices();
   if (v !== 'reset') return;
   if (!confirm('Стереть ключи и переписку на этом устройстве? Другие устройства аккаунта продолжат работать.')) return;
+  await dropPush(true);
   await client.reset();
   location.reload();
 });
@@ -643,14 +647,24 @@ client.on('contacts', () => {
 });
 client.on('message', async ({ contact, message }) => {
   const incoming = message.dir === 'in';
-  if (contact === current) {
+  // Открытый чат в окне без фокуса не считаем прочитанным — иначе пропадёт счётчик
+  if (contact === current && document.hasFocus()) {
     await client.markRead(contact);
     await renderChat();
-    if (incoming && !document.hasFocus()) notify(contact);
-  } else if (incoming) {
-    notify(contact);
+  } else if (contact === current) {
+    await renderChat();
   }
+  if (incoming && !document.hasFocus()) notifyMessage(contact, message);
   renderContacts();
+});
+// Вернулись в окно — открытый чат прочитан
+window.addEventListener('focus', async () => {
+  if (!current || !client.account) return;
+  const c = (await client.contacts())[current];
+  if (c?.unread) {
+    await client.markRead(current);
+    renderContacts();
+  }
 });
 client.on('status-change', ({ contact, id, status }) => {
   if (contact !== current) return;
@@ -664,6 +678,7 @@ client.on('error', async ({ code, text }) => {
   if (code === 'logged_in_elsewhere') return toast(text, 0);
   if (code === 'device_removed') {
     // Устройство отвязано с другого устройства — стираем ключи здесь
+    await dropPush(false);
     await client.reset();
     current = null;
     showAuth();
@@ -673,12 +688,225 @@ client.on('error', async ({ code, text }) => {
   toast(text);
 });
 
-// Уведомление без текста сообщения: в системный центр уведомлений текст не попадает.
-function notify(contact) {
-  if (desktop) return desktop.notify(`Новое сообщение от ${contact}`);
-  const prev = document.title;
-  document.title = `● ${contact} — Тайник`;
-  setTimeout(() => (document.title = prev.startsWith('●') ? 'Тайник — E2E-мессенджер' : prev), 4000);
+// ---------- Уведомления и работа в фоне ----------
+// Десктоп: приложение живёт в трее и получает сообщения само, уведомления — системные.
+// Веб: пока вкладка открыта — уведомления от страницы; когда закрыта — Web Push
+// (сервер будит браузер через его push-сервис; в пуше только имя отправителя, без текста).
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const webNotif = !desktop && 'Notification' in window;
+const webPush = webNotif && 'serviceWorker' in navigator && 'PushManager' in window;
+let swReady = null;
+let notifiedCall = null;
+let unreadTotal = 0;
+let pushProblem = '';
+
+function baseTitle() {
+  return unreadTotal ? `(${unreadTotal}) Тайник` : 'Тайник — E2E-мессенджер';
+}
+function setUnread(n) {
+  if (n === unreadTotal) return;
+  unreadTotal = n;
+  if (!document.title.startsWith('📞')) document.title = baseTitle();
+  if (desktop?.setBadge) desktop.setBadge(n);
+  else if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+}
+
+async function notifPrefs() {
+  const v = await settings.get('notify');
+  const enabled = desktop ? v !== '0' : v === '1' && webNotif && Notification.permission === 'granted';
+  return { enabled, preview: (await settings.get('notify-preview')) === '1' };
+}
+
+function serviceWorker() {
+  if (!webNotif || !('serviceWorker' in navigator)) return Promise.resolve(null);
+  swReady ||= navigator.serviceWorker
+    .register('/sw.js', { scope: '/' })
+    .then(() => navigator.serviceWorker.ready)
+    .catch((e) => {
+      console.warn('service worker', e);
+      return null;
+    });
+  return swReady;
+}
+
+async function showNotice({ title, body, chat, tag, call = false }) {
+  if (!(await notifPrefs()).enabled) return;
+  if (desktop) return desktop.notify({ title, body, chat, call });
+  const opts = { body, tag, renotify: true, icon: '/icon-192.png', badge: '/badge-72.png', data: { chat }, requireInteraction: call };
+  const reg = await serviceWorker();
+  try {
+    if (reg) return await reg.showNotification(title, opts);
+    const n = new Notification(title, opts);
+    n.onclick = () => (window.focus(), openChatFromNotice(chat));
+  } catch (e) {
+    console.warn('notification', e);
+  }
+}
+
+async function notifyMessage(contact, message) {
+  const { preview } = await notifPrefs();
+  const text = preview && message.content?.t === 'text' ? String(message.content.body || '').replace(/\s+/g, ' ').slice(0, 160) : '';
+  await showNotice({ title: contact, body: text || 'Новое сообщение', chat: contact, tag: 'msg:' + contact });
+}
+
+async function openChatFromNotice(chat) {
+  if (!chat || !client.account) return;
+  if ((await client.contacts())[chat]) openChat(chat);
+}
+if (desktop?.onOpenChat) desktop.onOpenChat((chat) => openChatFromNotice(chat));
+if (!desktop && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'open-chat') openChatFromNotice(String(e.data.chat || ''));
+  });
+}
+
+function b64uBytes(s) {
+  const b = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+function sameBytes(a, b) {
+  if (!a || !b) return false;
+  a = new Uint8Array(a);
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+/** Приводит подписку Web Push этого браузера в соответствие с настройкой. */
+async function syncPush() {
+  if (!webPush || client.status !== 'online') return;
+  const want = (await notifPrefs()).enabled;
+  try {
+    const reg = await serviceWorker();
+    if (!reg) return;
+    let sub = await reg.pushManager.getSubscription();
+    if (!want || !client.push.vapidKey) {
+      if (client.push.endpoint) await client.setPushSubscription(null);
+      if (!want && sub) await sub.unsubscribe();
+      if (want && !client.push.vapidKey) pushProblem = 'server';
+      return;
+    }
+    const key = b64uBytes(client.push.vapidKey);
+    if (sub && !sameBytes(sub.options?.applicationServerKey, key)) {
+      await sub.unsubscribe();
+      sub = null;
+    }
+    sub ||= await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const json = sub.toJSON();
+    if (client.push.endpoint !== json.endpoint) await client.setPushSubscription(json);
+    pushProblem = '';
+  } catch (e) {
+    pushProblem = e.code === 'bad_subscription' ? 'browser' : 'error';
+    console.warn('push', e);
+  }
+}
+client.on('status', (st) => st === 'online' && syncPush());
+
+/** Отписка при выходе: сервер и браузер забывают эту подписку. */
+async function dropPush(tellServer) {
+  if (!webPush) return;
+  try {
+    if (tellServer && client.push.endpoint) await client.setPushSubscription(null);
+    const reg = await navigator.serviceWorker.getRegistration('/');
+    await (await reg?.pushManager.getSubscription())?.unsubscribe();
+  } catch {}
+}
+
+// Вызывается из обработчика нажатия: запрос разрешения должен идти сразу от действия пользователя
+async function enableNotifications() {
+  if (desktop) {
+    await settings.set('notify', '1');
+    return true;
+  }
+  if (!webNotif) {
+    toast('Этот браузер не поддерживает уведомления');
+    return false;
+  }
+  if (isIOS && !standalone) {
+    toast('На iPhone и iPad: «Поделиться» → «На экран „Домой“», откройте Тайник с экрана «Домой» и включите уведомления там', 9000);
+    return false;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') {
+    toast(perm === 'denied' ? 'Уведомления запрещены для этого сайта в настройках браузера' : 'Уведомления не включены');
+    return false;
+  }
+  await settings.set('notify', '1');
+  await syncPush();
+  if (pushProblem === 'browser') toast('Уведомления будут приходить, пока вкладка открыта: этот браузер не поддерживает push-уведомления Тайника', 7000);
+  return true;
+}
+async function disableNotifications() {
+  await settings.set('notify', '0');
+  await syncPush();
+}
+
+async function initNotifications() {
+  const v = await settings.get('notify');
+  const canAsk = webNotif && !(isIOS && !standalone) && Notification.permission !== 'denied';
+  $('notif-offer').hidden = !(canAsk && v == null && (await settings.get('notify-offer')) !== 'no');
+  if (webNotif && v === '1') serviceWorker();
+  syncPush();
+  consumeChatLink();
+}
+// Ссылка вида /#chat=имя (из уведомления при закрытой вкладке) открывает чат
+function consumeChatLink() {
+  if (!location.hash.startsWith('#chat=') || !client.account) return;
+  let chat = '';
+  try {
+    chat = decodeURIComponent(location.hash.slice(6));
+  } catch {}
+  history.replaceState(null, '', location.pathname + location.search);
+  openChatFromNotice(chat);
+}
+window.addEventListener('hashchange', consumeChatLink);
+$('notif-offer-yes').addEventListener('click', async () => {
+  $('notif-offer').hidden = true;
+  if (await enableNotifications()) toast('Уведомления включены');
+});
+$('notif-offer-no').addEventListener('click', async () => {
+  $('notif-offer').hidden = true;
+  await settings.set('notify-offer', 'no');
+});
+
+async function fillNotifSettings() {
+  const { enabled, preview } = await notifPrefs();
+  $('notif-enabled').checked = enabled;
+  $('notif-preview').checked = preview;
+  $('notif-preview').disabled = !enabled;
+  let hint;
+  if (desktop) hint = 'Приложение получает сообщения, пока запущено, в том числе свёрнутым в трей.';
+  else if (!webNotif) hint = 'Этот браузер не поддерживает уведомления.';
+  else if (isIOS && !standalone) hint = 'На iPhone и iPad уведомления работают, если добавить Тайник на экран «Домой»: «Поделиться» → «На экран „Домой“».';
+  else if (Notification.permission === 'denied') hint = 'Уведомления запрещены для этого сайта в настройках браузера (значок слева от адреса).';
+  else if (enabled && webPush && !pushProblem)
+    hint = 'Когда вкладка закрыта, сервер будит браузер через его push-сервис (Google, Mozilla или Apple). Текста сообщений там нет — только имя отправителя, зашифрованное для вашего браузера.';
+  else if (enabled) hint = 'Уведомления приходят, пока вкладка открыта.';
+  else hint = 'Текст сообщений по умолчанию не показывается: его увидят только те, кто смотрит на ваш экран.';
+  $('notif-hint').textContent = hint;
+  if (desktop?.background) {
+    const bg = await desktop.background.get();
+    $('bg-settings').hidden = false;
+    $('bg-tray').checked = bg.tray;
+    $('bg-autostart').checked = bg.autostart;
+    $('bg-autostart').disabled = !bg.autostartSupported;
+  }
+}
+$('notif-enabled').addEventListener('change', async (e) => {
+  const ok = e.target.checked ? await enableNotifications() : (await disableNotifications(), true);
+  if (!ok) e.target.checked = false;
+  $('notif-offer').hidden = true;
+  await fillNotifSettings();
+});
+$('notif-preview').addEventListener('change', (e) => settings.set('notify-preview', e.target.checked ? '1' : '0'));
+for (const id of ['bg-tray', 'bg-autostart']) {
+  $(id).addEventListener('change', async (e) => {
+    try {
+      await desktop.background.set(id === 'bg-tray' ? 'tray' : 'autostart', e.target.checked);
+    } catch (err) {
+      e.target.checked = !e.target.checked;
+      toast(err.message || 'Не удалось изменить настройку');
+    }
+  });
 }
 
 // ---------- Старт ----------
@@ -757,7 +985,7 @@ function renderCall(c) {
     callTicker = null;
     for (const id of ['remote-main', 'remote-pip', 'local-pip']) setVideo($(id), null, false);
     $('remote-audio').srcObject = null;
-    document.title = 'Тайник — E2E-мессенджер';
+    document.title = baseTitle();
     return;
   }
   box.hidden = false;
@@ -821,11 +1049,12 @@ function renderCall(c) {
   }
   if (c.phase === 'incoming') {
     document.title = `📞 ${c.peer} — входящий звонок`;
-    if (!document.hasFocus()) {
-      if (desktop) desktop.notify(`Входящий ${c.video ? 'видеозвонок' : 'звонок'} от ${c.peer}`);
+    if (!document.hasFocus() && notifiedCall !== c.id) {
+      notifiedCall = c.id;
+      showNotice({ title: c.peer, body: c.video ? 'Входящий видеозвонок' : 'Входящий звонок', chat: c.peer, tag: 'call:' + c.peer, call: true });
     }
   } else {
-    document.title = 'Тайник — E2E-мессенджер';
+    document.title = baseTitle();
   }
 }
 

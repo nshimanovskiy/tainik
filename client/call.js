@@ -139,7 +139,9 @@ export class CallManager {
 
   _signal(kind, extra = {}, deviceIds) {
     const c = this.call;
-    return this.client.sendEphemeral(c.peer, { t: 'call', kind, callId: c.id, ts: Date.now(), ...extra }, deviceIds ? { deviceIds } : {});
+    const opts = deviceIds ? { deviceIds } : {};
+    if (kind === 'offer') opts.notify = 'call'; // никто не в сети — сервер пришлёт «пропущенный звонок» пушем
+    return this.client.sendEphemeral(c.peer, { t: 'call', kind, callId: c.id, ts: Date.now(), ...extra }, opts);
   }
 
   // ---------- Исходящий звонок ----------

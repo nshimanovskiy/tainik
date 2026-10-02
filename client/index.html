@@ -6,6 +6,9 @@
   <title>Тайник — E2E-мессенджер</title>
   <meta name="color-scheme" content="light dark">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#1f6f5c">
   <link rel="stylesheet" href="style.css">
   <script type="module" src="app.js"></script>
 </head>
@@ -89,6 +92,13 @@
         <button class="icon-btn accent" title="Добавить" aria-label="Добавить">+</button>
       </form>
       <p id="add-error" class="error small" role="alert"></p>
+      <div id="notif-offer" class="notif-offer" hidden>
+        <span>🔔 Включить уведомления о новых сообщениях и звонках?</span>
+        <span class="notif-offer-actions">
+          <button type="button" id="notif-offer-yes" class="primary">Включить</button>
+          <button type="button" id="notif-offer-no" class="icon-btn" aria-label="Не сейчас" title="Не сейчас">✕</button>
+        </span>
+      </div>
       <ul id="contacts" class="contacts"></ul>
       <p id="no-contacts" class="muted empty-side">Пока никого. Добавьте собеседника по имени — он должен быть зарегистрирован.</p>
     </aside>
@@ -166,6 +176,15 @@
       <p class="small">Это устройство: <b id="my-device"></b></p>
       <button value="devices" class="ghost wide">Устройства и привязка…</button>
       <label class="check"><input type="checkbox" id="presence-visible"> Показывать другим, что я в сети и когда был(а)</label>
+      <h3 class="menu-sub">Уведомления</h3>
+      <label class="check"><input type="checkbox" id="notif-enabled"> Уведомлять о сообщениях и звонках</label>
+      <label class="check"><input type="checkbox" id="notif-preview"> Показывать текст сообщения в уведомлении</label>
+      <p class="hint" id="notif-hint"></p>
+      <div id="bg-settings" hidden>
+        <h3 class="menu-sub">Работа в фоне</h3>
+        <label class="check"><input type="checkbox" id="bg-tray"> При закрытии окна оставаться в фоне (значок в трее)</label>
+        <label class="check"><input type="checkbox" id="bg-autostart"> Запускать при входе в систему</label>
+      </div>
       <p class="small">Отпечаток ключа личности:</p>
       <code id="my-fp" class="fp"></code>
       <p class="small">Сервер: <code id="my-server" class="inline-code"></code></p>

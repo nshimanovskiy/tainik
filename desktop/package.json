@@ -1,7 +1,7 @@
 {
   "name": "tainik-desktop",
   "productName": "Tainik",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Тайник — десктопный E2E-мессенджер (X3DH + Double Ratchet)",
   "main": "main.cjs",
   "private": true,
@@ -32,7 +32,11 @@
       "preload.cjs",
       "lib.cjs",
       "renderer/**/*",
-      "build/icon.png"
+      "build/icon.png",
+      "build/tray.png",
+      "build/trayTemplate.png",
+      "build/trayTemplate@2x.png",
+      "build/badge.png"
     ],
     "electronFuses": {
       "runAsNode": false,
@@ -46,6 +50,12 @@
       "target": [
         {
           "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
           "arch": [
             "x64"
           ]
@@ -98,7 +108,10 @@
       "executableName": "tainik"
     },
     "artifactName": "Tainik-${version}-${os}-${arch}.${ext}",
-    "publish": null
+    "publish": null,
+    "portable": {
+      "artifactName": "Tainik-${version}-win-${arch}-portable.${ext}"
+    }
   },
   "homepage": "https://chat.sdsds.top"
 }

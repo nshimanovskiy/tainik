@@ -32,7 +32,7 @@
    ```
 3. **Actions → «Выпуск десктопа»** сам прогонит тесты и соберёт приложения (около 10–15 минут).
 4. **Releases** → появится релиз «Тайник 0.4.1» с файлами:
-   - `Tainik-0.4.1-win-x64.exe`
+   - `Tainik-0.4.1-win-x64.exe` (установщик) и `Tainik-0.4.1-win-x64-portable.exe` (без установки)
    - `Tainik-0.4.1-mac-arm64.dmg`, `Tainik-0.4.1-mac-x64.dmg`
    - `Tainik-0.4.1-linux-x86_64.AppImage`, `Tainik-0.4.1-linux-amd64.deb`
    - `SHA256SUMS.txt`

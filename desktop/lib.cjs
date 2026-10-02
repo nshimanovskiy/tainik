@@ -95,7 +95,27 @@ const MIME = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.json': 'application/json; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
+
+/**
+ * Файл автозапуска для Linux (~/.config/autostart/tainik.desktop, стандарт XDG).
+ * exec — путь к исполняемому файлу (для AppImage — сам .AppImage).
+ */
+function linuxAutostartEntry(exec) {
+  // Спецификация Desktop Entry: аргумент в кавычках, внутри экранируются " ` $ \
+  const quoted = '"' + String(exec).replace(/(["`$\\])/g, '\\$1').replace(/\\/g, '\\\\') + '"';
+  return [
+    '[Desktop Entry]',
+    'Type=Application',
+    'Name=Тайник',
+    'Comment=E2E-мессенджер',
+    `Exec=${quoted} --hidden`,
+    'Terminal=false',
+    'X-GNOME-Autostart-enabled=true',
+    '',
+  ].join('\n');
+}
 
 const CSP = [
   "default-src 'self'",
@@ -109,4 +129,4 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-module.exports = { SecureStore, resolveAppPath, MIME, CSP };
+module.exports = { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry };

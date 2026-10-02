@@ -6,9 +6,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes, createHmac } from 'node:crypto';
+import { randomBytes, createHmac, createHash } from 'node:crypto';
 import { acceptUpgrade } from './ws.js';
 import { Store } from './store.js';
+import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
 
@@ -23,6 +24,7 @@ const MAX_WATCH = 500; // за статусом скольких пользов�
 const PROVISION_TTL = 10 * 60 * 1000; // канал привязки живёт 10 минут
 const AUTH_CONTEXT = 'tainik/v3/auth';
 const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 30, ephemeralPerMin: 120 };
+const PUSH_GAP = 4000; // не чаще одного пуша от одного отправителя на устройство за это время
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -32,6 +34,7 @@ const MIME = {
   '.png': 'image/png',
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json; charset=utf-8',
 };
 
 const b64 = (buf) => Buffer.from(buf).toString('base64');
@@ -116,6 +119,9 @@ export function startServer({
   queueTtlDays = 30,
   turn = null, // { secret, host, port = 3478, tlsPort = 5349, ttlHours = 12 }
   stunFallback = 'stun:stun.l.google.com:19302',
+  // Web Push: уведомления в браузер, когда вкладка закрыта. false — выключить.
+  // { subject: 'mailto:…' | 'https://…', hosts: [...], fetch }
+  push = {},
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -126,6 +132,38 @@ export function startServer({
   const ipBuckets = new Map(); // ip -> { provisions: [], auth: [] }
   // В журнал не пишем имена и IP: метаданные — тоже чувствительные данные.
   const say = (...a) => log && console.log(new Date().toISOString(), ...a);
+
+  // Ключ VAPID создаётся один раз и хранится в базе (попадает в бэкапы):
+  // если он сменится, браузерам придётся подписываться заново.
+  let vapid = null;
+  const pushHosts = push?.hosts || PUSH_HOSTS;
+  const pushLast = new Map(); // "user.device|from" -> время последнего пуша
+  if (push !== false) {
+    let jwk = store.getMeta('vapid');
+    if (!jwk) {
+      jwk = JSON.stringify(generateVapid());
+      store.setMeta('vapid', jwk);
+    }
+    vapid = new Vapid(JSON.parse(jwk), push.subject || 'mailto:admin@localhost');
+  }
+  // Пуш на устройство, которое сейчас не в сети. В пуше только тип и имя отправителя —
+  // зашифровано ключом браузера, push-сервис содержимого не видит.
+  function pushTo(username, deviceId, payload) {
+    if (!vapid) return;
+    const sub = store.getPushSub(username, deviceId);
+    if (!sub) return;
+    const k = `${username}.${deviceId}|${payload.t}|${payload.from}`;
+    const now = Date.now();
+    if (now - (pushLast.get(k) || 0) < PUSH_GAP) return;
+    pushLast.set(k, now);
+    const topic = createHash('sha256').update(`${payload.t}|${payload.from}`).digest('base64url').slice(0, 22);
+    sendPush(sub, payload, { vapid, fetch: push.fetch, topic, ttl: payload.t === 'call' ? 60 : 86400 })
+      .then((r) => {
+        if (r.gone) store.delPushSub(username, deviceId, sub.endpoint);
+        else if (!r.ok) say(`push: ответ ${r.status}`);
+      })
+      .catch((e) => say('push: ошибка', e?.cause?.code || e?.name || e?.message));
+  }
 
   // Временные учётные данные TURN (схема «TURN REST API», coturn: use-auth-secret).
   // Логин = срок_действия:случайный_ид — имя пользователя на TURN-сервер не попадает.
@@ -291,6 +329,8 @@ export function startServer({
           opkCount: store.opkCount(p.username, deviceId),
           spkId: d.spk.id,
           presenceHidden: store.getPresence(p.username)?.hidden || false,
+          vapidKey: vapid ? vapid.publicKey : null,
+          pushEndpoint: store.getPushSub(p.username, deviceId)?.endpoint || null,
         });
         deliverQueue(p.username, deviceId);
         if (p.mode === 'link') {
@@ -378,6 +418,10 @@ export function startServer({
           send(rc, { type: 'message', qid: null, from: state.user, envelope, ts: Date.now(), ephemeral: true });
           delivered.push(deviceId);
         }
+        // Звонок, который не дошёл ни до одного устройства, — «пропущенный» в пуше
+        if (msg.notify === 'call' && !delivered.length && to !== state.user) {
+          for (const d of expected) pushTo(to, d, { t: 'call', from: state.user });
+        }
         return send(conn, { type: 'sent-ephemeral', reqId: msg.reqId, id: msg.id, delivered });
       }
 
@@ -421,6 +465,7 @@ export function startServer({
           if (!store.enqueue(to, deviceId, item)) continue; // уже в очереди (повторная отправка)
           const rc = online.get(addr(to, deviceId));
           if (rc) send(rc, { type: 'message', qid: item.qid, from: item.from, envelope, ts: now });
+          else if (msg.notify === true && to !== state.user) pushTo(to, deviceId, { t: 'msg', from: state.user });
         }
         return send(conn, { type: 'sent', cid: msg.cid, id: msg.id, to });
       }
@@ -506,6 +551,20 @@ export function startServer({
         store.setPresenceHidden(state.user, !msg.visible);
         broadcastPresence(state.user);
         return send(conn, { type: 'presence-visibility', reqId: msg.reqId, visible: !!msg.visible });
+      }
+
+      // ----- Web Push: подписка браузера этого устройства (null — отписаться) -----
+      case 'push-subscribe': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (msg.subscription == null) {
+          store.delPushSub(state.user, state.device);
+          return send(conn, { type: 'push-subscribed', reqId: msg.reqId, enabled: false });
+        }
+        if (!vapid) return error(conn, 'push_disabled', { reqId: msg.reqId });
+        const sub = msg.subscription;
+        if (!validSubscription(sub, pushHosts)) return error(conn, 'bad_subscription', { reqId: msg.reqId });
+        store.setPushSub(state.user, state.device, { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } });
+        return send(conn, { type: 'push-subscribed', reqId: msg.reqId, enabled: true });
       }
 
       case 'ping':
@@ -595,6 +654,7 @@ export function startServer({
     }
     const now = Date.now();
     for (const [pid, p] of provisions) if (p.expires < now) provisions.delete(pid);
+    for (const [k, t] of pushLast) if (now - t > PUSH_GAP) pushLast.delete(k);
     for (const [ip, b] of ipBuckets) {
       take(b.provisions, Infinity, 60_000);
       take(b.auth, Infinity, 60_000);
@@ -651,6 +711,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         }
       : null,
     stunFallback: env.STUN_FALLBACK ?? 'stun:stun.l.google.com:19302',
+    push:
+      env.WEB_PUSH === '0'
+        ? false
+        : {
+            subject:
+              env.VAPID_SUBJECT ||
+              (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
+          },
   });
   let stopping = false;
   const stop = async () => {

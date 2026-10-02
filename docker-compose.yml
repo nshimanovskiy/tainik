@@ -19,6 +19,10 @@ services:
       QUEUE_TTL_DAYS: ${QUEUE_TTL_DAYS:-30}
       MAX_CONN_PER_IP: ${MAX_CONN_PER_IP:-20}
       DOMAIN: ${DOMAIN:-}
+      # Web Push (уведомления в браузер при закрытой вкладке): контакт для push-сервисов
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      WEB_PUSH: ${WEB_PUSH:-1}
       TURN_SECRET: ${TURN_SECRET:-}
       TURN_HOST: ${TURN_HOST:-}
       TURN_PORT: ${TURN_PORT:-3478}
