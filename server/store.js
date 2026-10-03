@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS ip_bans (
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
+/** Аккаунты, которые получают официальную галочку при регистрации. */
+export const DEFAULT_VERIFIED = ['admin'];
+
 export class Store {
   constructor(dir, { maxOpks = 200, maxQueue = 1000, maxDevices = 5 } = {}) {
     fs.mkdirSync(dir, { recursive: true });
@@ -78,6 +81,12 @@ export class Store {
     // Миграции
     const cols = this.db.prepare("SELECT name FROM pragma_table_info('users')").all().map((r) => r.name);
     if (!cols.includes('presence_hidden')) this.db.exec('ALTER TABLE users ADD COLUMN presence_hidden INTEGER NOT NULL DEFAULT 0');
+    if (!cols.includes('verified')) {
+      // Официальная «галочка», как в Telegram. Ставит и снимает администратор в панели.
+      this.db.exec('ALTER TABLE users ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
+      const mark = this.db.prepare('UPDATE users SET verified = 1 WHERE name = ?');
+      for (const n of DEFAULT_VERIFIED) mark.run(n);
+    }
     const dcols = this.db.prepare("SELECT name FROM pragma_table_info('devices')").all().map((r) => r.name);
     if (!dcols.includes('last_ip')) this.db.exec('ALTER TABLE devices ADD COLUMN last_ip TEXT'); // последний IP устройства
     this.limits = { maxOpks, maxQueue, maxDevices };
@@ -114,7 +123,8 @@ export class Store {
       queueItem: q('SELECT qid, sender, env_id FROM queue WHERE qid = ? AND user = ? AND device = ?'),
       delQueue: q('DELETE FROM queue WHERE qid = ?'),
       purgeOld: q('DELETE FROM queue WHERE ts < ?'),
-      presence: q('SELECT u.presence_hidden AS hidden, MAX(d.last_seen) AS last_seen FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'),
+      presence: q('SELECT u.presence_hidden AS hidden, u.verified AS verified, MAX(d.last_seen) AS last_seen FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'),
+      setVerified: q('UPDATE users SET verified = ? WHERE name = ?'),
       setPresenceHidden: q('UPDATE users SET presence_hidden = ? WHERE name = ?'),
       getMeta: q('SELECT value FROM meta WHERE key = ?'),
       setMeta: q('INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
@@ -126,7 +136,7 @@ export class Store {
       delPushOthers: q('DELETE FROM push_subs WHERE endpoint = ? AND NOT (user = ? AND device = ?)'),
       delPushIf: q('DELETE FROM push_subs WHERE user = ? AND device = ? AND endpoint = ?'),
       adminUsers: q(
-        `SELECT u.name, u.created_at, u.presence_hidden AS hidden,
+        `SELECT u.name, u.created_at, u.presence_hidden AS hidden, u.verified AS verified,
            (SELECT COUNT(*) FROM queue q WHERE q.user = u.name) AS queued,
            (SELECT COUNT(*) FROM push_subs p WHERE p.user = u.name) AS push
          FROM users u ORDER BY u.name`
@@ -173,6 +183,7 @@ export class Store {
       if (this.s.user.get(name)) return null;
       const now = Date.now();
       this.s.insUser.run(name, identity.dh, identity.sign, now);
+      if (DEFAULT_VERIFIED.includes(name)) this.s.setVerified.run(1, name);
       this._insertDevice(name, 1, keys, now);
       return 1;
     });
@@ -281,7 +292,10 @@ export class Store {
   /** { hidden, lastSeen } или null, если пользователя нет */
   getPresence(name) {
     const r = this.s.presence.get(name);
-    return r ? { hidden: !!r.hidden, lastSeen: r.last_seen || null } : null;
+    return r ? { hidden: !!r.hidden, verified: !!r.verified, lastSeen: r.last_seen || null } : null;
+  }
+  setVerified(name, on) {
+    return this.s.setVerified.run(on ? 1 : 0, name).changes > 0;
   }
   setPresenceHidden(name, hidden) {
     this.s.setPresenceHidden.run(hidden ? 1 : 0, name);
@@ -322,6 +336,7 @@ export class Store {
       name: u.name,
       createdAt: u.created_at,
       presenceHidden: !!u.hidden,
+      verified: !!u.verified,
       queued: u.queued,
       push: u.push > 0,
       devices: devices.get(u.name) || [],

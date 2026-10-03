@@ -82,7 +82,7 @@ The script runs the server on `127.0.0.1`, adds an nginx site with WebSocket sup
 
 **Calls:** to make calls work across NATs, enable the bundled TURN relay with `sudo ./deploy/setup-calls.sh` (coturn, short-lived HMAC credentials, relaying to private networks blocked). The relay forwards only encrypted media.
 
-**What the server stores:** usernames, public keys, and **encrypted** messages waiting for offline devices. Those messages are deleted after delivery, or after 30 days. Logs contain no usernames, IPs or content. The server keeps the **last IP of each device** (shown to the user in their device list and to the admin). An optional **admin panel** (enabled by `ADMIN_PASSWORD`) lists users, online status and device IPs, and can delete accounts and block IP addresses. The server **can** see metadata: who talks to whom, and when.
+**What the server stores:** usernames, public keys, and **encrypted** messages waiting for offline devices. Those messages are deleted after delivery, or after 30 days. Logs contain no usernames, IPs or content. The server keeps the **last IP of each device** (shown to the user in their device list and to the admin). An optional **admin panel** (enabled by `ADMIN_PASSWORD`) lists users, online status and device IPs, and can grant Telegram-style official verification badges (the `admin` account has one by default), delete accounts and block IP addresses. The server **can** see metadata: who talks to whom, and when.
 
 ## How it works
 

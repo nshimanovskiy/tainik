@@ -144,6 +144,7 @@ export class MessengerClient extends Emitter {
     this.ps = this._protocolStore();
     this.presence = new Map();
     this.presenceHidden = false;
+    this.verified = false; // у своего аккаунта официальная галочка
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
 
@@ -533,6 +534,10 @@ export class MessengerClient extends Emitter {
           if (!this._authExtra) await this.storage.set('account', this.account);
         }
         this.presenceHidden = !!msg.presenceHidden;
+        if (this.verified !== !!msg.verified) {
+          this.verified = !!msg.verified;
+          this.emit('verified', this.verified);
+        }
         this.push = { vapidKey: msg.vapidKey || null, endpoint: msg.pushEndpoint || null };
         this._setStatus('online');
         this._subscribePresence().catch(() => {});
@@ -545,6 +550,10 @@ export class MessengerClient extends Emitter {
         return;
       case 'presence':
         this._onPresence(msg.list);
+        return;
+      case 'verified':
+        this.verified = !!msg.verified;
+        this.emit('verified', this.verified);
         return;
       case 'prekey-count':
         this._maintainPrekeys(msg.count).catch((e) => console.error('prekeys', e));
@@ -617,15 +626,20 @@ export class MessengerClient extends Emitter {
 
   // ---------- Присутствие ----------
 
-  /** Последний известный статус собеседника: { online, lastSeen, hidden } или undefined */
+  /** Последний известный статус собеседника: { online, lastSeen, hidden, verified } или undefined */
   presenceOf(username) {
     return this.presence.get(username);
+  }
+
+  /** Официальная галочка у собеседника (её ставит администратор сервера). */
+  isVerified(username) {
+    return !!this.presence.get(username)?.verified;
   }
 
   _onPresence(list) {
     for (const p of Array.isArray(list) ? list : []) {
       if (!p || typeof p.username !== 'string') continue;
-      this.presence.set(p.username, { online: !!p.online, lastSeen: p.lastSeen || null, hidden: !!p.hidden });
+      this.presence.set(p.username, { online: !!p.online, lastSeen: p.lastSeen || null, hidden: !!p.hidden, verified: !!p.verified });
       this.emit('presence', { username: p.username, ...this.presence.get(p.username) });
     }
   }

@@ -77,6 +77,31 @@ function paintAvatar(node, name) {
   node.textContent = (name || '?').slice(0, 1);
   node.style.background = `hsl(${hue(name || '')} 42% 42%)`;
 }
+// Официальная галочка (её ставит администратор сервера), как в Telegram
+function verifiedBadge() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'official');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Официальный аккаунт');
+  const t = document.createElementNS(NS, 'title');
+  t.textContent = 'Официальный аккаунт';
+  const bg = document.createElementNS(NS, 'path');
+  bg.setAttribute('class', 'official-bg');
+  bg.setAttribute('d', 'M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1-2.6-1.9 1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z');
+  const ck = document.createElementNS(NS, 'path');
+  ck.setAttribute('class', 'official-check');
+  ck.setAttribute('d', 'M7.6 12.3l3 3 5.8-6.2');
+  svg.append(t, bg, ck);
+  return svg;
+}
+/** Имя с галочкой, если аккаунт официальный. */
+function setName(node, name, verified) {
+  node.replaceChildren(document.createTextNode(name));
+  if (verified) node.append(verifiedBadge());
+}
+
 const timeFmt = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
 const dayFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
 function dayLabel(ts) {
@@ -136,7 +161,7 @@ function showAuth() {
 async function showApp() {
   $('auth').hidden = true;
   $('app').hidden = false;
-  $('me-name').textContent = client.account.username;
+  setName($('me-name'), client.account.username, client.verified);
   paintAvatar($('me-avatar'), client.account.username);
   setStatus(client.status);
   await renderContacts();
@@ -326,7 +351,9 @@ async function renderContacts() {
     if (client.presenceOf(c.username)?.online) avWrap.append(el('span', 'online-dot'));
     const body = el('div', 'c-body');
     const top = el('div', 'c-top');
-    top.append(el('span', 'c-name', c.username));
+    const cn = el('span', 'c-name');
+    setName(cn, c.username, client.isVerified(c.username));
+    top.append(cn);
     if (c.keyChanged) top.append(el('span', 'shield warn', '⚠ ключ изменён'));
     else if (c.verified) top.append(el('span', 'shield', '✔ проверен'));
     body.append(top, el('div', 'c-preview', previewOf(lasts[i])));
@@ -380,7 +407,7 @@ $('back-btn').addEventListener('click', () => {
 async function renderHeader() {
   const c = (await client.contacts())[current];
   if (!c) return;
-  $('peer-name').textContent = c.username;
+  setName($('peer-name'), c.username, client.isVerified(c.username));
   paintAvatar($('peer-avatar'), c.username);
   const v = $('peer-verify');
   if (c.keyChanged) {
@@ -1159,7 +1186,7 @@ function renderMini(c, main) {
   setVideo($('call-float-video'), float ? main : null, float);
   $('call-float').hidden = !float;
   if (!on) return;
-  $('call-mini-name').textContent = c.peer;
+  setName($('call-mini-name'), c.peer, client.isVerified(c.peer));
   $('call-mini-status').textContent = callStatusText(c);
   const micOff = !c.local.mic || !c.local.mic.enabled;
   $('call-mini-mic').classList.toggle('off', micOff);
@@ -1192,8 +1219,8 @@ function renderCall(c) {
     endedToastFor = c.id;
     toast(`${c.peer}: ${callStatusText(c).toLowerCase()}`);
   }
-  $('call-name').textContent = c.peer;
-  $('call-top-name').textContent = c.peer;
+  setName($('call-name'), c.peer, client.isVerified(c.peer));
+  setName($('call-top-name'), c.peer, client.isVerified(c.peer));
   paintAvatar($('call-avatar'), c.peer);
   const status = callStatusText(c);
   $('call-status').textContent = status;
@@ -1514,9 +1541,13 @@ client.on('deleted', async ({ contact, ids }) => {
 
 // ---------- Статус «в сети» ----------
 client.on('presence', ({ username }) => {
-  if (username === current) renderPresence();
+  if (username === current) {
+    renderPresence();
+    renderHeader(); // галочку могли поставить или снять
+  }
   renderContacts();
 });
+client.on('verified', (on) => client.account && setName($('me-name'), client.account.username, on));
 client.on('status', renderPresence);
 $('presence-visible').addEventListener('change', async (e) => {
   try {

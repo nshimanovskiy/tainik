@@ -68,6 +68,25 @@ function ipChip(ip, live) {
   return box;
 }
 
+// Официальная галочка — такая же, как в мессенджере
+function verifiedBadge() {
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'official');
+  svg.setAttribute('aria-label', 'Официальный аккаунт');
+  const t = document.createElementNS(NS, 'title');
+  t.textContent = 'Официальный аккаунт';
+  const bg = document.createElementNS(NS, 'path');
+  bg.setAttribute('class', 'official-bg');
+  bg.setAttribute('d', 'M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1-2.6-1.9 1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z');
+  const ck = document.createElementNS(NS, 'path');
+  ck.setAttribute('class', 'official-check');
+  ck.setAttribute('d', 'M7.6 12.3l3 3 5.8-6.2');
+  svg.append(t, bg, ck);
+  return svg;
+}
+
 let data = null;
 let fetchedAt = 0;
 
@@ -89,6 +108,7 @@ function render() {
       (u) =>
         !q ||
         u.name.includes(q) ||
+        (q === 'галочка' && u.verified) ||
         u.devices.some((d) => d.name.toLowerCase().includes(q) || (d.ip || '').includes(q) || (d.lastIp || '').includes(q))
     )
     .sort((a, b) => b.online - a.online || (b.lastSeen || 0) - (a.lastSeen || 0) || a.name.localeCompare(b.name));
@@ -96,7 +116,9 @@ function render() {
   const rows = list.map((u) => {
     const tr = el('tr', u.online ? 'on' : '');
     const name = el('td', 'name');
-    name.append(el('b', '', u.name));
+    const b = el('b', '', u.name);
+    if (u.verified) b.append(verifiedBadge());
+    name.append(b);
     if (u.push) name.append(el('span', 'tag', 'push'));
     if (u.presenceHidden) name.append(el('span', 'tag', 'статус скрыт'));
     const status = el('td', 'status');
@@ -132,7 +154,18 @@ function render() {
         alert(e.message);
       }
     });
-    actions.append(del);
+    const mark = el('button', 'ghost tick' + (u.verified ? ' on' : ''), u.verified ? 'Снять галочку' : 'Поставить галочку');
+    mark.type = 'button';
+    mark.title = u.verified ? 'Убрать официальную галочку' : 'Отметить аккаунт как официальный: галочка рядом с именем у всех собеседников';
+    mark.addEventListener('click', async () => {
+      if (u.verified && !confirm(`Снять официальную галочку у ${u.name}?`)) return;
+      try {
+        await act('verify', { name: u.name, verified: !u.verified });
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+    actions.append(mark, del);
     tr.append(name, status, devs, created, queued, actions);
     return tr;
   });

@@ -222,9 +222,10 @@ export function startServer({
   function presenceOf(name) {
     const p = store.getPresence(name);
     if (!p) return { username: name, exists: false };
-    if (p.hidden) return { username: name, exists: true, hidden: true, online: false, lastSeen: null };
+    // Галочку видно всегда, даже если статус «в сети» скрыт
+    if (p.hidden) return { username: name, exists: true, verified: p.verified, hidden: true, online: false, lastSeen: null };
     const on = isOnline(name);
-    return { username: name, exists: true, hidden: false, online: on, lastSeen: on ? Date.now() : p.lastSeen };
+    return { username: name, exists: true, verified: p.verified, hidden: false, online: on, lastSeen: on ? Date.now() : p.lastSeen };
   }
   function broadcastPresence(name) {
     const set = watchers.get(name);
@@ -344,6 +345,7 @@ export function startServer({
           opkCount: store.opkCount(p.username, deviceId),
           spkId: d.spk.id,
           presenceHidden: store.getPresence(p.username)?.hidden || false,
+          verified: store.getPresence(p.username)?.verified || false,
           vapidKey: vapid ? vapid.publicKey : null,
           pushEndpoint: store.getPushSub(p.username, deviceId)?.endpoint || null,
         });
@@ -643,6 +645,15 @@ export function startServer({
       for (const k of [...online.keys()]) if (k.startsWith(name + '.')) online.delete(k);
       broadcastPresence(name);
       say('администратор удалил аккаунт');
+    },
+    // Официальная галочка: видна всем собеседникам сразу (через подписку на статус)
+    setVerified(name, on) {
+      name = String(name || '').toLowerCase();
+      if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
+      store.setVerified(name, !!on);
+      broadcastPresence(name);
+      for (const c of onlineDevices(name)) send(c, { type: 'verified', verified: !!on });
+      say(on ? 'администратор поставил галочку' : 'администратор снял галочку');
     },
     ban(ip, note = '') {
       ip = normIp(ip);

@@ -96,6 +96,12 @@ button.mini:hover { border-color: var(--danger); }
 button.danger { background: transparent; color: var(--danger); border: 1px solid var(--line); padding: 5px 10px; font-weight: 500; font-size: 13px; }
 button.danger:hover { border-color: var(--danger); }
 td.actions { text-align: right; white-space: nowrap; }
+td.actions button + button { margin-left: 6px; }
+button.ghost.tick { padding: 5px 10px; font-size: 13px; }
+button.ghost.tick.on { color: var(--muted); }
+.official { width: 15px; height: 15px; vertical-align: -2px; margin-left: 4px; }
+.official-bg { fill: #3d95e6; }
+.official-check { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .bans { margin-top: 22px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
 .bans h2 { margin: 0 0 10px; font-size: 16px; }
 .ban-form { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -183,3 +183,76 @@ test('панель администратора: последний IP, удал
   await again.connect({ timeout: 5000 });
   assert.equal(again.status, 'online');
 });
+
+test('официальная галочка: у admin по умолчанию, ставится и снимается в панели', async (t) => {
+  const { base, mk, srv } = await setup(t);
+  const admin = mk();
+  const alice = mk();
+  const bob = mk();
+  await admin.register('admin');
+  await alice.register('alice');
+  await bob.register('bob');
+  assert.equal(admin.verified, true, 'admin получает галочку при регистрации');
+  assert.equal(alice.verified, false);
+
+  // Собеседник видит галочку admin, даже если тот скрыл статус «в сети»
+  await admin.setPresenceVisible(false);
+  await bob.addContact('admin');
+  await bob.addContact('alice');
+  await sleep(200);
+  assert.equal(bob.isVerified('admin'), true);
+  assert.equal(bob.isVerified('alice'), false);
+
+  const session = (await login(base, PASSWORD)).headers.get('set-cookie').split(';')[0];
+  const api = (name, body) =>
+    fetch(`${base}/adminadminadmin/api/${name}`, {
+      method: 'POST',
+      headers: { Cookie: session, 'Content-Type': 'application/json', 'X-Tainik-Admin': '1' },
+      body: JSON.stringify(body),
+    });
+  const overview = async () => (await fetch(`${base}/adminadminadmin/api/overview`, { headers: { Cookie: session } })).json();
+  assert.deepEqual((await overview()).users.filter((u) => u.verified).map((u) => u.name), ['admin']);
+
+  // Поставить: собеседник и сама alice узнают сразу
+  const seen = waitFor(bob, 'presence', (p) => p.username === 'alice' && p.verified);
+  const own = waitFor(alice, 'verified', (v) => v === true);
+  assert.equal((await api('verify', { name: 'alice', verified: true })).status, 200);
+  await Promise.all([seen, own]);
+  assert.equal(bob.isVerified('alice'), true);
+  assert.equal(alice.verified, true);
+
+  // Снять
+  const gone = waitFor(bob, 'presence', (p) => p.username === 'alice' && !p.verified);
+  assert.equal((await api('verify', { name: 'alice', verified: false })).status, 200);
+  await gone;
+  assert.equal(bob.isVerified('alice'), false);
+  assert.equal(srv.store.getPresence('alice').verified, false);
+
+  // Только true ставит галочку; неизвестный пользователь — ошибка
+  assert.equal((await api('verify', { name: 'alice', verified: 'yes' })).status, 200);
+  assert.equal(srv.store.getPresence('alice').verified, false);
+  assert.equal((await api('verify', { name: 'nobody', verified: true })).status, 400);
+
+  // После переподключения своя галочка приходит в ready
+  admin.disconnect();
+  const again = mk();
+  again.account = admin.account;
+  await again.connect({ timeout: 5000 });
+  assert.equal(again.verified, true);
+});
+
+test('официальная галочка: старая база получает галочку у admin при обновлении', async (t) => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tainik-mig-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  // База версии без колонки verified
+  const db = new DatabaseSync(path.join(dataDir, 'tainik.db'));
+  db.exec(`CREATE TABLE users (name TEXT PRIMARY KEY, identity_dh TEXT NOT NULL, identity_sign TEXT NOT NULL, next_device_id INTEGER NOT NULL, created_at INTEGER NOT NULL, presence_hidden INTEGER NOT NULL DEFAULT 0);
+    INSERT INTO users VALUES ('admin', 'x', 'y', 2, 1, 0), ('alice', 'x', 'y', 2, 1, 0);`);
+  db.close();
+  const { Store } = await import('../server/store.js');
+  const store = new Store(dataDir);
+  t.after(() => store.close());
+  assert.equal(store.getPresence('admin').verified, true);
+  assert.equal(store.getPresence('alice').verified, false);
+});
