@@ -514,4 +514,18 @@ export default {
   'Заблокированные': 'Blocked users',
   'Вы никого не заблокировали. Заблокировать можно в чате: ⋮ → «Заблокировать».': 'You haven\'t blocked anyone. To block someone, open the chat: ⋮ → “Block”.',
   'Действия с чатом': 'Chat actions',
+  // Настройки
+  'Вкл.': 'On',
+  'Выкл.': 'Off',
+  'Доступно': 'Available',
+  'Конфиденциальность': 'Privacy',
+  'Показывать, что я в сети и когда был(а)': 'Show when I’m online and last seen',
+  'Если выключить, собеседники видят «был(а) недавно».': 'If turned off, others see “last seen recently”.',
+  'Отпечаток ключа личности': 'Identity key fingerprint',
+  'Сверьте его с собеседником или откройте «Код безопасности» в чате.': 'Compare it with your contact or open “Safety number” in a chat.',
+  'Заблокированные не могут писать и звонить вам и не видят, когда вы в сети. Блокировка действует на всех ваших устройствах.': 'Blocked users can\'t message or call you or see when you\'re online. Blocks apply on all your devices.',
+  'Показывать текст сообщения': 'Show message text',
+  'Протокол: X3DH + Double Ratchet, несколько устройств (v3).': 'Protocol: X3DH + Double Ratchet, multiple devices (v3).',
+  '«Выйти на этом устройстве» стирает ключи и переписку только здесь; лучше сначала отвязать устройство с другого.': '“Sign out on this device” erases keys and messages only here; it’s better to unlink the device from another one first.',
+  'Блокировка действует на всех ваших устройствах. Снять её можно в ⋯ → «Конфиденциальность» → «Заблокированные».': 'The block applies on all your devices. You can lift it in ⋯ → “Privacy” → “Blocked users”.',
 };

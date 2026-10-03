@@ -427,19 +427,22 @@ async function clearChatNotices(chat) {
   } catch {}
 }
 // ---------- Язык ----------
+const LANGS = [['ru', 'Русский'], ['en', 'English']];
 {
-  const sel = $('lang-select');
-  for (const [code, name] of [['ru', 'Русский'], ['en', 'English']]) {
-    const o = el('option', '', name);
-    o.value = code;
-    o.selected = code === LANG;
-    sel.append(o);
+  for (const [code, name] of LANGS) {
+    const b = el('button', 'set-row set-radio');
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(code === LANG));
+    b.append(el('span', 'set-label', name), el('span', 'set-check', code === LANG ? '✓' : ''));
+    b.addEventListener('click', async () => {
+      if (code === LANG) return;
+      setLang(code);
+      await settings.set('lang', code); // нативной части: трей, уведомления Android
+      location.reload();
+    });
+    $('lang-list').append(b);
   }
-  sel.addEventListener('change', async () => {
-    setLang(sel.value);
-    await settings.set('lang', sel.value); // нативной части: трей, уведомления Android
-    location.reload();
-  });
   settings.set('lang', LANG);
 }
 
@@ -1113,7 +1116,44 @@ $('banner-accept').addEventListener('click', async () => {
 });
 
 // ---------- Меню ----------
-$('menu-btn').addEventListener('click', async () => {
+// ---------- Настройки: главный экран и разделы ----------
+let setPage = 'main';
+function showSetPage(name) {
+  const page = document.querySelector(`#menu-dialog .set-page[data-page="${name}"]`);
+  if (!page) return;
+  setPage = name;
+  for (const p of document.querySelectorAll('#menu-dialog .set-page')) p.hidden = p !== page;
+  $('set-title').textContent = name === 'main' ? t('Настройки') : t(page.dataset.title);
+  $('set-back').hidden = name === 'main';
+  if (name === 'blocked') renderBlocked();
+  page.scrollTop = 0;
+  $('menu-dialog').querySelector('.settings-form').scrollTop = 0;
+}
+/** Назад из раздела; false — уже на главном экране. */
+function setBack() {
+  if (setPage === 'main') return false;
+  const parent = document.querySelector(`#menu-dialog .set-page[data-page="${setPage}"]`)?.dataset.parent || 'main';
+  showSetPage(parent);
+  return true;
+}
+$('set-back').addEventListener('click', setBack);
+$('menu-dialog').addEventListener('click', (e) => {
+  const go = e.target.closest('[data-go]');
+  if (go) showSetPage(go.dataset.go);
+});
+// Esc в разделе — на шаг назад, а не закрыть настройки (keydown: событие cancel браузер
+// разрешает отменить только раз подряд)
+$('menu-dialog').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && setPage !== 'main') {
+    e.preventDefault();
+    setBack();
+  }
+});
+$('menu-dialog').addEventListener('cancel', (e) => {
+  if (setBack()) e.preventDefault();
+});
+
+async function fillSettings() {
   $('my-fp').textContent = await client.myFingerprint();
   $('my-server').textContent = client.url;
   $('presence-visible').checked = !client.presenceHidden;
@@ -1122,10 +1162,20 @@ $('menu-btn').addEventListener('click', async () => {
     $('my-version').textContent = await desktop.version();
     $('my-version-row').hidden = false;
   }
+  paintAvatar($('set-avatar'), client.account.username);
+  setName($('set-name'), client.account.username, client.verified);
   $('my-device').textContent = `${client.account.deviceName || t('Устройство')} (${t('№{0}', client.account.deviceId)})`;
+  $('set-lang-value').textContent = LANGS.find(([c]) => c === LANG)?.[1] || '';
+  $('set-blocked-value').textContent = client.blocked.size ? String(client.blocked.size) : '';
   await fillNotifSettings();
-  $('menu-dialog').showModal();
-});
+}
+
+async function openSettings(page = 'main') {
+  await fillSettings();
+  showSetPage(page);
+  if (!$('menu-dialog').open) $('menu-dialog').showModal();
+}
+$('menu-btn').addEventListener('click', () => openSettings());
 $('menu-dialog').addEventListener('close', async () => {
   const v = $('menu-dialog').returnValue;
   if (v === 'devices') return openDevices();
@@ -1525,9 +1575,10 @@ async function fillNotifSettings() {
   else if (enabled) hint = t('Уведомления приходят, пока вкладка открыта.');
   else hint = t('Текст сообщений по умолчанию не показывается: его увидят только те, кто смотрит на ваш экран.');
   $('notif-hint').textContent = hint;
+  $('set-notif-value').textContent = enabled ? t('Вкл.') : t('Выкл.');
   if (desktop?.background) {
     const bg = await desktop.background.get();
-    $('bg-settings').hidden = false;
+    $('row-bg').hidden = false;
     $('bg-tray').checked = bg.tray;
     $('bg-autostart').checked = bg.autostart;
     $('bg-autostart').disabled = !bg.autostartSupported || (android && !bg.tray);
@@ -2197,8 +2248,7 @@ function renderBlocked() {
   );
 }
 function openBlocked() {
-  renderBlocked();
-  $('blocked-dialog').showModal();
+  return openSettings('blocked');
 }
 
 client.on('blocks', () => {
@@ -2207,7 +2257,8 @@ client.on('blocks', () => {
     updateComposer();
     renderPresence();
   }
-  if ($('blocked-dialog').open) renderBlocked();
+  if ($('menu-dialog').open && setPage === 'blocked') renderBlocked();
+  $('set-blocked-value').textContent = client.blocked.size ? String(client.blocked.size) : '';
 });
 
 // ---------- Статус «в сети» ----------
@@ -2239,6 +2290,7 @@ window.__tainikBack = () => {
   if (!$('chat-menu').hidden) return closeChatMenu(), true;
   if ($('viewer').open) return closeViewer(), true;
   const dlg = [...document.querySelectorAll('dialog[open]')].pop();
+  if (dlg === $('menu-dialog') && setBack()) return true;
   if (dlg) return dlg.close(), true;
   if (!$('call').hidden && minimizeCall()) return true;
   if (reply) return setReply(null), true;
@@ -2487,12 +2539,13 @@ async function updGo() {
 function renderUpdates(st) {
   upd = st;
   const on = !!st && st.status !== 'unsupported';
-  $('upd-settings').hidden = !on;
+  $('row-upd').hidden = !on;
   const action = on ? updAction(st) : null;
   const show = on && !!action && dismissedUpdate.v !== st.version;
   $('upd-banner').hidden = !show;
   if (!on) return;
   $('upd-text').textContent = updText(st);
+  $('set-upd-value').textContent = action ? t('Доступно') : '';
   $('upd-go').hidden = !action || st.status === 'manual';
   $('upd-go').textContent = action || '';
   $('upd-manual').hidden = st.status !== 'manual' || !st.downloadUrl;

@@ -608,3 +608,60 @@ dialog.viewer[open] { display: flex; }
 .blocked-item { display: flex; align-items: center; gap: 10px; }
 .blocked-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .blocked-item .ghost { padding: 6px 12px; font-size: 13.5px; }
+
+/* ---------- Настройки (как в Telegram: главный экран и разделы) ---------- */
+dialog.settings { width: min(440px, calc(100% - 32px)); height: min(680px, calc(100dvh - 32px)); max-height: none; overflow: hidden; background: var(--bg); }
+dialog.settings[open] { display: flex; }
+.settings-form { display: flex; flex-direction: column; width: 100%; height: 100%; overflow-y: auto; }
+.set-head {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
+  padding: 10px 10px 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.set-head h2 { flex: 1; margin: 0; font-size: 17px; }
+.set-head #set-back { margin-left: -8px; }
+.set-page { padding: 14px 14px 22px; }
+.set-profile { display: flex; align-items: center; gap: 14px; padding: 6px 4px 16px; }
+.avatar.big { width: 64px; height: 64px; font-size: 26px; }
+.set-name { font-size: 19px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.set-group {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  margin: 0 0 14px; padding: 0; list-style: none;
+}
+.set-group.set-pad { padding: 4px 14px; }
+.set-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 10px 14px;
+  background: none; border: 0; border-radius: 0; text-align: left; color: var(--text); font: inherit; font-size: 15px;
+  text-decoration: none; cursor: pointer;
+}
+.set-row + .set-row, .set-group > li + li { border-top: 1px solid var(--line); }
+.set-row:hover { background: var(--accent-soft); }
+.set-row.danger { color: var(--danger); }
+.set-ico { width: 28px; flex: none; text-align: center; font-size: 19px; }
+.set-label { flex: 1; min-width: 0; }
+.set-value { color: var(--muted); font-size: 14px; white-space: nowrap; }
+.set-chev { color: var(--muted); font-size: 20px; line-height: 1; }
+.set-check { color: var(--accent); font-weight: 700; }
+.set-toggle input { width: auto; flex: none; margin: 0; }
+/* Переключатель вместо галочки */
+.set-toggle input[type="checkbox"] {
+  appearance: none; -webkit-appearance: none; width: 42px; height: 24px; border-radius: 12px;
+  background: var(--line); position: relative; cursor: pointer; transition: background .15s; border: 0; padding: 0;
+}
+.set-toggle input[type="checkbox"]::after {
+  content: ''; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s;
+}
+.set-toggle input[type="checkbox"]:checked { background: var(--accent); }
+.set-toggle input[type="checkbox"]:checked::after { transform: translateX(18px); }
+.set-toggle input[type="checkbox"]:disabled { opacity: .45; cursor: default; }
+.set-note { color: var(--muted); font-size: 12.5px; margin: -8px 6px 14px; }
+.set-sub { color: var(--muted); font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin: 6px 6px 6px; }
+.set-group .fp { display: block; margin: 8px 0; }
+.set-group .upd-actions { margin: 4px 0 10px; }
+.set-group.blocked-list { gap: 0; max-height: none; }
+.set-group .blocked-item { padding: 8px 14px; }
+@media (max-width: 600px) {
+  dialog.settings { width: 100vw; height: 100dvh; max-width: none; margin: 0; border: 0; border-radius: 0; }
+  .set-head { padding-top: calc(10px + env(safe-area-inset-top)); }
+  .set-page { padding-bottom: calc(22px + env(safe-area-inset-bottom)); }
+}

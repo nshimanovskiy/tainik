@@ -196,46 +196,104 @@
     </form>
   </dialog>
 
-  <!-- Меню -->
-  <dialog id="menu-dialog">
-    <form method="dialog" class="dialog-body">
-      <h2>Аккаунт</h2>
-      <p class="small">Это устройство: <b id="my-device"></b></p>
-      <button value="accounts" class="ghost wide">Аккаунты: переключиться или добавить…</button>
-      <button value="devices" class="ghost wide">Устройства и привязка…</button>
-      <button value="blocked" class="ghost wide">Заблокированные…</button>
-      <label class="check"><input type="checkbox" id="presence-visible"> Показывать другим, что я в сети и когда был(а)</label>
-      <label class="lang-row">🌐 <span>Язык</span> <select id="lang-select" aria-label="Язык"></select></label>
-      <h3 class="menu-sub">Уведомления</h3>
-      <label class="check"><input type="checkbox" id="notif-enabled"> Уведомлять о сообщениях и звонках</label>
-      <label class="check"><input type="checkbox" id="notif-preview"> Показывать текст сообщения в уведомлении</label>
-      <p class="hint" id="notif-hint"></p>
-      <div id="bg-settings" hidden>
-        <h3 class="menu-sub">Работа в фоне</h3>
-        <label class="check"><input type="checkbox" id="bg-tray"> <span id="bg-tray-text">При закрытии окна оставаться в фоне (значок в трее)</span></label>
-        <label class="check"><input type="checkbox" id="bg-autostart"> <span id="bg-autostart-text">Запускать при входе в систему</span></label>
-        <p class="hint" id="bg-hint" hidden></p>
-      </div>
-      <div id="upd-settings" hidden>
-        <h3 class="menu-sub">Обновления</h3>
-        <p class="small" id="upd-text"></p>
-        <div class="upd-actions">
-          <button type="button" id="upd-check" class="ghost">Проверить</button>
-          <button type="button" id="upd-go" class="primary" hidden></button>
-          <a id="upd-manual" class="ghost-link" href="#" target="_blank" rel="noopener" hidden>Скачать вручную</a>
+  <!-- Настройки: главный экран и разделы, как в Telegram -->
+  <dialog id="menu-dialog" class="settings">
+    <form method="dialog" class="settings-form">
+      <header class="set-head">
+        <button type="button" id="set-back" class="icon-btn" aria-label="Назад" hidden>←</button>
+        <h2 id="set-title">Настройки</h2>
+        <button value="close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+      </header>
+
+      <div class="set-page" data-page="main">
+        <div class="set-profile">
+          <span class="avatar big" id="set-avatar"></span>
+          <div>
+            <div id="set-name" class="set-name"></div>
+            <div class="small muted">Это устройство: <b id="my-device"></b></div>
+          </div>
         </div>
-        <label class="check"><input type="checkbox" id="upd-auto"> Скачивать обновления автоматически</label>
-        <p class="hint" id="upd-hint"></p>
+        <div class="set-group">
+        <button type="submit" value="accounts" class="set-row"><span class="set-ico" aria-hidden="true">👥</span><span class="set-label">Аккаунты</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="submit" value="devices" class="set-row"><span class="set-ico" aria-hidden="true">💻</span><span class="set-label">Устройства</span><span class="set-chev" aria-hidden="true">›</span></button>
+        </div>
+        <div class="set-group">
+        <button type="button" data-go="privacy" class="set-row"><span class="set-ico" aria-hidden="true">🔒</span><span class="set-label">Конфиденциальность</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="notif" class="set-row"><span class="set-ico" aria-hidden="true">🔔</span><span class="set-label">Уведомления</span><span class="set-value" id="set-notif-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="bg" class="set-row" id="row-bg" hidden><span class="set-ico" aria-hidden="true">🔋</span><span class="set-label">Работа в фоне</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="lang" class="set-row"><span class="set-ico" aria-hidden="true">🌐</span><span class="set-label">Язык</span><span class="set-value" id="set-lang-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="upd" class="set-row" id="row-upd" hidden><span class="set-ico" aria-hidden="true">⬆️</span><span class="set-label">Обновления</span><span class="set-value" id="set-upd-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        </div>
+        <div class="set-group">
+        <button type="button" data-go="about" class="set-row"><span class="set-ico" aria-hidden="true">ℹ️</span><span class="set-label">О Тайнике</span><span class="set-chev" aria-hidden="true">›</span></button>
+          <a class="set-row" id="get-apps-row" href="/?home#download" target="_blank" rel="noopener" hidden><span class="set-ico" aria-hidden="true">📲</span><span class="set-label">Скачать приложения</span><span class="set-chev" aria-hidden="true">›</span></a>
+        </div>
+        <div class="set-group">
+          <button id="reset-btn" type="submit" value="reset" class="set-row danger"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Выйти на этом устройстве</span></button>
+        </div>
       </div>
-      <p class="small">Отпечаток ключа личности:</p>
-      <code id="my-fp" class="fp"></code>
-      <p class="small">Сервер: <code id="my-server" class="inline-code"></code></p>
-      <p class="small" id="my-version-row" hidden>Версия приложения: <b id="my-version"></b></p>
-      <p class="small" id="get-apps-row" hidden><a href="/?home#download" target="_blank" rel="noopener">Скачать приложения</a> для компьютера, Android и iPhone</p>
-      <p class="hint">Протокол: X3DH + Double Ratchet, несколько устройств (v3). «Выйти на этом устройстве» стирает ключи и переписку только здесь; лучше сначала отвязать устройство с другого.</p>
-      <div class="dialog-actions">
-        <button value="close" class="ghost">Закрыть</button>
-        <button id="reset-btn" value="reset" class="danger-btn">Выйти на этом устройстве</button>
+
+      <div class="set-page" data-page="privacy" data-title="Конфиденциальность" hidden>
+        <div class="set-group">
+          <label class="set-row set-toggle"><span class="set-label">Показывать, что я в сети и когда был(а)</span><input type="checkbox" id="presence-visible"></label>
+        </div>
+        <p class="set-note">Если выключить, собеседники видят «был(а) недавно».</p>
+        <div class="set-group">
+        <button type="button" data-go="blocked" class="set-row"><span class="set-ico" aria-hidden="true">🚫</span><span class="set-label">Заблокированные</span><span class="set-value" id="set-blocked-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        </div>
+        <h3 class="set-sub">Отпечаток ключа личности</h3>
+        <div class="set-group set-pad"><code id="my-fp" class="fp"></code></div>
+        <p class="set-note">Сверьте его с собеседником или откройте «Код безопасности» в чате.</p>
+      </div>
+
+      <div class="set-page" data-page="blocked" data-title="Заблокированные" data-parent="privacy" hidden>
+        <ul id="blocked-list" class="blocked-list set-group"></ul>
+        <p id="blocked-empty" class="set-note">Вы никого не заблокировали. Заблокировать можно в чате: ⋮ → «Заблокировать».</p>
+        <p class="set-note">Заблокированные не могут писать и звонить вам и не видят, когда вы в сети. Блокировка действует на всех ваших устройствах.</p>
+      </div>
+
+      <div class="set-page" data-page="notif" data-title="Уведомления" hidden>
+        <div class="set-group">
+          <label class="set-row set-toggle"><span class="set-label">Уведомлять о сообщениях и звонках</span><input type="checkbox" id="notif-enabled"></label>
+          <label class="set-row set-toggle"><span class="set-label">Показывать текст сообщения</span><input type="checkbox" id="notif-preview"></label>
+        </div>
+        <p class="set-note" id="notif-hint"></p>
+      </div>
+
+      <div class="set-page" data-page="bg" data-title="Работа в фоне" hidden>
+        <div class="set-group" id="bg-settings">
+          <label class="set-row set-toggle"><span class="set-label" id="bg-tray-text">При закрытии окна оставаться в фоне (значок в трее)</span><input type="checkbox" id="bg-tray"></label>
+          <label class="set-row set-toggle"><span class="set-label" id="bg-autostart-text">Запускать при входе в систему</span><input type="checkbox" id="bg-autostart"></label>
+        </div>
+        <p class="set-note" id="bg-hint" hidden></p>
+      </div>
+
+      <div class="set-page" data-page="lang" data-title="Язык" hidden>
+        <div class="set-group" id="lang-list" role="radiogroup" aria-label="Язык"></div>
+      </div>
+
+      <div class="set-page" data-page="upd" data-title="Обновления" hidden>
+        <div class="set-group set-pad" id="upd-settings">
+          <p class="small" id="upd-text"></p>
+          <div class="upd-actions">
+            <button type="button" id="upd-check" class="ghost">Проверить</button>
+            <button type="button" id="upd-go" class="primary" hidden></button>
+            <a id="upd-manual" class="ghost-link" href="#" target="_blank" rel="noopener" hidden>Скачать вручную</a>
+          </div>
+        </div>
+        <div class="set-group">
+          <label class="set-row set-toggle"><span class="set-label">Скачивать обновления автоматически</span><input type="checkbox" id="upd-auto"></label>
+        </div>
+        <p class="set-note" id="upd-hint"></p>
+      </div>
+
+      <div class="set-page" data-page="about" data-title="О Тайнике" hidden>
+        <div class="set-group set-pad">
+          <p class="small">Сервер: <code id="my-server" class="inline-code"></code></p>
+          <p class="small" id="my-version-row" hidden>Версия приложения: <b id="my-version"></b></p>
+          <p class="small">Протокол: X3DH + Double Ratchet, несколько устройств (v3).</p>
+        </div>
+        <p class="set-note">«Выйти на этом устройстве» стирает ключи и переписку только здесь; лучше сначала отвязать устройство с другого.</p>
       </div>
     </form>
   </dialog>
@@ -331,7 +389,7 @@
       <h2>Заблокировать <span id="block-peer"></span>?</h2>
       <p class="small">Он не сможет писать и звонить вам и не будет видеть, когда вы в сети. Об этом он не узнает: его сообщения будут выглядеть отправленными, но не доставленными.</p>
       <label class="check"><input type="checkbox" id="block-delete"> Также удалить чат</label>
-      <p class="hint">Блокировка действует на всех ваших устройствах. Снять её можно в ⋯ → «Заблокированные».</p>
+      <p class="hint">Блокировка действует на всех ваших устройствах. Снять её можно в ⋯ → «Конфиденциальность» → «Заблокированные».</p>
       <div class="dialog-actions">
         <button value="cancel" class="ghost">Отмена</button>
         <button value="block" class="danger-btn">Заблокировать</button>
@@ -339,17 +397,6 @@
     </form>
   </dialog>
 
-  <!-- Список заблокированных -->
-  <dialog id="blocked-dialog">
-    <form method="dialog" class="dialog-body">
-      <h2>Заблокированные</h2>
-      <ul id="blocked-list" class="blocked-list"></ul>
-      <p id="blocked-empty" class="muted small">Вы никого не заблокировали. Заблокировать можно в чате: ⋮ → «Заблокировать».</p>
-      <div class="dialog-actions">
-        <button value="close" class="ghost">Закрыть</button>
-      </div>
-    </form>
-  </dialog>
 
   <!-- Удаление -->
   <dialog id="delete-dialog">
