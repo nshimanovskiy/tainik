@@ -321,13 +321,30 @@
         <input id="link-input" placeholder="Код с нового устройства" spellcheck="false" autocapitalize="characters" aria-label="Код привязки">
         <button class="primary">Привязать</button>
       </form>
-      <button type="button" id="scan-btn" class="ghost" hidden>📷 Сканировать QR камерой</button>
-      <video id="scan-video" class="scan-video" hidden playsinline muted></video>
+      <button type="button" id="scan-btn" class="primary wide">📷 Сканировать QR-код</button>
       <p id="link-form-error" class="error small" role="alert"></p>
       <p class="hint">Новое устройство получит ключ вашей личности и список контактов. История переписки не переносится. Не вводите код, который прислал кто-то другой.</p>
       <div class="dialog-actions">
         <button type="button" id="devices-close" class="ghost">Закрыть</button>
       </div>
+    </div>
+  </dialog>
+
+  <!-- Сканер QR-кода -->
+  <dialog id="scanner" class="scanner">
+    <div class="scanner-bar">
+      <b>Наведите камеру на QR-код</b>
+      <button type="button" id="scanner-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+    </div>
+    <div class="scanner-view">
+      <video id="scanner-video" playsinline muted></video>
+      <div class="scanner-frame" aria-hidden="true"></div>
+      <p id="scanner-status" class="scanner-status"></p>
+    </div>
+    <div class="scanner-actions">
+      <button type="button" id="scanner-switch" class="ghost" hidden>🔄 Другая камера</button>
+      <button type="button" id="scanner-file" class="ghost">🖼 Из картинки</button>
+      <input type="file" id="scanner-file-input" accept="image/*" hidden>
     </div>
   </dialog>
 

@@ -322,7 +322,7 @@ $('link-start').addEventListener('click', async () => {
     await settings.set('server', server);
     await rememberAccount();
     await showApp();
-    toast('Устройство привязано. Контакты перенесены, старая переписка — нет.', 6000);
+    toast(t('Устройство привязано. Контакты перенесены, старая переписка — нет.'), 6000);
   } catch (err) {
     linking = null;
     resetLinkPane();
@@ -335,9 +335,9 @@ $('link-start').addEventListener('click', async () => {
 $('link-copy').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText($('link-code').textContent);
-    toast('Код скопирован');
+    toast(t('Код скопирован'));
   } catch {
-    toast('Не удалось скопировать — выделите код вручную');
+    toast(t('Не удалось скопировать — выделите код вручную'));
   }
 });
 
@@ -628,7 +628,7 @@ $('composer').addEventListener('submit', async (e) => {
   e.preventDefault();
   const text = ta.value;
   if (!text.trim() || !current) return;
-  if (text.length > 20000) return toast('Слишком длинное сообщение');
+  if (text.length > 20000) return toast(t('Слишком длинное сообщение'));
   ta.value = '';
   ta.style.height = 'auto';
   const replyTo = reply?.id || null;
@@ -1106,7 +1106,7 @@ $('banner-check').addEventListener('click', openSafety);
 $('safety-dialog').addEventListener('close', async () => {
   if ($('safety-dialog').returnValue === 'verify' && current) {
     await client.markVerified(current, true);
-    toast('Отмечено как проверенный');
+    toast(t('Отмечено как проверенный'));
   }
 });
 $('banner-accept').addEventListener('click', async () => {
@@ -1225,7 +1225,7 @@ async function renderDevices() {
           if (!confirm(t('Отвязать «{0}»? Оно перестанет получать сообщения, а ключи на нём будут стёрты при следующем подключении.', d.name))) return;
           try {
             await client.unlinkDevice(d.id);
-            toast('Устройство отвязано');
+            toast(t('Устройство отвязано'));
           } catch (err) {
             toast(err.message);
           }
@@ -1241,7 +1241,6 @@ async function renderDevices() {
 async function openDevices() {
   $('link-form-error').textContent = '';
   $('link-input').value = '';
-  $('scan-btn').hidden = !('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia);
   $('devices-dialog').showModal();
   await renderDevices();
 }
@@ -1251,7 +1250,7 @@ async function linkWithCode(code) {
   try {
     await client.linkDevice(code);
     $('link-input').value = '';
-    toast('Ключи переданы. Новое устройство подключается…', 5000);
+    toast(t('Ключи переданы. Новое устройство подключается…'), 5000);
     setTimeout(renderDevices, 1500);
   } catch (err) {
     $('link-form-error').textContent = err.message;
@@ -1266,40 +1265,188 @@ $('link-form').addEventListener('submit', (e) => {
   linkWithCode(code);
 });
 
-// Сканирование QR камерой (где браузер поддерживает BarcodeDetector)
-let scanStream = null;
-function stopScan() {
-  if (scanStream) scanStream.getTracks().forEach((tr) => tr.stop());
-  scanStream = null;
-  $('scan-video').hidden = true;
+// ---------- Сканер QR-кода ----------
+// Камера → кадры → распознавание. Где есть BarcodeDetector — он, иначе свой распознаватель
+// (shared/qr-scan.js) в фоновом потоке: в приложениях для Windows, Linux и Android его нет.
+const SCAN_MAX = 640; // кадр уменьшаем до этой ширины: быстрее и надёжнее
+let scanner = null; // { stream, onResult, timer, cams, camIndex }
+let qrWorker;
+let qrSeq = 0;
+const qrWaiting = new Map();
+
+function qrDecodeWorker(imageData) {
+  if (qrWorker === undefined) {
+    try {
+      qrWorker = new Worker('/shared/qr-worker.js', { type: 'module' });
+      qrWorker.onmessage = (e) => {
+        qrWaiting.get(e.data.id)?.(e.data.text);
+        qrWaiting.delete(e.data.id);
+      };
+      qrWorker.onerror = () => {
+        qrWorker = null; // поток не запустился — распознаём на странице
+        for (const done of qrWaiting.values()) done(undefined);
+        qrWaiting.clear();
+      };
+    } catch {
+      qrWorker = null;
+    }
+  }
+  if (!qrWorker) return null;
+  const id = ++qrSeq;
+  return new Promise((resolve) => {
+    qrWaiting.set(id, resolve);
+    qrWorker.postMessage({ id, width: imageData.width, height: imageData.height, data: imageData.data }, [imageData.data.buffer]);
+  });
 }
-$('scan-btn').addEventListener('click', async () => {
-  if (scanStream) return stopScan();
+
+let scanModule = null;
+async function decodeQr(source, w, h) {
+  const k = Math.min(1, SCAN_MAX / Math.max(w, h));
+  const cw = Math.max(1, Math.round(w * k));
+  const ch = Math.max(1, Math.round(h * k));
+  const canvas = document.createElement('canvas');
+  canvas.width = cw;
+  canvas.height = ch;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(source, 0, 0, cw, ch);
+  if ('BarcodeDetector' in window) {
+    try {
+      const found = await new BarcodeDetector({ formats: ['qr_code'] }).detect(canvas);
+      if (found[0]) return found[0].rawValue;
+    } catch {}
+  }
+  const imageData = ctx.getImageData(0, 0, cw, ch);
+  const viaWorker = qrDecodeWorker(imageData);
+  if (viaWorker) {
+    const text = await viaWorker;
+    if (text !== undefined) return text;
+  }
+  scanModule ||= await import('/shared/qr-scan.js');
+  return scanModule.scanQR(ctx.getImageData(0, 0, cw, ch), { budgetMs: 150 });
+}
+
+function stopScan() {
+  if (!scanner) return;
+  clearTimeout(scanner.timer);
+  scanner.stream?.getTracks().forEach((tr) => tr.stop());
+  $('scanner-video').srcObject = null;
+  scanner = null;
+  if ($('scanner').open) $('scanner').close();
+}
+
+async function startCamera() {
+  const s = scanner;
+  s.stream?.getTracks().forEach((tr) => tr.stop());
+  const cam = s.cams[s.camIndex];
+  const video = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  if (cam) video.deviceId = { exact: cam.deviceId };
+  else video.facingMode = 'environment'; // на телефоне — задняя камера
+  s.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+  if (scanner !== s) return s.stream.getTracks().forEach((tr) => tr.stop());
+  const v = $('scanner-video');
+  v.srcObject = s.stream;
+  // Фронтальную камеру показываем зеркально, как зеркало (распознаётся и так)
+  const facing = s.stream.getVideoTracks()[0]?.getSettings?.().facingMode;
+  v.classList.toggle('mirror', facing === 'user' || (!facing && !android));
+  await v.play().catch(() => {});
+}
+
+/** Открыть сканер; onResult(text) → true, если код подошёл (сканер закроется). */
+async function openScanner(onResult) {
+  stopScan();
+  scanner = { stream: null, onResult, timer: null, cams: [], camIndex: 0 };
+  const s = scanner;
+  $('scanner-status').textContent = '';
+  $('scanner-switch').hidden = true;
+  $('scanner').showModal();
+  if (!navigator.mediaDevices?.getUserMedia) {
+    $('scanner-status').textContent = t('Камера недоступна. Можно выбрать картинку с QR-кодом.');
+    return;
+  }
   try {
-    const detector = new BarcodeDetector({ formats: ['qr_code'] });
-    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-    const video = $('scan-video');
-    video.srcObject = scanStream;
-    video.hidden = false;
-    await video.play();
-    const tick = async () => {
-      if (!scanStream) return;
-      const found = await detector.detect(video).catch(() => []);
-      const hit = found.find((f) => /^TAINIK1:/i.test(f.rawValue));
-      if (hit) {
-        stopScan();
-        $('link-input').value = hit.rawValue;
-        if (confirm(t('Найден код привязки. Передать ключи этому устройству?'))) linkWithCode(hit.rawValue);
-        return;
-      }
-      requestAnimationFrame(tick);
-    };
-    tick();
+    await startCamera();
+    if (scanner !== s) return;
+    // Список камер доступен после разрешения
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const current = s.stream.getVideoTracks()[0]?.getSettings?.().deviceId;
+    s.cams = cams;
+    s.camIndex = Math.max(0, cams.findIndex((c) => c.deviceId === current));
+    $('scanner-switch').hidden = cams.length < 2;
+  } catch (err) {
+    if (scanner !== s) return;
+    $('scanner-status').textContent =
+      err?.name === 'NotAllowedError' ? t('Нет доступа к камере. Разрешите его или выберите картинку с QR-кодом.') : t('Камера недоступна. Можно выбрать картинку с QR-кодом.');
+    return;
+  }
+  const v = $('scanner-video');
+  const tick = async () => {
+    if (scanner !== s) return;
+    let text = null;
+    if (v.readyState >= 2 && v.videoWidth) {
+      try {
+        text = await decodeQr(v, v.videoWidth, v.videoHeight);
+      } catch {}
+    }
+    if (scanner !== s) return;
+    if (text && s.onResult(text)) return stopScan();
+    s.timer = setTimeout(tick, 120);
+  };
+  tick();
+}
+
+$('scanner-close').addEventListener('click', stopScan);
+$('scanner').addEventListener('close', stopScan);
+$('scanner-switch').addEventListener('click', async () => {
+  if (!scanner || scanner.cams.length < 2) return;
+  scanner.camIndex = (scanner.camIndex + 1) % scanner.cams.length;
+  try {
+    await startCamera();
   } catch {
-    stopScan();
-    $('link-form-error').textContent = t('Камера недоступна — введите код вручную');
+    $('scanner-status').textContent = t('Не удалось включить эту камеру');
   }
 });
+$('scanner-file').addEventListener('click', () => $('scanner-file-input').click());
+$('scanner-file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file || !scanner) return;
+  const s = scanner;
+  $('scanner-status').textContent = t('Ищем QR-код на картинке…');
+  let text = null;
+  try {
+    const bmp = await createImageBitmap(file);
+    text = await decodeQr(bmp, bmp.width, bmp.height);
+    // Крупный код на большой картинке — попробовать без уменьшения
+    if (!text && Math.max(bmp.width, bmp.height) > SCAN_MAX) {
+      scanModule ||= await import('/shared/qr-scan.js');
+      const c = document.createElement('canvas');
+      c.width = Math.min(bmp.width, 2000);
+      c.height = Math.round((bmp.height * c.width) / bmp.width);
+      const ctx = c.getContext('2d');
+      ctx.drawImage(bmp, 0, 0, c.width, c.height);
+      text = scanModule.scanQR(ctx.getImageData(0, 0, c.width, c.height), { budgetMs: 1500 });
+    }
+    bmp.close();
+  } catch {}
+  if (scanner !== s) return;
+  if (text && s.onResult(text)) return stopScan();
+  $('scanner-status').textContent = text ? t('Это не код Тайника') : t('QR-код не найден на картинке');
+});
+
+// Привязка: код с экрана нового устройства
+$('scan-btn').addEventListener('click', () =>
+  openScanner((text) => {
+    if (!/^TAINIK1:/i.test(text)) {
+      $('scanner-status').textContent = t('Это не код привязки Тайника');
+      return false;
+    }
+    setTimeout(() => {
+      $('link-input').value = text;
+      if (confirm(t('Найден код привязки. Передать ключи этому устройству?'))) linkWithCode(text);
+    }, 50);
+    return true;
+  })
+);
 $('devices-close').addEventListener('click', () => {
   stopScan();
   $('devices-dialog').close();
@@ -1343,7 +1490,7 @@ client.on('status-change', ({ contact, id, status }) => {
   node.classList.toggle('failed', status === 'failed');
   node.querySelector('.st').textContent = STATUS_ICON[status] || '';
 });
-client.on('key-changed', (c) => toast(`⚠ Ключ пользователя ${c.username} изменился`, 6000));
+client.on('key-changed', (c) => toast(t('⚠ Ключ пользователя {0} изменился', c.username), 6000));
 client.on('error', async ({ code, text }) => {
   if (code === 'logged_in_elsewhere') return toast(text, 0);
   if (code === 'device_removed' || code === 'account_deleted') {
@@ -1509,11 +1656,11 @@ async function enableNotifications() {
     return true;
   }
   if (!webNotif) {
-    toast('Этот браузер не поддерживает уведомления');
+    toast(t('Этот браузер не поддерживает уведомления'));
     return false;
   }
   if (isIOS && !standalone) {
-    toast('На iPhone и iPad: «Поделиться» → «На экран „Домой“», откройте Тайник с экрана «Домой» и включите уведомления там', 9000);
+    toast(t('На iPhone и iPad: «Поделиться» → «На экран „Домой“», откройте Тайник с экрана «Домой» и включите уведомления там'), 9000);
     return false;
   }
   const perm = await Notification.requestPermission();
@@ -1523,7 +1670,7 @@ async function enableNotifications() {
   }
   await settings.set('notify', '1');
   await syncPush();
-  if (pushProblem === 'browser') toast('Уведомления будут приходить, пока вкладка открыта: этот браузер не поддерживает push-уведомления Тайника', 7000);
+  if (pushProblem === 'browser') toast(t('Уведомления будут приходить, пока вкладка открыта: этот браузер не поддерживает push-уведомления Тайника'), 7000);
   return true;
 }
 async function disableNotifications() {
@@ -1552,7 +1699,7 @@ function consumeChatLink() {
 window.addEventListener('hashchange', consumeChatLink);
 $('notif-offer-yes').addEventListener('click', async () => {
   $('notif-offer').hidden = true;
-  if (await enableNotifications()) toast('Уведомления включены');
+  if (await enableNotifications()) toast(t('Уведомления включены'));
 });
 $('notif-offer-no').addEventListener('click', async () => {
   $('notif-offer').hidden = true;
@@ -1936,7 +2083,7 @@ $('remote-main').addEventListener('dblclick', toggleFullscreen);
   });
 }
 $('call-mic').addEventListener('click', () => calls.toggleMic());
-$('call-cam').addEventListener('click', () => calls.toggleCamera().catch(() => toast('Камера недоступна')));
+$('call-cam').addEventListener('click', () => calls.toggleCamera().catch(() => toast(t('Камера недоступна'))));
 $('call-screen').addEventListener('click', () =>
   calls.toggleScreen().catch((e) => {
     if (e?.name !== 'NotAllowedError' && e?.name !== 'AbortError') toast(e.message || t('Не удалось показать экран'));
@@ -2035,7 +2182,7 @@ $('messages').addEventListener('click', (e) => {
   const q = e.target.closest('.quote');
   if (q) {
     const target = $('messages').querySelector(`.msg[data-id="${CSS.escape(q.dataset.target)}"]`);
-    if (!target) return toast('Сообщение удалено');
+    if (!target) return toast(t('Сообщение удалено'));
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target.classList.remove('flash');
     void target.offsetWidth;
@@ -2085,9 +2232,9 @@ $('msg-menu').addEventListener('click', async (e) => {
     const m = await findMsg(id);
     try {
       await navigator.clipboard.writeText(m?.content?.body || '');
-      toast('Скопировано');
+      toast(t('Скопировано'));
     } catch {
-      toast('Не удалось скопировать');
+      toast(t('Не удалось скопировать'));
     }
     return;
   }
@@ -2287,6 +2434,7 @@ $('presence-visible').addEventListener('change', async (e) => {
 // false — назад некуда, приложение уйдёт в фон (и продолжит работать).
 window.__tainikBack = () => {
   if (!$('msg-menu').hidden) return closeMenu(), true;
+  if ($('scanner').open) return stopScan(), true;
   if (!$('chat-menu').hidden) return closeChatMenu(), true;
   if ($('viewer').open) return closeViewer(), true;
   const dlg = [...document.querySelectorAll('dialog[open]')].pop();
@@ -2363,7 +2511,7 @@ async function switchAccount(id) {
 }
 
 async function addAccount() {
-  if (savedAccounts().length >= MAX_ACCOUNTS) return toast(`На одном устройстве — не больше ${MAX_ACCOUNTS} аккаунтов`);
+  if (savedAccounts().length >= MAX_ACCOUNTS) return toast(t('На одном устройстве — не больше {0} аккаунтов', MAX_ACCOUNTS));
   let slot = accounts.find((a) => !a.username && a.id !== activeId);
   if (!slot) {
     const rnd = crypto.getRandomValues(new Uint8Array(4));
@@ -2528,8 +2676,8 @@ async function updGo() {
   try {
     if (upd.status === 'ready') {
       const r = await updates.install();
-      if (r === 'opened') toast('Откройте скачанный файл, чтобы завершить установку', 6000);
-      if (r === 'permission') toast('Разрешите Тайнику установку приложений, вернитесь и нажмите «Установить» ещё раз', 8000);
+      if (r === 'opened') toast(t('Откройте скачанный файл, чтобы завершить установку'), 6000);
+      if (r === 'permission') toast(t('Разрешите Тайнику установку приложений, вернитесь и нажмите «Установить» ещё раз'), 8000);
     } else if (upd.status === 'available') await updates.download();
     else if (upd.status === 'manual' && upd.downloadUrl) window.open(upd.downloadUrl, '_blank', 'noopener');
   } catch (e) {

@@ -16,7 +16,7 @@ Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the 
 - 🟢 **Online status.** "online" / "last seen …" with live updates; you can hide your own status.
 - 👥 **Several accounts on one device.** Switch between them like in Telegram; inactive accounts stay connected, so their messages and notifications keep arriving.
 - 🌐 **Russian and English.** The whole UI — messenger, home page, iPhone install page, tray and app notifications — follows the system language, with a switch in the menu.
-- 📱 **Multiple devices.** Up to 5 devices per account. Link a new one by scanning a QR code; sent messages, deletions and read state sync across your devices.
+- 📱 **Multiple devices.** Up to 5 devices per account. Link a new one by scanning a QR code with the built-in, dependency-free scanner (works in every version, including the Windows, Linux and Android apps); sent messages, deletions and read state sync across your devices.
 - ✅ **Key verification.** A 60-digit safety number, plus a warning that blocks sending if a contact's key changes.
 - 📦 **Zero dependencies.** Plain Node.js and the standard WebCrypto API. The server uses Node's built-in SQLite.
 - 🐳 **Easy self-hosting.** Docker image, nginx/Caddy templates, one-command setup and daily backups.
@@ -121,6 +121,7 @@ shared/              Code shared by every platform
   protocol/          X3DH, Double Ratchet, sessions, safety numbers, device provisioning
   client-core.js     Platform-independent client logic
   qr.js              Dependency-free QR encoder
+  qr-scan.js         Dependency-free QR decoder for the camera scanner (runs in a worker)
 client/              UI (shared by web and desktop)
 desktop/             Electron shell: secure storage, app:// protocol, packaging
 android/             Android shell (Kotlin, no libraries): WebView, Keystore-backed storage, notifications, background service
