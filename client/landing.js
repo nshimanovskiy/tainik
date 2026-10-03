@@ -1,18 +1,22 @@
 // Главная страница: вкладки «О Тайнике» / «Скачать», файлы последнего выпуска с этого сервера.
 import { t, LANG, LOCALE, setLang, translateDom } from '/shared/i18n.js';
 
-// Уже пользуетесь веб-версией (есть аккаунт в этом браузере) или открыли Тайник с экрана
-// «Домой» — сразу в мессенджер. ?home — показать главную в любом случае.
+// Главная открывается всегда, даже если вы уже вошли: в чаты — кнопкой «Перейти в чаты».
+// Сразу в мессенджер — только значок на экране «Домой» (старые значки вели на /)
+// и ссылки на чат из уведомлений (/#chat=…). ?home — главная в любом случае.
+const hasAccount = (() => {
+  try {
+    const list = JSON.parse(localStorage.getItem('tainik:accounts') || '[]');
+    return !!localStorage.getItem('tainik:server') || (Array.isArray(list) && list.some((a) => a && a.username));
+  } catch {
+    return false;
+  }
+})();
 (() => {
   const q = new URLSearchParams(location.search);
   if (q.has('home')) return;
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
-  let hasAccount = false;
-  try {
-    const list = JSON.parse(localStorage.getItem('tainik:accounts') || '[]');
-    hasAccount = !!localStorage.getItem('tainik:server') || (Array.isArray(list) && list.some((a) => a && a.username));
-  } catch {}
-  if (standalone || hasAccount || location.hash.startsWith('#chat=')) {
+  if (standalone || location.hash.startsWith('#chat=')) {
     location.replace('/app' + (location.hash.startsWith('#chat=') ? location.hash : ''));
   }
 })();
@@ -26,6 +30,14 @@ $('lang-switch').addEventListener('click', () => {
   setLang(LANG === 'ru' ? 'en' : 'ru');
   location.reload();
 });
+// Вы уже вошли — главная кнопка ведёт в чаты
+if (hasAccount) {
+  $('open-chats').classList.add('primary');
+  $('hero-open').textContent = t('Перейти в чаты');
+  $('hero-open').classList.add('primary');
+  $('hero-download').classList.remove('primary');
+  $('hero-open').after($('hero-download'));
+}
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;

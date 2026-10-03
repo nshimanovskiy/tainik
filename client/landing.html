@@ -15,7 +15,7 @@
 </head>
 <body>
   <header class="top">
-    <a class="brand" href="/?home">
+    <a class="brand" href="/">
       <img src="icon.svg" alt="" width="30" height="30">
       <span>Тайник</span>
     </a>
@@ -24,7 +24,7 @@
       <a href="#download" class="tab" role="tab" id="tab-download" aria-controls="download">Скачать</a>
     </nav>
     <button type="button" class="btn small ghost lang" id="lang-switch" aria-label="Language">EN</button>
-    <a class="btn small" href="/app">Открыть</a>
+    <a class="btn small chats" id="open-chats" href="/app" title="Перейти в чаты"><span aria-hidden="true">💬</span><span class="chats-label">Перейти в чаты</span></a>
   </header>
 
   <main>
@@ -36,7 +36,7 @@
         <p class="lead">Сообщения и звонки шифруются на вашем устройстве и расшифровываются только у собеседника. Сервер пересылает шифротекст — прочитать его он не может.</p>
         <div class="cta">
           <a class="btn primary" id="hero-download" href="#download">Скачать</a>
-          <a class="btn" href="/app">Открыть в браузере</a>
+          <a class="btn" id="hero-open" href="/app">Открыть в браузере</a>
         </div>
         <p class="muted small" id="hero-hint"></p>
       </div>

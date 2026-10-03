@@ -453,6 +453,7 @@ export default {
   'приложения для загрузки': 'downloadable apps',
   'и': 'and',
   'веб-версия': 'web app',
+  'Перейти в чаты': 'Go to chats',
   // Вложения
   'Фото и файлы': 'Photos and files',
   'шифруются до отправки, у каждого свой ключ': 'encrypted before upload, each with its own key',
