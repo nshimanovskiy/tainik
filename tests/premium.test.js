@@ -41,6 +41,9 @@ function fakeXRocket() {
     if (opts.method === 'POST' && u.pathname === '/api/v1/invoices') {
       const b = JSON.parse(opts.body);
       if (invoices.has(b.clientInvoiceId)) return problem(400, 'client_id_already_taken');
+      if (b.priceCurrency === 'TONCOIN' && Number(b.priceAmount) < 5) {
+        return json(400, { type: '/api/problems/amount_too_small', title: 'Amount too small', status: 400, detail: 'Minimum invoice amount is 5 TONCOIN', kind: 'client_data_validation' });
+      }
       const id = `inv_${++seq}`;
       const inv = {
         id,
@@ -59,11 +62,11 @@ function fakeXRocket() {
       return json(201, inv);
     }
     if (opts.method === 'GET' && u.pathname === '/api/v1/currencies') {
-      return json(200, ['USDT', 'TRX', 'GRAM', 'TON'].map((code) => ({ code, title: code, kind: 'crypto', networks: [] })));
+      return json(200, ['USDT', 'TRX', 'GRAM', 'TONCOIN'].map((code) => ({ code, title: code, kind: 'crypto', networks: [] })));
     }
     if (opts.method === 'GET' && u.pathname === '/api/v1/rates') {
       // Сколько base стоит единица актива
-      const table = { TRX: '0.3', GRAM: '0.0021' };
+      const table = { TRX: '0.3', GRAM: '0.0021', TONCOIN: '2.5' };
       const assets = u.searchParams.getAll('assets');
       return json(200, assets.filter((a) => table[a]).map((a) => ({ currency: a, rate: table[a] })));
     }
@@ -89,7 +92,7 @@ async function setup(t) {
       token: TOKEN,
       webhookSecret: SECRET,
       plans: parsePlans('30:3, 365:30.5', 'usdt'),
-      currencies: parseCurrencies('gram, TRX, NOPE', 'USDT'),
+      currencies: parseCurrencies('gram, TRX, TON, NOPE', 'USDT'),
       publicUrl: 'https://chat.example',
       fetch: x.fetch,
     },
@@ -358,9 +361,11 @@ test('подписка: оплата в TRX и Gram по курсу xRocket', as
   await sleep(100); // список валют xRocket сверяется при запуске
   await alice.disconnect();
   await alice.connect();
-  assert.deepEqual(alice.billing.currencies, ['USDT', 'GRAM', 'TRX'], 'валюты, которой нет в xRocket, не предлагается');
+  assert.deepEqual(alice.billing.currencies, ['USDT', 'GRAM', 'TRX', 'TONCOIN'], 'TON → код xRocket TONCOIN; неизвестной валюты нет');
 
   await assert.rejects(alice.buyPremium('30d', 'NOPE'), (e) => e.code === 'bad_currency');
+  // xRocket отказал — причина доходит до пользователя
+  await assert.rejects(alice.buyPremium('30d', 'TONCOIN'), (e) => e.code === 'billing_failed' && /Minimum invoice amount is 5 TONCOIN/.test(e.data.detail));
   const trx = await alice.buyPremium('30d', 'trx');
   assert.equal(trx.currency, 'TRX');
   assert.equal(trx.price, '10'); // 3 USDT / 0.3

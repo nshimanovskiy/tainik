@@ -1378,7 +1378,9 @@ async function buyPlan(plan, btn) {
     invoice = await client.buyPremium(plan.id, premCurrency);
     showInvoice();
   } catch (err) {
-    toast(err.message);
+    // Причина от xRocket (например, минимальная сумма) — тоже показываем
+    const why = err.data?.detail || err.data?.reason;
+    toast(why ? `${err.message} (xRocket: ${why})` : err.message, why ? 8000 : 3500);
   } finally {
     btn.disabled = false;
   }

@@ -100,12 +100,17 @@ export function signWebhook(secret, rawBody, timestamp = Date.now()) {
 }
 
 export class BillingError extends Error {
-  constructor(code, detail) {
+  /** code — наш или xRocket-код ошибки; text — пояснение xRocket (для журнала и пользователя). */
+  constructor(code, detail, text = '') {
     super(code);
     this.code = code;
     this.detail = detail;
+    this.text = String(text || '').slice(0, 200);
   }
 }
+
+// Одна и та же монета в xRocket может называться по-разному (TON = TONCOIN)
+const ALIASES = { TON: ['TONCOIN'], TONCOIN: ['TON'], GRAM: ['GRAMCOIN'], TRX: ['TRON'] };
 
 /**
  * @param {object} o
@@ -133,10 +138,27 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
   async function rateOf(currency) {
     const c = rates.get(currency);
     if (c && Date.now() - c.at < 120_000) return c.rate;
-    const list = await api('GET', '/api/v1/rates', { query: { base, assets: currency } });
-    const r = (Array.isArray(list) ? list : []).find((x) => String(x?.currency).toUpperCase() === currency);
-    const rate = Number(r?.rate);
-    if (!(rate > 0)) throw new BillingError('no_rate', currency);
+    const pick = (list, code) => Number((Array.isArray(list) ? list : []).find((x) => String(x?.currency).toUpperCase() === code)?.rate);
+    let rate = NaN;
+    try {
+      rate = pick(await api('GET', '/api/v1/rates', { query: { base, assets: currency } }), currency);
+    } catch (e) {
+      say(`оплата: курс ${currency} к ${base} не получен — ${e.code}${e.text ? ': ' + e.text : ''}`);
+    }
+    // base у курсов — фиатная валюта: если основная валюта не фиат (USDT), считаем через USD
+    if (!(rate > 0) && base !== 'USD') {
+      try {
+        const q = new URL('http://x');
+        q.searchParams.append('assets', base);
+        q.searchParams.append('assets', currency);
+        const list = await api('GET', '/api/v1/rates?' + q.searchParams, { query: { base: 'USD' } });
+        rate = pick(list, currency) / pick(list, base);
+      } catch (e) {
+        say(`оплата: курс ${currency} к USD не получен — ${e.code}${e.text ? ': ' + e.text : ''}`);
+      }
+    }
+    if (!(rate > 0) || !Number.isFinite(rate)) throw new BillingError('no_rate', currency);
+    say(`оплата: курс 1 ${currency} = ${rate} ${base}`);
     rates.set(currency, { rate, at: Date.now() });
     return rate;
   }
@@ -148,6 +170,10 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
       const list = await api('GET', '/api/v1/currencies');
       const known = new Set((Array.isArray(list) ? list : []).map((c) => String(c?.code || '').toUpperCase()));
       if (!known.size) return;
+      say(`оплата: валюты xRocket — ${[...known].join(', ')}`);
+      // Если валюта называется в xRocket иначе (TON → TONCOIN) — берём его код
+      payWith = payWith.map((c) => (known.has(c) ? c : (ALIASES[c] || []).find((a) => known.has(a)) || c));
+      payWith = [...new Set(payWith)];
       const missing = payWith.filter((c) => c !== base && !known.has(c));
       if (missing.length) {
         say(`оплата: валют ${missing.join(', ')} нет в xRocket — они не предлагаются`);
@@ -179,7 +205,7 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
     if (!r.ok) {
       // Ошибки — RFC 9457: ветвимся по type (/api/problems/<code>), detail — только для людей
       const code = typeof data?.type === 'string' ? data.type.split('/').pop() : `http_${r.status}`;
-      throw new BillingError(code, data?.instance || r.status);
+      throw new BillingError(code, data?.instance || r.status, data?.detail || data?.title || '');
     }
     return data;
   }
@@ -262,8 +288,8 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
         if (e.code === 'client_id_already_taken') inv = await api('GET', '/api/v1/invoice', { query: { clientInvoiceId: id } }).catch(() => null);
         if (!inv) {
           store.closePayment(id, 'failed');
-          say('оплата: не удалось выставить счёт', e.code);
-          throw e instanceof BillingError ? new BillingError('billing_failed', e.code) : e;
+          say(`оплата: xRocket не выставил счёт (${amount} ${currency}) — ${e.code}${e.text ? ': ' + e.text : ''}`);
+          throw e instanceof BillingError ? new BillingError('billing_failed', e.code, e.text) : e;
         }
       }
       const url = inv?.links?.telegramBotLink;

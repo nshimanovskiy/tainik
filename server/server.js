@@ -667,7 +667,9 @@ export function startServer({
           return send(conn, { type: 'premium-invoice', reqId: msg.reqId, ...inv });
         } catch (e) {
           const known = ['bad_plan', 'bad_currency', 'no_rate', 'billing_unavailable'];
-          return error(conn, known.includes(e.code) ? e.code : 'billing_failed', { reqId: msg.reqId });
+          // Пояснение xRocket (например, про минимальную сумму) — пользователю, чтобы было понятно, что не так
+          const extra = e.code === 'billing_failed' ? { reason: String(e.detail || ''), detail: e.text || '' } : {};
+          return error(conn, known.includes(e.code) ? e.code : 'billing_failed', { reqId: msg.reqId, ...extra });
         }
       }
 
