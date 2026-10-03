@@ -13,7 +13,8 @@ Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the 
 - 🔔 **Notifications that work in the background.** The desktop app keeps running in the system tray (optional start at login). The web version uses Web Push, so notifications arrive even with the tab closed. Pushes carry only the sender's name, encrypted for your browser, and message text is hidden by default.
 - 🟢 **Online status.** "online" / "last seen …" with live updates; you can hide your own status.
 - 👥 **Several accounts on one device.** Switch between them like in Telegram; inactive accounts stay connected, so their messages and notifications keep arriving.
-- 📱 **Multiple devices.** Up to 5 devices per account. Link a new one by scanning a QR code; sent messages sync across your devices.
+- 🌐 **Russian and English.** The whole UI — messenger, home page, iPhone install page, tray and app notifications — follows the system language, with a switch in the menu.
+- 📱 **Multiple devices.** Up to 5 devices per account. Link a new one by scanning a QR code; sent messages, deletions and read state sync across your devices.
 - ✅ **Key verification.** A 60-digit safety number, plus a warning that blocks sending if a contact's key changes.
 - 📦 **Zero dependencies.** Plain Node.js and the standard WebCrypto API. The server uses Node's built-in SQLite.
 - 🐳 **Easy self-hosting.** Docker image, nginx/Caddy templates, one-command setup and daily backups.

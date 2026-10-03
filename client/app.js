@@ -4,6 +4,7 @@ import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
 import config from './config.js';
 import { CallManager, CALL_RESULT_TEXT } from './call.js';
+import { t, LANG, LOCALE, setLang, translateDom } from '/shared/i18n.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -17,12 +18,13 @@ const el = (tag, cls, text) => {
 // В десктопе (Electron) preload-скрипт даёт window.desktop: системное защищённое
 // хранилище и настройки. В браузере — IndexedDB с шифрованием и localStorage.
 const desktop = window.desktop || null;
+translateDom(); // статический текст страницы — на выбранный язык
 // Android-приложение даёт тот же мост, что и десктоп, с platform: 'android'
 const android = desktop?.platform === 'android';
 
 if (!window.isSecureContext || !globalThis.crypto?.subtle || (!desktop && !window.indexedDB)) {
   $('unsupported').hidden = false;
-  throw new Error('Небезопасный контекст: WebCrypto недоступен');
+  throw new Error(t('Небезопасный контекст: WebCrypto недоступен'));
 }
 
 const settings = desktop
@@ -84,9 +86,9 @@ function verifiedBadge() {
   svg.setAttribute('viewBox', '0 0 24 24');
   svg.setAttribute('class', 'official');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Официальный аккаунт');
+  svg.setAttribute('aria-label', t('Официальный аккаунт'));
   const t = document.createElementNS(NS, 'title');
-  t.textContent = 'Официальный аккаунт';
+  t.textContent = t('Официальный аккаунт');
   const bg = document.createElementNS(NS, 'path');
   bg.setAttribute('class', 'official-bg');
   bg.setAttribute('d', 'M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1-2.6-1.9 1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z');
@@ -102,14 +104,14 @@ function setName(node, name, verified) {
   if (verified) node.append(verifiedBadge());
 }
 
-const timeFmt = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
-const dayFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
+const timeFmt = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit' });
+const dayFmt = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'long' });
 function dayLabel(ts) {
   const d = new Date(ts);
   const today = new Date();
   const y = new Date(Date.now() - 86400000);
-  if (d.toDateString() === today.toDateString()) return 'Сегодня';
-  if (d.toDateString() === y.toDateString()) return 'Вчера';
+  if (d.toDateString() === today.toDateString()) return t('Сегодня');
+  if (d.toDateString() === y.toDateString()) return t('Вчера');
   return dayFmt.format(d);
 }
 let toastTimer;
@@ -120,27 +122,27 @@ function toast(text, ms = 3500) {
   clearTimeout(toastTimer);
   if (ms) toastTimer = setTimeout(() => (t.hidden = true), ms);
 }
-const STATUS_ICON = { sending: '⏳', sent: '✓', delivered: '✓✓', failed: '⚠ не отправлено' };
-const STATUS_TEXT = { online: 'в сети', connecting: 'подключение…', offline: 'нет связи', replaced: 'открыт в другом месте' };
+const STATUS_ICON = { sending: '⏳', sent: '✓', delivered: '✓✓', failed: t('⚠ не отправлено') };
+const STATUS_TEXT = { online: t('в сети'), connecting: t('подключение…'), offline: t('нет связи'), replaced: t('открыт в другом месте') };
 
 function callText(ct) {
-  const dir = ct.direction === 'out' ? 'Исходящий' : 'Входящий';
-  const kind = ct.video ? 'видеозвонок' : 'звонок';
+  const dir = ct.direction === 'out' ? t('Исходящий') : t('Входящий');
+  const kind = ct.video ? t('видеозвонок') : t('звонок');
   if (ct.result === 'answered') {
     const d = ct.duration || 0;
     const dur = d >= 3600 ? `${Math.floor(d / 3600)}:${String(Math.floor((d % 3600) / 60)).padStart(2, '0')}:${String(d % 60).padStart(2, '0')}` : `${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}`;
     return `📞 ${dir} ${kind} · ${dur}`;
   }
-  if (ct.result === 'missed') return `📞 Пропущенный ${kind}`;
+  if (ct.result === 'missed') return t('📞 Пропущенный {0}', kind);
   return `📞 ${dir} ${kind} · ${CALL_RESULT_TEXT[ct.result] || ct.result}`;
 }
 
 function previewOf(m) {
-  if (!m) return 'Нет сообщений';
+  if (!m) return t('Нет сообщений');
   if (m.dir === 'sys' && m.content?.t === 'call') return callText(m.content);
-  if (m.dir === 'sys') return 'Служебное сообщение';
+  if (m.dir === 'sys') return t('Служебное сообщение');
   const body = m.content?.body ?? '';
-  return (m.dir === 'out' ? 'Вы: ' : '') + body.replace(/\s+/g, ' ');
+  return (m.dir === 'out' ? t('Вы: ') : '') + body.replace(/\s+/g, ' ');
 }
 
 // ---------- Экраны ----------
@@ -196,7 +198,7 @@ function normalizeServer(raw) {
   if (!s) return DEFAULT_SERVER;
   if (!/^wss?:\/\//i.test(s)) s = (/^(localhost|127\.)/.test(s) ? 'ws://' : 'wss://') + s;
   const u = new URL(s);
-  if (u.protocol !== 'ws:' && u.protocol !== 'wss:') throw new Error('Адрес должен начинаться с ws:// или wss://');
+  if (u.protocol !== 'ws:' && u.protocol !== 'wss:') throw new Error(t('Адрес должен начинаться с ws:// или wss://'));
   if (u.pathname === '/' || u.pathname === '') u.pathname = '/ws';
   return u.toString();
 }
@@ -205,7 +207,7 @@ function readServer(errorNode) {
   try {
     return desktop ? normalizeServer($('server').value) : DEFAULT_SERVER;
   } catch (err) {
-    errorNode.textContent = err.message.startsWith('Адрес') ? err.message : 'Неверный адрес сервера';
+    errorNode.textContent = err.message.startsWith(t('Адрес')) ? err.message : t('Неверный адрес сервера');
     return null;
   }
 }
@@ -213,9 +215,9 @@ function readServer(errorNode) {
 // Понятное имя устройства для списка устройств
 function deviceName() {
   const ua = navigator.userAgent;
-  const os = /Windows/.test(ua) ? 'Windows' : /Mac OS X|Macintosh/.test(ua) ? (/iPhone|iPad/.test(ua) ? 'iOS' : 'macOS') : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : 'ОС';
-  if (desktop) return `Приложение · ${os}`;
-  const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Браузер';
+  const os = /Windows/.test(ua) ? 'Windows' : /Mac OS X|Macintosh/.test(ua) ? (/iPhone|iPad/.test(ua) ? 'iOS' : 'macOS') : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : t('ОС');
+  if (desktop) return t('Приложение · {0}', os);
+  const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : t('Браузер');
   return `${br} · ${os}`;
 }
 
@@ -226,7 +228,7 @@ $('auth-form').addEventListener('submit', async (e) => {
   const server = readServer($('auth-error'));
   if (!server) return;
   $('auth-btn').disabled = true;
-  $('auth-btn').textContent = 'Создаём ключи…';
+  $('auth-btn').textContent = t('Создаём ключи…');
   try {
     client.url = server;
     await client.register(name, { deviceName: deviceName() });
@@ -234,10 +236,10 @@ $('auth-form').addEventListener('submit', async (e) => {
     await rememberAccount();
     await showApp();
   } catch (err) {
-    $('auth-error').textContent = err.code === 'timeout' ? 'Сервер недоступен' : err.message;
+    $('auth-error').textContent = err.code === 'timeout' ? t('Сервер недоступен') : err.message;
   } finally {
     $('auth-btn').disabled = false;
-    $('auth-btn').textContent = 'Создать ключи и войти';
+    $('auth-btn').textContent = t('Создать ключи и войти');
   }
 });
 
@@ -312,7 +314,7 @@ $('link-start').addEventListener('click', async () => {
     resetLinkPane();
     if (err.code !== 'cancelled') {
       $('link-error').textContent =
-        err.code === 'offline' ? 'Соединение прервано. Нажмите, чтобы получить новый код.' : err.message;
+        err.code === 'offline' ? t('Соединение прервано. Нажмите, чтобы получить новый код.') : err.message;
     }
   }
 });
@@ -354,8 +356,8 @@ async function renderContacts() {
     const cn = el('span', 'c-name');
     setName(cn, c.username, client.isVerified(c.username));
     top.append(cn);
-    if (c.keyChanged) top.append(el('span', 'shield warn', '⚠ ключ изменён'));
-    else if (c.verified) top.append(el('span', 'shield', '✔ проверен'));
+    if (c.keyChanged) top.append(el('span', 'shield warn', t('⚠ ключ изменён')));
+    else if (c.verified) top.append(el('span', 'shield', t('✔ проверен')));
     body.append(top, el('div', 'c-preview', previewOf(lasts[i])));
     btn.append(avWrap, body);
     if (c.unread && c.username !== current) btn.append(el('span', 'badge', String(c.unread)));
@@ -391,10 +393,40 @@ async function openChat(name) {
   $('chat-empty').hidden = true;
   $('chat-view').hidden = false;
   await client.markRead(name);
+  clearChatNotices(name);
   await renderChat();
   await renderContacts();
   $('text').focus();
 }
+
+// Уведомления о сообщениях чата больше не нужны: он прочитан здесь или на другом устройстве
+async function clearChatNotices(chat) {
+  if (desktop?.dismissNotice) return desktop.dismissNotice({ chat });
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration('/');
+    for (const n of (await reg?.getNotifications({ tag: 'msg:' + chat })) || []) n.close();
+  } catch {}
+}
+// ---------- Язык ----------
+{
+  const sel = $('lang-select');
+  for (const [code, name] of [['ru', 'Русский'], ['en', 'English']]) {
+    const o = el('option', '', name);
+    o.value = code;
+    o.selected = code === LANG;
+    sel.append(o);
+  }
+  sel.addEventListener('change', async () => {
+    setLang(sel.value);
+    await settings.set('lang', sel.value); // нативной части: трей, уведомления Android
+    location.reload();
+  });
+  settings.set('lang', LANG);
+}
+
+client.on('read-sync', ({ contact, unread }) => {
+  if (!unread) clearChatNotices(contact);
+});
 
 $('back-btn').addEventListener('click', () => {
   current = null;
@@ -412,13 +444,13 @@ async function renderHeader() {
   const v = $('peer-verify');
   if (c.keyChanged) {
     v.className = 'peer-verify bad';
-    v.textContent = '⚠ ключ изменился — сверьте код';
+    v.textContent = t('⚠ ключ изменился — сверьте код');
   } else if (c.verified) {
     v.className = 'peer-verify ok';
-    v.textContent = '✔ ключ проверен';
+    v.textContent = t('✔ ключ проверен');
   } else {
     v.className = 'peer-verify';
-    v.textContent = '🔒 ключ не проверен';
+    v.textContent = t('🔒 ключ не проверен');
   }
   renderPresence();
   $('key-banner').hidden = !c.keyChanged;
@@ -426,22 +458,22 @@ async function renderHeader() {
 }
 
 // ---------- Статус собеседника ----------
-const hmFmt = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
-const dmFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short' });
+const hmFmt = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit' });
+const dmFmt = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short' });
 function presenceText(p) {
   if (!p) return '';
-  if (p.online) return 'в сети';
-  if (p.hidden || !p.lastSeen) return 'был(а) недавно';
+  if (p.online) return t('в сети');
+  if (p.hidden || !p.lastSeen) return t('был(а) недавно');
   const diff = Date.now() - p.lastSeen;
   const min = Math.floor(diff / 60000);
-  if (min < 1) return 'был(а) только что';
-  if (min < 60) return `был(а) ${min} мин. назад`;
+  if (min < 1) return t('был(а) только что');
+  if (min < 60) return t('был(а) {0} мин. назад', min);
   const d = new Date(p.lastSeen);
   const today = new Date();
   const y = new Date(Date.now() - 86400000);
-  if (d.toDateString() === today.toDateString()) return `был(а) сегодня в ${hmFmt.format(d)}`;
-  if (d.toDateString() === y.toDateString()) return `был(а) вчера в ${hmFmt.format(d)}`;
-  return `был(а) ${dmFmt.format(d)}`;
+  if (d.toDateString() === today.toDateString()) return t('был(а) сегодня в {0}', hmFmt.format(d));
+  if (d.toDateString() === y.toDateString()) return t('был(а) вчера в {0}', hmFmt.format(d));
+  return t('был(а) {0}', dmFmt.format(d));
 }
 function renderPresence() {
   if (!current) return;
@@ -461,14 +493,14 @@ async function updateComposer(c) {
   $('call-audio-btn').disabled = noCall;
   $('call-video-btn').disabled = noCall;
   $('text').disabled = blocked;
-  $('text').placeholder = blocked ? 'Отправка остановлена: ключ изменился' : client.status === 'online' ? 'Сообщение' : 'Нет связи — сообщение уйдёт позже';
+  $('text').placeholder = blocked ? t('Отправка остановлена: ключ изменился') : client.status === 'online' ? t('Сообщение') : t('Нет связи — сообщение уйдёт позже');
   if (!blocked) $('send-btn').disabled = !$('text').value.trim();
 }
 
 const REJECT_TEXT = {
-  identity_mismatch: 'Сообщение отклонено: ключ отправителя не совпадает с проверенным',
-  unknown_spk: 'Не удалось расшифровать: сообщение слишком старое (ключ уже удалён)',
-  no_session: 'Не удалось расшифровать: нет сессии. Попросите собеседника написать ещё раз',
+  identity_mismatch: t('Сообщение отклонено: ключ отправителя не совпадает с проверенным'),
+  unknown_spk: t('Не удалось расшифровать: сообщение слишком старое (ключ уже удалён)'),
+  no_session: t('Не удалось расшифровать: нет сессии. Попросите собеседника написать ещё раз'),
 };
 function messageNode(m) {
   if (m.dir === 'sys' && m.content?.t === 'call') {
@@ -479,8 +511,8 @@ function messageNode(m) {
   if (m.dir === 'sys') {
     const bad = m.content.t === 'rejected';
     const text = bad
-      ? REJECT_TEXT[m.content.reason] || 'Сообщение отклонено: не удалось подтвердить его подлинность'
-      : 'Вы приняли новый ключ собеседника. Сверьте код безопасности.';
+      ? REJECT_TEXT[m.content.reason] || t('Сообщение отклонено: не удалось подтвердить его подлинность')
+      : t('Вы приняли новый ключ собеседника. Сверьте код безопасности.');
     const li = el('li', 'msg sys' + (bad ? ' bad' : ''));
     li.append(el('div', 'bubble', text));
     return li;
@@ -493,7 +525,7 @@ function messageNode(m) {
     const q = el('button', 'quote');
     q.type = 'button';
     q.dataset.target = r.id;
-    q.append(el('b', '', r.from === client.account.username ? 'Вы' : r.from), el('span', '', r.body || 'Сообщение'));
+    q.append(el('b', '', r.from === client.account.username ? t('Вы') : r.from), el('span', '', r.body || t('Сообщение')));
     bubble.append(q);
   }
   bubble.append(document.createTextNode(m.content?.body ?? ''));
@@ -502,13 +534,13 @@ function messageNode(m) {
   const rb = el('button', '', '↩︎');
   rb.type = 'button';
   rb.dataset.act = 'reply';
-  rb.title = 'Ответить';
-  rb.setAttribute('aria-label', 'Ответить');
+  rb.title = t('Ответить');
+  rb.setAttribute('aria-label', t('Ответить'));
   const mb = el('button', '', '⋯');
   mb.type = 'button';
   mb.dataset.act = 'menu';
-  mb.title = 'Ещё';
-  mb.setAttribute('aria-label', 'Действия с сообщением');
+  mb.title = t('Ещё');
+  mb.setAttribute('aria-label', t('Действия с сообщением'));
   acts.append(rb, mb);
   li.append(acts);
   const meta = el('div', 'meta');
@@ -526,7 +558,7 @@ async function renderChat() {
   const list = await client.messages(current);
   if (gen !== chatGen) return;
   const ol = $('messages');
-  ol.replaceChildren(el('li', 'e2e-note', '🔒 Сообщения в этом чате защищены сквозным шифрованием'));
+  ol.replaceChildren(el('li', 'e2e-note', t('🔒 Сообщения в этом чате защищены сквозным шифрованием')));
   let lastDay = '';
   for (const m of list) {
     const d = dayLabel(m.ts);
@@ -593,7 +625,7 @@ $('safety-dialog').addEventListener('close', async () => {
   }
 });
 $('banner-accept').addEventListener('click', async () => {
-  if (!confirm('Принять новый ключ? Делайте это, только если собеседник подтвердил, что переустановил мессенджер.')) return;
+  if (!confirm(t('Принять новый ключ? Делайте это, только если собеседник подтвердил, что переустановил мессенджер.'))) return;
   await client.acceptNewKey(current);
   await renderChat();
 });
@@ -608,7 +640,7 @@ $('menu-btn').addEventListener('click', async () => {
     $('my-version').textContent = await desktop.version();
     $('my-version-row').hidden = false;
   }
-  $('my-device').textContent = `${client.account.deviceName || 'Устройство'} (№${client.account.deviceId})`;
+  $('my-device').textContent = `${client.account.deviceName || t('Устройство')} (${t('№{0}', client.account.deviceId)})`;
   await fillNotifSettings();
   $('menu-dialog').showModal();
 });
@@ -617,7 +649,7 @@ $('menu-dialog').addEventListener('close', async () => {
   if (v === 'devices') return openDevices();
   if (v === 'accounts') return openAccounts();
   if (v !== 'reset') return;
-  if (!confirm('Стереть ключи и переписку этого аккаунта на этом устройстве? Другие устройства аккаунта и другие аккаунты здесь продолжат работать.')) return;
+  if (!confirm(t('Стереть ключи и переписку этого аккаунта на этом устройстве? Другие устройства аккаунта и другие аккаунты здесь продолжат работать.'))) return;
   if (calls.busy) calls.hangup();
   await dropPush(true);
   await client.reset();
@@ -626,14 +658,14 @@ $('menu-dialog').addEventListener('close', async () => {
 });
 
 // ---------- Устройства (на уже привязанном устройстве) ----------
-const relTime = new Intl.RelativeTimeFormat('ru', { numeric: 'auto' });
+const relTime = new Intl.RelativeTimeFormat(LOCALE, { numeric: 'auto' });
 function seenText(d) {
-  if (d.current) return 'это устройство';
-  if (d.online) return 'в сети';
+  if (d.current) return t('это устройство');
+  if (d.online) return t('в сети');
   const min = Math.round((d.lastSeen - Date.now()) / 60000);
-  if (min > -60) return 'был(о) ' + relTime.format(min, 'minute');
-  if (min > -1440) return 'был(о) ' + relTime.format(Math.round(min / 60), 'hour');
-  return 'был(о) ' + relTime.format(Math.round(min / 1440), 'day');
+  if (min > -60) return t('был(о) ') + relTime.format(min, 'minute');
+  if (min > -1440) return t('был(о) ') + relTime.format(Math.round(min / 60), 'hour');
+  return t('был(о) ') + relTime.format(Math.round(min / 1440), 'day');
 }
 
 async function renderDevices() {
@@ -648,16 +680,16 @@ async function renderDevices() {
   ul.replaceChildren(
     ...list.map((d) => {
       const li = el('li');
-      li.append(el('span', 'd-ico', /Приложение/.test(d.name) ? '🖥' : /Android|iOS/.test(d.name) ? '📱' : '🌐'));
+      li.append(el('span', 'd-ico', /Приложение|^App /.test(d.name) ? '🖥' : /Android|iOS/.test(d.name) ? '📱' : '🌐'));
       const body = el('div', 'd-body');
       const meta = el('div', 'd-meta', seenText(d));
       if (d.ip) meta.append(' · ', el('code', 'd-ip', d.ip));
-      body.append(el('div', 'd-name', `${d.name} · №${d.id}`), meta);
+      body.append(el('div', 'd-name', `${d.name} · ${t('№{0}', d.id)}`), meta);
       li.append(body);
       if (!d.current) {
-        const b = el('button', 'ghost', 'Отвязать');
+        const b = el('button', 'ghost', t('Отвязать'));
         b.addEventListener('click', async () => {
-          if (!confirm(`Отвязать «${d.name}»? Оно перестанет получать сообщения, а ключи на нём будут стёрты при следующем подключении.`)) return;
+          if (!confirm(t('Отвязать «{0}»? Оно перестанет получать сообщения, а ключи на нём будут стёрты при следующем подключении.', d.name))) return;
           try {
             await client.unlinkDevice(d.id);
             toast('Устройство отвязано');
@@ -697,7 +729,7 @@ $('link-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const code = $('link-input').value.trim();
   if (!code) return;
-  if (!confirm('Передать ключ вашей личности устройству с этим кодом? Делайте это, только если код с вашего собственного экрана.')) return;
+  if (!confirm(t('Передать ключ вашей личности устройству с этим кодом? Делайте это, только если код с вашего собственного экрана.'))) return;
   linkWithCode(code);
 });
 
@@ -724,7 +756,7 @@ $('scan-btn').addEventListener('click', async () => {
       if (hit) {
         stopScan();
         $('link-input').value = hit.rawValue;
-        if (confirm('Найден код привязки. Передать ключи этому устройству?')) linkWithCode(hit.rawValue);
+        if (confirm(t('Найден код привязки. Передать ключи этому устройству?'))) linkWithCode(hit.rawValue);
         return;
       }
       requestAnimationFrame(tick);
@@ -732,7 +764,7 @@ $('scan-btn').addEventListener('click', async () => {
     tick();
   } catch {
     stopScan();
-    $('link-form-error').textContent = 'Камера недоступна — введите код вручную';
+    $('link-form-error').textContent = t('Камера недоступна — введите код вручную');
   }
 });
 $('devices-close').addEventListener('click', () => {
@@ -789,8 +821,8 @@ client.on('error', async ({ code, text }) => {
     current = null;
     const text =
       code === 'account_deleted'
-        ? `Аккаунт ${name} удалён администратором сервера. Ключи и переписка на этом устройстве стёрты.`
-        : `Это устройство отвязано от аккаунта ${name}. Ключи и переписка удалены.`;
+        ? t('Аккаунт {0} удалён администратором сервера. Ключи и переписка на этом устройстве стёрты.', name)
+        : t('Это устройство отвязано от аккаунта {0}. Ключи и переписка удалены.', name);
     if (await forgetActiveAccount()) {
       await settings.set('flash', text);
       return location.reload();
@@ -816,7 +848,7 @@ let unreadTotal = 0;
 let pushProblem = '';
 
 function baseTitle() {
-  return unreadTotal ? `(${unreadTotal}) Тайник` : 'Тайник — E2E-мессенджер';
+  return unreadTotal ? t('({0}) Тайник', unreadTotal) : t('Тайник — E2E-мессенджер');
 }
 function setUnread(n) {
   if (n === unreadTotal) return;
@@ -835,7 +867,7 @@ async function notifPrefs() {
 function serviceWorker() {
   if (!webNotif || !('serviceWorker' in navigator)) return Promise.resolve(null);
   swReady ||= navigator.serviceWorker
-    .register('/sw.js', { scope: '/' })
+    .register(`/sw.js?lang=${LANG}`, { scope: '/' }) // язык текстов уведомлений при закрытой вкладке
     .then(() => navigator.serviceWorker.ready)
     .catch((e) => {
       console.warn('service worker', e);
@@ -861,7 +893,7 @@ async function showNotice({ title, body, chat, tag, call = false, force = false 
 async function notifyMessage(contact, message) {
   const { preview } = await notifPrefs();
   const text = preview && message.content?.t === 'text' ? String(message.content.body || '').replace(/\s+/g, ' ').slice(0, 160) : '';
-  await showNotice({ title: contact, body: text || 'Новое сообщение', chat: contact, tag: 'msg:' + contact });
+  await showNotice({ title: contact, body: text || t('Новое сообщение'), chat: contact, tag: 'msg:' + contact });
 }
 
 let pendingNoticeChat = null;
@@ -953,7 +985,7 @@ async function enableNotifications() {
   }
   const perm = await Notification.requestPermission();
   if (perm !== 'granted') {
-    toast(perm === 'denied' ? 'Уведомления запрещены для этого сайта в настройках браузера' : 'Уведомления не включены');
+    toast(perm === 'denied' ? t('Уведомления запрещены для этого сайта в настройках браузера') : t('Уведомления не включены'));
     return false;
   }
   await settings.set('notify', '1');
@@ -1000,15 +1032,15 @@ async function fillNotifSettings() {
   $('notif-preview').checked = preview;
   $('notif-preview').disabled = !enabled;
   let hint;
-  if (android) hint = 'Пока включена работа в фоне, приложение само держит связь с вашим сервером — без Google и других push-сервисов.';
-  else if (desktop) hint = 'Приложение получает сообщения, пока запущено, в том числе свёрнутым в трей.';
-  else if (!webNotif) hint = 'Этот браузер не поддерживает уведомления.';
-  else if (isIOS && !standalone) hint = 'На iPhone и iPad уведомления работают, если добавить Тайник на экран «Домой»: «Поделиться» → «На экран „Домой“».';
-  else if (Notification.permission === 'denied') hint = 'Уведомления запрещены для этого сайта в настройках браузера (значок слева от адреса).';
+  if (android) hint = t('Пока включена работа в фоне, приложение само держит связь с вашим сервером — без Google и других push-сервисов.');
+  else if (desktop) hint = t('Приложение получает сообщения, пока запущено, в том числе свёрнутым в трей.');
+  else if (!webNotif) hint = t('Этот браузер не поддерживает уведомления.');
+  else if (isIOS && !standalone) hint = t('На iPhone и iPad уведомления работают, если добавить Тайник на экран «Домой»: «Поделиться» → «На экран „Домой“».');
+  else if (Notification.permission === 'denied') hint = t('Уведомления запрещены для этого сайта в настройках браузера (значок слева от адреса).');
   else if (enabled && webPush && !pushProblem)
-    hint = 'Когда вкладка закрыта, сервер будит браузер через его push-сервис (Google, Mozilla или Apple). Текста сообщений там нет — только имя отправителя, зашифрованное для вашего браузера.';
-  else if (enabled) hint = 'Уведомления приходят, пока вкладка открыта.';
-  else hint = 'Текст сообщений по умолчанию не показывается: его увидят только те, кто смотрит на ваш экран.';
+    hint = t('Когда вкладка закрыта, сервер будит браузер через его push-сервис (Google, Mozilla или Apple). Текста сообщений там нет — только имя отправителя, зашифрованное для вашего браузера.');
+  else if (enabled) hint = t('Уведомления приходят, пока вкладка открыта.');
+  else hint = t('Текст сообщений по умолчанию не показывается: его увидят только те, кто смотрит на ваш экран.');
   $('notif-hint').textContent = hint;
   if (desktop?.background) {
     const bg = await desktop.background.get();
@@ -1017,12 +1049,12 @@ async function fillNotifSettings() {
     $('bg-autostart').checked = bg.autostart;
     $('bg-autostart').disabled = !bg.autostartSupported || (android && !bg.tray);
     if (android) {
-      $('bg-tray-text').textContent = 'Получать сообщения и звонки, когда приложение закрыто (в шторке будет значок «Тайник на связи»)';
-      $('bg-autostart-text').textContent = 'Включать после перезагрузки телефона';
+      $('bg-tray-text').textContent = t('Получать сообщения и звонки, когда приложение закрыто (в шторке будет значок «Тайник на связи»)');
+      $('bg-autostart-text').textContent = t('Включать после перезагрузки телефона');
       $('bg-hint').hidden = false;
       $('bg-hint').textContent = bg.batteryOptimized
-        ? 'Система может усыплять Тайник для экономии батареи — тогда сообщения придут с задержкой. Разрешите работу без ограничений, когда телефон спросит, или в настройках приложения → «Батарея».'
-        : 'На некоторых телефонах (Xiaomi, Huawei, Samsung и др.) дополнительно нужно разрешить автозапуск в настройках приложения.';
+        ? t('Система может усыплять Тайник для экономии батареи — тогда сообщения придут с задержкой. Разрешите работу без ограничений, когда телефон спросит, или в настройках приложения → «Батарея».')
+        : t('На некоторых телефонах (Xiaomi, Huawei, Samsung и др.) дополнительно нужно разрешить автозапуск в настройках приложения.');
     }
   }
 }
@@ -1039,7 +1071,7 @@ for (const id of ['bg-tray', 'bg-autostart']) {
       await desktop.background.set(id === 'bg-tray' ? 'tray' : 'autostart', e.target.checked);
     } catch (err) {
       e.target.checked = !e.target.checked;
-      toast(err.message || 'Не удалось изменить настройку');
+      toast(err.message || t('Не удалось изменить настройку'));
     }
     if (android) fillNotifSettings();
   });
@@ -1086,17 +1118,17 @@ function fmtDur(ms) {
 }
 
 function callStatusText(c) {
-  if (c.phase === 'ended') return CALL_RESULT_TEXT[c.result] === 'звонок' ? 'Звонок завершён' : (CALL_RESULT_TEXT[c.result] || 'Звонок завершён').replace(/^./, (x) => x.toUpperCase());
-  if (c.reconnecting) return 'Переподключение…';
+  if (c.phase === 'ended') return CALL_RESULT_TEXT[c.result] === t('звонок') ? t('Звонок завершён') : (CALL_RESULT_TEXT[c.result] || t('Звонок завершён')).replace(/^./, (x) => x.toUpperCase());
+  if (c.reconnecting) return t('Переподключение…');
   switch (c.phase) {
     case 'preparing':
-      return 'Подготовка…';
+      return t('Подготовка…');
     case 'outgoing':
-      return 'Вызов…';
+      return t('Вызов…');
     case 'incoming':
-      return c.video ? 'Входящий видеозвонок' : 'Входящий звонок';
+      return c.video ? t('Входящий видеозвонок') : t('Входящий звонок');
     case 'connecting':
-      return 'Соединение…';
+      return t('Соединение…');
     case 'active':
       return fmtDur(Date.now() - c.startedAt);
   }
@@ -1263,7 +1295,7 @@ function renderCall(c) {
   const micOff = !c.local.mic || !c.local.mic.enabled;
   mic.classList.toggle('off', micOff);
   mic.setAttribute('aria-pressed', String(micOff));
-  mic.querySelector('span').textContent = micOff ? 'Вкл. микрофон' : 'Микрофон';
+  mic.querySelector('span').textContent = micOff ? t('Вкл. микрофон') : t('Микрофон');
   $('call-cam').classList.toggle('on', !!c.local.cam);
   $('call-cam').setAttribute('aria-pressed', String(!!c.local.cam));
   $('call-screen').classList.toggle('on', !!c.local.screen);
@@ -1284,11 +1316,11 @@ function renderCall(c) {
     }, 1000);
   }
   if (c.phase === 'incoming') {
-    document.title = `📞 ${c.peer} — входящий звонок`;
+    document.title = t('📞 {0} — входящий звонок', c.peer);
     if (!document.hasFocus() && notifiedCall !== c.id) {
       notifiedCall = c.id;
       callNoticeUp = true;
-      showNotice({ title: c.peer, body: c.video ? 'Входящий видеозвонок' : 'Входящий звонок', chat: c.peer, tag: 'call:' + c.peer, call: true });
+      showNotice({ title: c.peer, body: c.video ? t('Входящий видеозвонок') : t('Входящий звонок'), chat: c.peer, tag: 'call:' + c.peer, call: true });
     }
   } else {
     document.title = baseTitle();
@@ -1300,7 +1332,7 @@ async function startCall(video) {
   try {
     await calls.start(current, { video });
   } catch (err) {
-    if (err.message !== 'cancelled') toast(err.message || 'Не удалось позвонить');
+    if (err.message !== 'cancelled') toast(err.message || t('Не удалось позвонить'));
   }
 }
 $('call-audio-btn').addEventListener('click', () => startCall(false));
@@ -1373,7 +1405,7 @@ $('call-mic').addEventListener('click', () => calls.toggleMic());
 $('call-cam').addEventListener('click', () => calls.toggleCamera().catch(() => toast('Камера недоступна')));
 $('call-screen').addEventListener('click', () =>
   calls.toggleScreen().catch((e) => {
-    if (e?.name !== 'NotAllowedError' && e?.name !== 'AbortError') toast(e.message || 'Не удалось показать экран');
+    if (e?.name !== 'NotAllowedError' && e?.name !== 'AbortError') toast(e.message || t('Не удалось показать экран'));
   })
 );
 window.addEventListener('beforeunload', () => calls.busy && calls.hangup());
@@ -1434,7 +1466,7 @@ async function findMsg(id) {
 async function replyTo(id) {
   const m = await findMsg(id);
   if (!m || m.dir === 'sys') return;
-  setReply({ id, name: m.dir === 'out' ? 'Вы' : current, text: (m.content?.body || '').replace(/\s+/g, ' ').slice(0, 120) });
+  setReply({ id, name: m.dir === 'out' ? t('Вы') : current, text: (m.content?.body || '').replace(/\s+/g, ' ').slice(0, 120) });
 }
 
 // Меню сообщения
@@ -1553,7 +1585,7 @@ client.on('status', renderPresence);
 $('presence-visible').addEventListener('change', async (e) => {
   try {
     await client.setPresenceVisible(e.target.checked);
-    toast(e.target.checked ? 'Другие видят, когда вы в сети' : 'Ваш статус скрыт: другие видят «был(а) недавно»');
+    toast(e.target.checked ? t('Другие видят, когда вы в сети') : t('Ваш статус скрыт: другие видят «был(а) недавно»'));
   } catch (err) {
     e.target.checked = !e.target.checked;
     toast(err.message);
@@ -1629,7 +1661,7 @@ async function forgetActiveAccount() {
 async function switchAccount(id) {
   if (id === activeId) return;
   if (calls.busy) {
-    if (!confirm('Идёт звонок. Переключить аккаунт? Звонок завершится.')) return;
+    if (!confirm(t('Идёт звонок. Переключить аккаунт? Звонок завершится.'))) return;
     calls.hangup();
   }
   await settings.set('active-account', id);
@@ -1670,13 +1702,13 @@ function renderAccounts() {
       host = new URL(a.server || DEFAULT_SERVER).host;
     } catch {}
     const o = others.get(a.id);
-    const st = a.id === activeId ? STATUS_TEXT[client.status] : o ? STATUS_TEXT[o.client.status] : 'не подключён';
+    const st = a.id === activeId ? STATUS_TEXT[client.status] : o ? STATUS_TEXT[o.client.status] : t('не подключён');
     body.append(el('div', 'd-meta', `${host} · ${st || ''}`));
     li.append(av, body);
-    if (a.id === activeId) li.append(el('span', 'a-state', 'открыт'));
+    if (a.id === activeId) li.append(el('span', 'a-state', t('открыт')));
     else {
       if (o?.unread) li.append(el('span', 'badge', String(o.unread)));
-      li.title = 'Переключиться';
+      li.title = t('Переключиться');
       li.addEventListener('click', () => switchAccount(a.id));
     }
     return li;
@@ -1700,7 +1732,7 @@ async function notifyOther(acc, contact, message) {
   const text = preview && message.content?.t === 'text' ? String(message.content.body || '').replace(/\s+/g, ' ').slice(0, 160) : '';
   await showNotice({
     title: `${contact} → ${acc.username}`,
-    body: text || 'Новое сообщение',
+    body: text || t('Новое сообщение'),
     chat: `${contact}@${acc.id}`,
     tag: `msg:${acc.id}:${contact}`,
     force: true,
@@ -1715,9 +1747,9 @@ async function startOthers() {
     const item = { acc, client: c, unread: 0 };
     others.set(acc.id, item);
     try {
-      if (!(await c.load())) throw new Error('нет ключей');
+      if (!(await c.load())) throw new Error(t('нет ключей'));
     } catch (e) {
-      console.warn('аккаунт', acc.username, e);
+      console.warn(t('аккаунт'), acc.username, e);
       others.delete(acc.id);
       continue;
     }
@@ -1737,7 +1769,7 @@ async function startOthers() {
       if (data?.kind !== 'offer') return;
       showNotice({
         title: `${from} → ${acc.username}`,
-        body: 'Звонит. Откройте этот аккаунт, чтобы ответить',
+        body: t('Звонит. Откройте этот аккаунт, чтобы ответить'),
         chat: `${from}@${acc.id}`,
         tag: `msg:${acc.id}:${from}`,
         force: true,
@@ -1755,7 +1787,7 @@ async function startOthers() {
       }
       await saveAccounts();
       renderAccountsBadge();
-      toast(code === 'account_deleted' ? `Аккаунт ${acc.username || ''} удалён администратором` : `Это устройство отвязано от аккаунта ${acc.username || ''}`);
+      toast(code === 'account_deleted' ? t('Аккаунт {0} удалён администратором', acc.username || '') : t('Это устройство отвязано от аккаунта {0}', acc.username || ''));
     });
     await recount();
     c.connect().catch(() => {});
@@ -1774,29 +1806,29 @@ function updText(st) {
   const v = st.version;
   switch (st.status) {
     case 'checking':
-      return 'Проверяем обновления…';
+      return t('Проверяем обновления…');
     case 'latest':
-      return `Установлена последняя версия (${st.current}).`;
+      return t('Установлена последняя версия ({0}).', st.current);
     case 'available':
-      return `Доступна версия ${v}.`;
+      return t('Доступна версия {0}.', v);
     case 'downloading':
-      return `Скачиваем версию ${v}… ${Math.round((st.progress || 0) * 100)}%`;
+      return t('Скачиваем версию {0}… {1}%', v, Math.round((st.progress || 0) * 100));
     case 'ready':
-      return `Версия ${v} скачана и проверена.`;
+      return t('Версия {0} скачана и проверена.', v);
     case 'installing':
-      return `Устанавливаем версию ${v}…`;
+      return t('Устанавливаем версию {0}…', v);
     case 'manual':
-      return `Доступна версия ${v}. ${st.reason || ''}`;
+      return t('Доступна версия {0}. {1}', v, st.reason || '');
     case 'error':
-      return st.error || 'Не удалось проверить обновления.';
+      return st.error || t('Не удалось проверить обновления.');
     default:
-      return `Версия ${st.current || ''}.`;
+      return t('Версия {0}.', st.current || '');
   }
 }
 function updAction(st) {
-  if (st.status === 'ready') return isAndroidApp ? 'Установить' : st.kind === 'linux-deb' ? 'Открыть установщик' : 'Перезапустить и обновить';
-  if (st.status === 'available') return 'Скачать и обновить';
-  if (st.status === 'manual') return 'Скачать';
+  if (st.status === 'ready') return isAndroidApp ? t('Установить') : st.kind === 'linux-deb' ? t('Открыть установщик') : t('Перезапустить и обновить');
+  if (st.status === 'available') return t('Скачать и обновить');
+  if (st.status === 'manual') return t('Скачать');
   return null;
 }
 async function updGo() {
@@ -1809,7 +1841,7 @@ async function updGo() {
     } else if (upd.status === 'available') await updates.download();
     else if (upd.status === 'manual' && upd.downloadUrl) window.open(upd.downloadUrl, '_blank', 'noopener');
   } catch (e) {
-    toast(e.message || 'Не удалось обновить');
+    toast(e.message || t('Не удалось обновить'));
   }
 }
 function renderUpdates(st) {
@@ -1828,12 +1860,12 @@ function renderUpdates(st) {
   $('upd-check').disabled = st.status === 'checking' || st.status === 'downloading';
   $('upd-auto').checked = st.auto !== false;
   $('upd-hint').textContent = isAndroidApp
-    ? 'Новая версия скачивается с вашего сервера; Android проверяет, что она подписана тем же ключом, и спросит подтверждение установки.'
-    : 'Новая версия скачивается с вашего сервера и ставится, только если подпись выпуска верна. Скачанное обновление ставится и при выходе из приложения.';
+    ? t('Новая версия скачивается с вашего сервера; Android проверяет, что она подписана тем же ключом, и спросит подтверждение установки.')
+    : t('Новая версия скачивается с вашего сервера и ставится, только если подпись выпуска верна. Скачанное обновление ставится и при выходе из приложения.');
   if (show) {
     $('upd-banner-text').textContent =
-      st.status === 'ready' ? `🎉 Версия ${st.version} готова` : `Доступна версия ${st.version}`;
-    $('upd-banner-go').textContent = st.status === 'ready' && !isAndroidApp && st.kind !== 'linux-deb' ? 'Перезапустить' : action;
+      st.status === 'ready' ? t('🎉 Версия {0} готова', st.version) : t('Доступна версия {0}', st.version);
+    $('upd-banner-go').textContent = st.status === 'ready' && !isAndroidApp && st.kind !== 'linux-deb' ? t('Перезапустить') : action;
   }
 }
 if (updates) {

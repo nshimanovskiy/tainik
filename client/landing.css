@@ -65,6 +65,8 @@ p { margin: 0 0 10px; }
 }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.small { min-height: 36px; padding: 0 14px; font-size: 14.5px; }
+.btn.ghost { background: transparent; }
+.btn.lang { padding: 0 10px; font-size: 13px; letter-spacing: .03em; cursor: pointer; font-family: inherit; }
 .btn:hover { filter: brightness(1.04); }
 
 main { width: 100%; max-width: 1080px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 40px); flex: 1; }

@@ -27,10 +27,10 @@ object Notifier {
 
     fun createChannels(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
-        val messages = NotificationChannel(CH_MESSAGES, "Сообщения", NotificationManager.IMPORTANCE_HIGH).apply {
+        val messages = NotificationChannel(CH_MESSAGES, I18n.tr(ctx, "Сообщения", "Messages"), NotificationManager.IMPORTANCE_HIGH).apply {
             lockscreenVisibility = Notification.VISIBILITY_PRIVATE
         }
-        val calls = NotificationChannel(CH_CALLS, "Входящие звонки", NotificationManager.IMPORTANCE_HIGH).apply {
+        val calls = NotificationChannel(CH_CALLS, I18n.tr(ctx, "Входящие звонки", "Incoming calls"), NotificationManager.IMPORTANCE_HIGH).apply {
             lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             setSound(
                 RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
@@ -42,8 +42,8 @@ object Notifier {
             enableVibration(true)
             vibrationPattern = longArrayOf(0, 800, 600, 800, 600)
         }
-        val service = NotificationChannel(CH_SERVICE, "Работа в фоне", NotificationManager.IMPORTANCE_MIN).apply {
-            description = "Значок, пока Тайник держит связь с сервером"
+        val service = NotificationChannel(CH_SERVICE, I18n.tr(ctx, "Работа в фоне", "Background"), NotificationManager.IMPORTANCE_MIN).apply {
+            description = I18n.tr(ctx, "Значок, пока Тайник держит связь с сервером", "Shown while Tainik stays connected to the server")
             setShowBadge(false)
         }
         nm.createNotificationChannels(listOf(messages, calls, service))
@@ -69,12 +69,14 @@ object Notifier {
         if (!call && !force && app.inForeground) return
         val nm = app.getSystemService(NotificationManager::class.java)
         val pi = openIntent(app, chat, call)
-        val text = body.ifEmpty { if (call) "Входящий звонок" else "Новое сообщение" }
+        val incoming = I18n.tr(app, "Входящий звонок", "Incoming call")
+        val newMsg = I18n.tr(app, "Новое сообщение", "New message")
+        val text = body.ifEmpty { if (call) incoming else newMsg }
         val public = Notification.Builder(app, if (call) CH_CALLS else CH_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(BRAND)
-            .setContentTitle("Тайник")
-            .setContentText(if (call) "Входящий звонок" else "Новое сообщение")
+            .setContentTitle(I18n.tr(app, "Тайник", "Tainik"))
+            .setContentText(if (call) incoming else newMsg)
             .build()
         val b = Notification.Builder(app, if (call) CH_CALLS else CH_MESSAGES)
             .setSmallIcon(R.drawable.ic_notification)
@@ -103,6 +105,11 @@ object Notifier {
         ctx.getSystemService(NotificationManager::class.java).cancel(TAG_CALL, ID_CALL)
     }
 
+    /** Чат прочитан (на этом или другом устройстве) — убрать его уведомление. */
+    fun cancelChat(ctx: Context, chat: String) {
+        ctx.getSystemService(NotificationManager::class.java).cancel("msg:$chat", ID_MESSAGE)
+    }
+
     /** Приложение открыли — уведомления о сообщениях и звонке больше не нужны. */
     fun clearOnOpen(ctx: Context) {
         val nm = ctx.getSystemService(NotificationManager::class.java)
@@ -128,10 +135,10 @@ object Notifier {
             .setShowWhen(false)
             .setContentIntent(if (callPeer != null) showCallIntent(ctx) else openIntent(ctx, null))
         if (callPeer != null) {
-            b.setContentTitle("Звонок: $callPeer").setContentText("Нажмите, чтобы вернуться к звонку")
+            b.setContentTitle(I18n.tr(ctx, "Звонок: ", "Call: ") + callPeer).setContentText(I18n.tr(ctx, "Нажмите, чтобы вернуться к звонку", "Tap to return to the call"))
                 .setCategory(Notification.CATEGORY_CALL)
         } else {
-            b.setContentTitle("Тайник на связи").setContentText("Получает сообщения и звонки, когда приложение закрыто")
+            b.setContentTitle(I18n.tr(ctx, "Тайник на связи", "Tainik is connected")).setContentText(I18n.tr(ctx, "Получает сообщения и звонки, когда приложение закрыто", "Receives messages and calls when the app is closed"))
                 .setCategory(Notification.CATEGORY_SERVICE)
         }
         if (Build.VERSION.SDK_INT >= 31) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)

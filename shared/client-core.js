@@ -6,6 +6,7 @@
 // Модель устройств как в Signal: у аккаунта одна личность (ключ личности общий),
 // у каждого устройства свои prekey и свои сессии. Сообщение шифруется отдельно
 // для каждого устройства собеседника и копией — для остальных своих устройств.
+import { t } from './i18n.js';
 import {
   generateIdentity,
   generateSignedPreKey,
@@ -68,30 +69,30 @@ const MAX_SEND_ATTEMPTS = 4;
 const AUTH_CONTEXT = 'tainik/v3/auth';
 
 export const ERROR_TEXT = {
-  push_disabled: 'Уведомления на этом сервере выключены',
-  bad_subscription: 'Этот браузер не поддерживает уведомления Тайника',
-  bad_username: 'Имя: 3–32 символа, латиница в нижнем регистре, цифры и _',
-  bad_keys: 'Сервер отклонил ключи',
-  username_taken: 'Это имя уже занято',
-  unknown_account: 'Такого аккаунта нет на сервере',
-  auth_failed: 'Не удалось подтвердить владение ключом',
-  logged_in_elsewhere: 'Это устройство открыто в другом окне',
-  device_removed: 'Это устройство отвязано от аккаунта',
-  account_deleted: 'Аккаунт удалён администратором сервера',
-  ip_banned: 'Доступ к серверу с вашего адреса заблокирован администратором',
-  too_many_devices: 'Достигнут предел: 5 устройств на аккаунт',
-  unknown_recipient: 'Такого пользователя нет',
-  too_large: 'Сообщение слишком большое',
-  rate_limited: 'Слишком много запросов, подождите',
-  timeout: 'Сервер не ответил',
-  offline: 'Нет соединения с сервером',
-  key_changed: 'Ключ собеседника изменился — сначала проверьте его',
-  bad_spk_signature: 'Ключи собеседника не прошли проверку подписи',
-  bad_link_code: 'Неверный код привязки',
-  provision_not_found: 'Код привязки устарел или уже использован — обновите его на новом устройстве',
-  provision_decrypt_failed: 'Не удалось расшифровать данные привязки',
-  bad_device: 'Нельзя отвязать это устройство',
-  bad_url: 'Неверный адрес сервера',
+  push_disabled: t('Уведомления на этом сервере выключены'),
+  bad_subscription: t('Этот браузер не поддерживает уведомления Тайника'),
+  bad_username: t('Имя: 3–32 символа, латиница в нижнем регистре, цифры и _'),
+  bad_keys: t('Сервер отклонил ключи'),
+  username_taken: t('Это имя уже занято'),
+  unknown_account: t('Такого аккаунта нет на сервере'),
+  auth_failed: t('Не удалось подтвердить владение ключом'),
+  logged_in_elsewhere: t('Это устройство открыто в другом окне'),
+  device_removed: t('Это устройство отвязано от аккаунта'),
+  account_deleted: t('Аккаунт удалён администратором сервера'),
+  ip_banned: t('Доступ к серверу с вашего адреса заблокирован администратором'),
+  too_many_devices: t('Достигнут предел: 5 устройств на аккаунт'),
+  unknown_recipient: t('Такого пользователя нет'),
+  too_large: t('Сообщение слишком большое'),
+  rate_limited: t('Слишком много запросов, подождите'),
+  timeout: t('Сервер не ответил'),
+  offline: t('Нет соединения с сервером'),
+  key_changed: t('Ключ собеседника изменился — сначала проверьте его'),
+  bad_spk_signature: t('Ключи собеседника не прошли проверку подписи'),
+  bad_link_code: t('Неверный код привязки'),
+  provision_not_found: t('Код привязки устарел или уже использован — обновите его на новом устройстве'),
+  provision_decrypt_failed: t('Не удалось расшифровать данные привязки'),
+  bad_device: t('Нельзя отвязать это устройство'),
+  bad_url: t('Неверный адрес сервера'),
 };
 
 const errorOf = (code) => Object.assign(new Error(ERROR_TEXT[code] || code), { code });
@@ -202,7 +203,7 @@ export class MessengerClient extends Emitter {
   }
 
   /** Новый аккаунт: ключ личности + prekey первого устройства. */
-  async register(username, { deviceName = 'Устройство', timeout = 15000 } = {}) {
+  async register(username, { deviceName = t('Устройство'), timeout = 15000 } = {}) {
     username = String(username).trim().toLowerCase();
     const identity = await generateIdentity();
     await this.storage.clear();
@@ -242,7 +243,7 @@ export class MessengerClient extends Emitter {
    * onCode(code) вызывается, когда код готов (показать QR / текст).
    * Promise завершается, когда привязка прошла и устройство зарегистрировано.
    */
-  linkAsNewDevice({ deviceName = 'Устройство', onCode, timeout = 15000 } = {}) {
+  linkAsNewDevice({ deviceName = t('Устройство'), onCode, timeout = 15000 } = {}) {
     let cancel;
     const done = new Promise((resolve, reject) => {
       let ws;
@@ -362,7 +363,7 @@ export class MessengerClient extends Emitter {
 
   /** Подключается и проходит авторизацию. Promise завершается на первом 'ready'. */
   connect({ timeout = 0 } = {}) {
-    if (!this.account) return Promise.reject(new Error('Нет аккаунта'));
+    if (!this.account) return Promise.reject(new Error(t('Нет аккаунта')));
     this._stopped = false;
     return new Promise((resolve, reject) => {
       const t = timeout ? setTimeout(() => this._fatal('timeout'), timeout) : null;
@@ -685,7 +686,7 @@ export class MessengerClient extends Emitter {
   /** Добавляет собеседника (ключ личности закрепляется при первом знакомстве — TOFU). */
   async addContact(username) {
     username = String(username).trim().toLowerCase();
-    if (username === this.account.username) throw new Error('Это вы');
+    if (username === this.account.username) throw new Error(t('Это вы'));
     const identity = await this.fetchIdentity(username);
     if (!identity) throw errorOf('unknown_recipient');
     if (!this.presence.has(username)) this._subscribePresence([username]).catch(() => {});
@@ -712,14 +713,39 @@ export class MessengerClient extends Emitter {
     return all[username];
   }
 
+  /**
+   * Чат прочитан на этом устройстве. Остальным вашим устройствам уходит зашифрованная
+   * отметка «прочитано до сообщения со временем upTo» — там счётчик тоже обнулится.
+   */
   async markRead(username) {
-    return this._serial(async () => {
+    let sent = false;
+    await this._serial(async () => {
       const all = await this.contacts();
-      if (all[username] && all[username].unread) {
-        all[username].unread = 0;
-        await this._saveContacts(all);
-      }
+      if (!all[username] || !all[username].unread) return;
+      all[username].unread = 0;
+      await this._saveContacts(all);
+      const upTo = (await this.messages(username)).reduce((m, x) => (x.dir === 'in' && x.ts > m ? x.ts : m), 0);
+      if (!upTo || !this.account) return;
+      const outbox = (await this.storage.get('outbox')) || [];
+      // Старые отметки этого же чата больше не нужны — хватит последней
+      const keep = outbox.filter((x) => !(x.kind === 'ctl' && x.content?.t === 'sync-read' && x.content.chat === username));
+      keep.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-read', chat: username, upTo, ts: Date.now() }, attempts: 0 });
+      await this.storage.set('outbox', keep);
+      sent = true;
     });
+    if (sent) this._pumpOutbox();
+  }
+
+  /** Отметка прочтения с другого своего устройства. */
+  async _applyReadSync(chat, upTo) {
+    const all = await this.contacts();
+    const c = all[chat];
+    if (!c || !c.unread) return;
+    const left = (await this.messages(chat)).filter((m) => m.dir === 'in' && m.ts > upTo).length;
+    if (left >= c.unread) return;
+    c.unread = left;
+    await this._saveContacts(all);
+    this.emit('read-sync', { contact: chat, unread: left });
   }
 
   async markVerified(username, verified = true) {
@@ -800,7 +826,7 @@ export class MessengerClient extends Emitter {
     await this._serial(async () => {
       const all = await this.contacts();
       const c = all[username];
-      if (!c) throw new Error('Нет такого контакта');
+      if (!c) throw new Error(t('Нет такого контакта'));
       if (c.keyChanged) throw errorOf('key_changed');
       const id = randomId();
       const ts = Date.now();
@@ -1101,6 +1127,10 @@ export class MessengerClient extends Emitter {
       await this._learnDevice(me, res.fromDevice);
       await this._remember(from, res.id);
       const c = res.content;
+      if (c?.t === 'sync-read' && typeof c.chat === 'string' && Number.isFinite(c.upTo)) {
+        await this._applyReadSync(c.chat, c.upTo);
+        return ack(false);
+      }
       if (c?.t === 'sync-delete' && typeof c.chat === 'string' && Array.isArray(c.ids)) {
         await this._removeMessages(c.chat, c.ids.map(String).slice(0, MAX_DELETE));
         return ack(false);

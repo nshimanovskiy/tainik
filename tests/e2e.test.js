@@ -497,3 +497,54 @@ test('переподключение по сигналу: смена сети, �
   assert.equal(alice.reconnectNow({ restart: true }), false);
   assert.equal(await alice.checkConnection(), false);
 });
+
+test('прочтение синхронизируется между своими устройствами', async (t) => {
+  const { mk } = await setup(t);
+  const alice = mk();
+  const bob = mk();
+  await alice.register('alice');
+  await bob.register('bob');
+  const alice2 = mk();
+  await link(alice2, alice);
+  await bob.addContact('alice');
+
+  // Два сообщения — непрочитаны на обоих устройствах
+  let both = Promise.all([incoming(alice, 'раз'), incoming(alice2, 'раз')]);
+  await bob.sendText('alice', 'раз');
+  await both;
+  both = Promise.all([incoming(alice, 'два'), incoming(alice2, 'два')]);
+  await bob.sendText('alice', 'два');
+  await both;
+  const unread = async (c) => (await c.contacts()).bob?.unread || 0;
+  assert.equal(await unread(alice), 2);
+  assert.equal(await unread(alice2), 2);
+
+  // Прочитали на первом — на втором счётчик обнулился сам
+  const synced = waitFor(alice2, 'read-sync', (e) => e.contact === 'bob');
+  await alice.markRead('bob');
+  assert.deepEqual(await synced, { contact: 'bob', unread: 0 });
+  assert.equal(await unread(alice2), 0);
+
+  // Новое сообщение снова непрочитано на обоих; отметка не обнуляет то, что пришло позже
+  both = Promise.all([incoming(alice, 'три'), incoming(alice2, 'три')]);
+  await bob.sendText('alice', 'три');
+  await both;
+  assert.equal(await unread(alice2), 1);
+  await alice2._applyReadSync('bob', 0); // старая отметка ничего не меняет
+  assert.equal(await unread(alice2), 1);
+
+  // Прочитали на втором — на первом тоже прочитано; без непрочитанных отметка не уходит
+  const back = waitFor(alice, 'read-sync', (e) => e.contact === 'bob');
+  await alice2.markRead('bob');
+  await back;
+  assert.equal(await unread(alice), 0);
+  const before = ((await alice2.storage.get('outbox')) || []).length;
+  await alice2.markRead('bob');
+  assert.equal(((await alice2.storage.get('outbox')) || []).length, before);
+
+  // Собеседнику отметки о прочтении между вашими устройствами не приходят
+  const peer = [];
+  bob.on('read-sync', (e) => peer.push(e));
+  await sleep(300);
+  assert.deepEqual(peer, []);
+});

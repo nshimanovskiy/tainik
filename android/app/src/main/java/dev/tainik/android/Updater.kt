@@ -140,7 +140,7 @@ class Updater(private val app: TainikApp) {
         if (c.responseCode !in 200..299) {
             val code = c.responseCode
             c.disconnect()
-            throw IllegalStateException("сервер ответил $code")
+            throw IllegalStateException(I18n.tr(app, "сервер ответил ", "the server responded ") + code)
         }
         return c
     }
@@ -157,7 +157,7 @@ class Updater(private val app: TainikApp) {
                 doCheck(auto)
             } catch (e: Exception) {
                 Log.w(TAG, "проверка обновлений", e)
-                set("status" to "error", "error" to "Не удалось проверить обновления: ${e.message}")
+                set("status" to "error", "error" to I18n.tr(app, "Не удалось проверить обновления: ", "Couldn’t check for updates: ") + e.message)
             } finally {
                 busy = false
             }
@@ -171,7 +171,7 @@ class Updater(private val app: TainikApp) {
             try {
                 doCheck(auto = false)
             } catch (e: Exception) {
-                set("status" to "error", "error" to "Обновление не скачалось: ${e.message}")
+                set("status" to "error", "error" to I18n.tr(app, "Обновление не скачалось: ", "The update didn’t download: ") + e.message)
             } finally {
                 busy = false
             }
@@ -181,7 +181,7 @@ class Updater(private val app: TainikApp) {
     private fun doCheck(auto: Boolean) {
         val ready = readyFile
         if (ready != null && ready.exists()) return set("status" to "ready")
-        val base = base() ?: return set("status" to "error", "error" to "Не задан сервер")
+        val base = base() ?: return set("status" to "error", "error" to I18n.tr(app, "Не задан сервер", "No server is set"))
         set("status" to "checking", "error" to null)
         val rel = JSONObject(text("$base/api/releases"))
         val version = rel.optString("version")
@@ -189,16 +189,16 @@ class Updater(private val app: TainikApp) {
         if (compare(version, current) <= 0) return set("status" to "latest", "version" to version, "checkedAt" to now)
         val assets = rel.optJSONArray("assets") ?: org.json.JSONArray()
         val asset = (0 until assets.length()).map { assets.getJSONObject(it) }.firstOrNull { it.optString("platform") == "android" }
-            ?: return set("status" to "manual", "version" to version, "downloadUrl" to "$base/?home#download", "reason" to "В выпуске нет файла для Android", "checkedAt" to now)
+            ?: return set("status" to "manual", "version" to version, "downloadUrl" to "$base/?home#download", "reason" to I18n.tr(app, "В выпуске нет файла для Android", "The release has no Android file"), "checkedAt" to now)
         if (auto && !app.prefs.autoUpdate) return set("status" to "available", "version" to version, "checkedAt" to now)
 
         val name = asset.getString("name")
-        require(Regex("^[A-Za-z0-9._-]+\\.apk$").matches(name)) { "недопустимое имя файла" }
+        require(Regex("^[A-Za-z0-9._-]+\\.apk$").matches(name)) { I18n.tr(app, "недопустимое имя файла", "invalid file name") }
         set("status" to "downloading", "version" to version, "progress" to 0.0)
         val sums = text("$base/download/SHA256SUMS.txt")
         val want = sums.lines().mapNotNull { Regex("^([0-9a-f]{64})\\s+\\*?(\\S+)$").find(it.trim())?.destructured }
             .firstOrNull { it.component2() == name }?.component1()
-            ?: throw IllegalStateException("файла нет в списке контрольных сумм")
+            ?: throw IllegalStateException(I18n.tr(app, "файла нет в списке контрольных сумм", "the file isn’t in the checksum list"))
 
         dir.mkdirs()
         dir.listFiles()?.forEach { it.delete() }
@@ -232,7 +232,7 @@ class Updater(private val app: TainikApp) {
         val have = md.digest().joinToString("") { "%02x".format(it) }
         if (have != want) {
             part.delete()
-            throw IllegalStateException("контрольная сумма не совпала — файл повреждён или подменён")
+            throw IllegalStateException(I18n.tr(app, "контрольная сумма не совпала — файл повреждён или подменён", "checksum mismatch — the file is damaged or was tampered with"))
         }
         val file = File(dir, name)
         part.renameTo(file)
@@ -277,7 +277,7 @@ class Updater(private val app: TainikApp) {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "установка", e)
-                set("status" to "error", "error" to "Не удалось начать установку: ${e.message}")
+                set("status" to "error", "error" to I18n.tr(app, "Не удалось начать установку: ", "Couldn’t start the install: ") + e.message)
             }
         }
         return "started"
@@ -296,9 +296,13 @@ class Updater(private val app: TainikApp) {
                     PackageInstaller.STATUS_FAILURE_ABORTED -> set("status" to "ready") // нажали «Отмена»
                     PackageInstaller.STATUS_FAILURE_CONFLICT, PackageInstaller.STATUS_FAILURE_INCOMPATIBLE -> set(
                         "status" to "error",
-                        "error" to "Новая версия подписана другим ключом, чем установленная. Удалите Тайник и установите заново с сайта (перед этим привяжите аккаунт к другому устройству).",
+                        "error" to I18n.tr(
+                            app,
+                            "Новая версия подписана другим ключом, чем установленная. Удалите Тайник и установите заново с сайта (перед этим привяжите аккаунт к другому устройству).",
+                            "The new version is signed with a different key than the installed one. Uninstall Tainik and install it again from the website (link your account to another device first).",
+                        ),
                     )
-                    else -> set("status" to "error", "error" to "Установка не удалась (${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: st})")
+                    else -> set("status" to "error", "error" to I18n.tr(app, "Установка не удалась", "Install failed") + " (${intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: st})")
                 }
             }
         }
@@ -314,7 +318,7 @@ class Updater(private val app: TainikApp) {
     // ---------- Уведомление «обновление готово» ----------
 
     private fun createChannel() {
-        val ch = NotificationChannel(CH_UPDATES, "Обновления", NotificationManager.IMPORTANCE_DEFAULT).apply {
+        val ch = NotificationChannel(CH_UPDATES, I18n.tr(app, "Обновления", "Updates"), NotificationManager.IMPORTANCE_DEFAULT).apply {
             setShowBadge(false)
         }
         app.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
@@ -331,8 +335,8 @@ class Updater(private val app: TainikApp) {
         val n = Notification.Builder(app, CH_UPDATES)
             .setSmallIcon(R.drawable.ic_notification)
             .setColor(0xFF1F6F5C.toInt())
-            .setContentTitle("Обновление Тайника $version")
-            .setContentText("Нажмите, чтобы установить")
+            .setContentTitle(I18n.tr(app, "Обновление Тайника ", "Tainik update ") + version)
+            .setContentText(I18n.tr(app, "Нажмите, чтобы установить", "Tap to install"))
             .setContentIntent(pi)
             .setAutoCancel(true)
             .build()

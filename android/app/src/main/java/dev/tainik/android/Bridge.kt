@@ -87,13 +87,22 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
     @JavascriptInterface
     fun dismissNotice(json: String) {
         if (!ours()) return
-        main.post { Notifier.cancelCall(app) }
+        val n = try {
+            JSONObject(json)
+        } catch (e: Exception) {
+            return
+        }
+        main.post {
+            if (n.optBoolean("call")) Notifier.cancelCall(app)
+            val chat = n.optString("chat")
+            if (chat.isNotEmpty()) Notifier.cancelChat(app, chat)
+        }
     }
 
     @JavascriptInterface
     fun callActive(active: Boolean, peer: String) {
         if (!ours()) return
-        main.post { ConnectionService.setCall(app, if (active) peer.ifEmpty { "собеседник" } else null) }
+        main.post { ConnectionService.setCall(app, if (active) peer.ifEmpty { I18n.tr(app, "собеседник", "contact") } else null) }
     }
 
     @JavascriptInterface

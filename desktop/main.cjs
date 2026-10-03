@@ -22,6 +22,7 @@ const {
 } = require('electron');
 const { spawn } = require('node:child_process');
 const { Updater, updateKind, serverBase, macInstallScript } = require('./updater.cjs');
+const { t, setLangSource, langFromLocale } = require('./i18n.cjs');
 const { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry } = require('./lib.cjs');
 // Хранилище v3 (несколько устройств) несовместимо с v2 — отдельный файл
 
@@ -77,13 +78,15 @@ function loadSettings() {
     settings = {};
   }
 }
+// Язык трея и системных окон: выбор в приложении, иначе язык системы
+setLangSource(() => (settings.lang === 'ru' || settings.lang === 'en' ? settings.lang : langFromLocale(app.getLocale?.())));
 function saveSettings() {
   fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2), { mode: 0o600 });
 }
 
 function openStore() {
   if (!safeStorage.isEncryptionAvailable()) {
-    dialog.showErrorBox('Тайник', 'Системное хранилище ключей недоступно. Запуск невозможен.');
+    dialog.showErrorBox(t('Тайник'), t('Системное хранилище ключей недоступно. Запуск невозможен.'));
     app.exit(1);
     return null;
   }
@@ -92,13 +95,13 @@ function openStore() {
   if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend?.() === 'basic_text') {
     const choice = dialog.showMessageBoxSync({
       type: 'warning',
-      buttons: ['Выйти', 'Продолжить без защиты'],
+      buttons: [t('Выйти'), t('Продолжить без защиты')],
       defaultId: 0,
       cancelId: 0,
-      title: 'Тайник',
-      message: 'Не найдена системная связка ключей',
+      title: t('Тайник'),
+      message: t('Не найдена системная связка ключей'),
       detail:
-        'Без gnome-keyring или KWallet ключи шифрования будут защищены слабо: любой, у кого есть доступ к вашим файлам, сможет их прочитать. Установите связку ключей и перезапустите приложение.',
+        t('Без gnome-keyring или KWallet ключи шифрования будут защищены слабо: любой, у кого есть доступ к вашим файлам, сможет их прочитать. Установите связку ключей и перезапустите приложение.'),
     });
     if (choice === 0) {
       app.exit(0);
@@ -109,7 +112,7 @@ function openStore() {
   try {
     return newStore(file);
   } catch (e) {
-    dialog.showErrorBox('Тайник', 'Не удалось расшифровать локальные данные: ' + e.message);
+    dialog.showErrorBox(t('Тайник'), t('Не удалось расшифровать локальные данные: ') + e.message);
     app.exit(1);
     return null;
   }
@@ -254,7 +257,7 @@ function getAutostart() {
 }
 
 function setAutostart(on) {
-  if (!autostartSupported()) throw new Error('Автозапуск доступен в собранном приложении');
+  if (!autostartSupported()) throw new Error(t('Автозапуск доступен в собранном приложении'));
   if (isLinux) {
     const file = linuxAutostartFile();
     if (on) {
@@ -290,7 +293,7 @@ function createTray() {
     tray = null;
     return;
   }
-  tray.setToolTip('Тайник');
+  tray.setToolTip(t('Тайник'));
   if (!isMac) tray.on('click', showWindow);
   updateTrayMenu();
 }
@@ -299,13 +302,13 @@ function updateTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Открыть Тайник', click: showWindow },
+      { label: t('Открыть Тайник'), click: showWindow },
       ...(updater?.ready && updater.kind !== 'linux-deb'
-        ? [{ label: `Перезапустить и обновить до ${updater.ready.version}`, click: () => installUpdate(true) }]
+        ? [{ label: t('Перезапустить и обновить до {0}', updater.ready.version), click: () => installUpdate(true) }]
         : []),
       { type: 'separator' },
       {
-        label: 'Запускать при входе в систему',
+        label: t('Запускать при входе в систему'),
         type: 'checkbox',
         checked: getAutostart(),
         enabled: autostartSupported(),
@@ -313,12 +316,12 @@ function updateTrayMenu() {
           try {
             setAutostart(item.checked);
           } catch (e) {
-            dialog.showErrorBox('Тайник', e.message);
+            dialog.showErrorBox(t('Тайник'), e.message);
           }
         },
       },
       { type: 'separator' },
-      { label: 'Выйти', click: quitApp },
+      { label: t('Выйти'), click: quitApp },
     ])
   );
 }
@@ -362,9 +365,9 @@ function setBadge(count) {
   if (isMac || isLinux) app.setBadgeCount(count); // док macOS, Unity/KDE на Linux
   if (isWin && win) {
     overlay ||= nativeImage.createFromPath(path.join(BUILD, 'badge.png'));
-    win.setOverlayIcon(count ? overlay : null, count ? `Непрочитанных: ${count}` : '');
+    win.setOverlayIcon(count ? overlay : null, count ? t('Непрочитанных: {0}', count) : '');
   }
-  tray?.setToolTip(count ? `Тайник — непрочитанных: ${count}` : 'Тайник');
+  tray?.setToolTip(count ? t('Тайник — непрочитанных: {0}', count) : t('Тайник'));
 }
 
 // IPC принимаем только от нашей страницы
@@ -408,18 +411,27 @@ function registerIpc() {
       if (typeof k !== 'string' || (v !== null && typeof v !== 'string')) throw new Error('bad setting');
       settings[k] = v;
       saveSettings();
+      if (k === 'lang') updateTrayMenu(); // трей — на новом языке
     })
   );
   ipcMain.on('notify', (event, n) => {
     if (!fromApp(event) || !n || typeof n !== 'object') return;
-    if (win && win.isVisible() && win.isFocused()) return;
-    const chat = /^[a-z0-9_]{3,32}$/.test(n.chat) ? n.chat : '';
-    showNotice({ title: String(n.title || 'Тайник').slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call });
+    // force — сообщение другому аккаунту: в окне его не видно, показываем и при открытом окне
+    if (!n.force && win && win.isVisible() && win.isFocused()) return;
+    const chat = /^[a-z0-9_]{3,32}(@(main|a[0-9a-f]{8}))?$/.test(n.chat) ? n.chat : '';
+    showNotice({ title: String(n.title || t('Тайник')).slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call });
     if (win) {
       // Входящий звонок: показываем окно из трея (без перехвата фокуса), иначе мигаем на панели задач
       if (n.call && !win.isVisible()) win.showInactive();
       win.flashFrame(true);
     }
+  });
+  // Чат прочитан (здесь или на другом устройстве) — его уведомление больше не нужно
+  ipcMain.on('dismiss-notice', (event, n) => {
+    if (!fromApp(event) || !n || typeof n !== 'object') return;
+    const key = (n.call ? 'call:' : 'msg:') + String(n.chat || '');
+    notices.get(key)?.close();
+    notices.delete(key);
   });
   ipcMain.on('badge', (event, n) => {
     if (!fromApp(event)) return;
@@ -485,7 +497,7 @@ function createWindow(forceShow = false) {
     height: 740,
     minWidth: 380,
     minHeight: 500,
-    title: 'Тайник',
+    title: t('Тайник'),
     backgroundColor: '#f3f1ec',
     autoHideMenuBar: true,
     icon: path.join(__dirname, 'build', 'icon.png'),
@@ -515,8 +527,8 @@ function createWindow(forceShow = false) {
       settings.backgroundHintShown = '1';
       saveSettings();
       showNotice({
-        title: 'Тайник работает в фоне',
-        body: tray ? 'Открыть или выйти — через значок в трее. Отключить: меню ⋯ → «Работа в фоне».' : 'Открыть снова — запустите Тайник. Отключить: меню ⋯ → «Работа в фоне».',
+        title: t('Тайник работает в фоне'),
+        body: tray ? t('Открыть или выйти — через значок в трее. Отключить: меню ⋯ → «Работа в фоне».') : t('Открыть снова — запустите Тайник. Отключить: меню ⋯ → «Работа в фоне».'),
         chat: '',
       });
     }
@@ -587,11 +599,11 @@ app.whenReady().then(() => {
         thumbnailSize: { width: 320, height: 180 },
         fetchWindowIcons: false,
       });
-      const visible = sources.filter((s) => !s.name.includes('Tainik') && !s.name.includes('Тайник') || s.id.startsWith('screen:'));
+      const visible = sources.filter((s) => !s.name.includes('Tainik') && !s.name.includes(t('Тайник')) || s.id.startsWith('screen:'));
       const id = await pickSource(
         visible.map((s) => ({
           id: s.id,
-          name: s.id.startsWith('screen:') ? (sources.filter((x) => x.id.startsWith('screen:')).length > 1 ? s.name : 'Весь экран') : s.name,
+          name: s.id.startsWith('screen:') ? (sources.filter((x) => x.id.startsWith('screen:')).length > 1 ? s.name : t('Весь экран')) : s.name,
           thumb: s.thumbnail.toDataURL(),
         }))
       );

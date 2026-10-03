@@ -7,6 +7,11 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 const NAME_RE = /^[a-z0-9_]{3,32}$/;
+// Язык уведомлений страница передаёт при регистрации: /sw.js?lang=en
+const EN = new URL(self.location.href).searchParams.get('lang') === 'en';
+const TEXT = EN
+  ? { app: 'Tainik', missed: 'Missed call', msg: 'New message' }
+  : { app: 'Тайник', missed: 'Пропущенный звонок', msg: 'Новое сообщение' };
 
 self.addEventListener('push', (event) => {
   let data = {};
@@ -20,8 +25,8 @@ self.addEventListener('push', (event) => {
       // Открытая и видимая вкладка сама показывает новые сообщения
       const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       if (wins.some((w) => w.visibilityState === 'visible' && w.focused)) return;
-      await self.registration.showNotification(from || 'Тайник', {
-        body: call ? 'Пропущенный звонок' : 'Новое сообщение',
+      await self.registration.showNotification(from || TEXT.app, {
+        body: call ? TEXT.missed : TEXT.msg,
         tag: (call ? 'call:' : 'msg:') + from,
         renotify: true,
         icon: '/icon-192.png',

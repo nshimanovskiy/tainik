@@ -1,7 +1,9 @@
 // Страница установки на iPhone: определяет, откуда её открыли, и показывает нужные шаги.
 import { qrEncode } from '/shared/qr.js';
+import { t, translateDom } from '/shared/i18n.js';
 
 const $ = (id) => document.getElementById(id);
+translateDom();
 const ua = navigator.userAgent;
 const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -28,7 +30,7 @@ if (standalone) {
 $('copy-url').addEventListener('click', async () => {
   try {
     await navigator.clipboard.writeText(location.origin + '/ios');
-    $('copy-url').textContent = 'Скопировано — вставьте в Safari';
+    $('copy-url').textContent = t('Скопировано — вставьте в Safari');
   } catch {
     $('copy-url').textContent = location.origin + '/ios';
   }

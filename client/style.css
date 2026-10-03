@@ -502,3 +502,7 @@ body.call-min #app { height: calc(100% - 44px); margin-top: 44px; }
 .upd-actions button { padding: 7px 14px; font-size: 14px; }
 .ghost-link { font-size: 14px; color: var(--accent); }
 .upd-banner { background: var(--accent-soft); }
+
+/* Язык */
+.lang-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
+.lang-row select { padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }

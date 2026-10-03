@@ -10,6 +10,7 @@
 // создаются сразу. Камеру и экран включают и выключают через replaceTrack(),
 // без повторного согласования SDP. Состояние (микрофон/камера/экран) и
 // завершение звонка передаются по DataChannel (тоже DTLS).
+import { t } from '/shared/i18n.js';
 
 const RING_TIMEOUT = 45_000;
 const ICE_GATHER_TIMEOUT = 4_000;
@@ -102,15 +103,15 @@ class Tones {
 }
 
 export const CALL_RESULT_TEXT = {
-  answered: 'звонок',
-  missed: 'пропущенный звонок',
-  declined: 'отклонён',
-  busy: 'занято',
-  no_answer: 'нет ответа',
-  unavailable: 'собеседник не в сети',
-  failed: 'не удалось соединиться',
-  cancelled: 'отменён',
-  elsewhere: 'отвечен на другом устройстве',
+  answered: t('звонок'),
+  missed: t('пропущенный звонок'),
+  declined: t('отклонён'),
+  busy: t('занято'),
+  no_answer: t('нет ответа'),
+  unavailable: t('собеседник не в сети'),
+  failed: t('не удалось соединиться'),
+  cancelled: t('отменён'),
+  elsewhere: t('отвечен на другом устройстве'),
 };
 
 export class CallManager {
@@ -149,7 +150,7 @@ export class CallManager {
   // ---------- Исходящий звонок ----------
 
   async start(peer, { video = false } = {}) {
-    if (this.busy) throw new Error('Уже идёт звонок');
+    if (this.busy) throw new Error(t('Уже идёт звонок'));
     const c = (this.call = this._newCall({ peer, role: 'caller', video, phase: 'preparing' }));
     this._emit();
     try {
@@ -265,7 +266,7 @@ export class CallManager {
       this._stopScreen();
       return;
     }
-    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('Трансляция экрана не поддерживается на этом устройстве');
+    if (!navigator.mediaDevices?.getDisplayMedia) throw new Error(t('Трансляция экрана не поддерживается на этом устройстве'));
     // Не больше 1080p: экран 2K/4K при битрейте в пару мегабит и приоритете разрешения
     // превращается в слайд-шоу. Пропорции экрана сохраняются.
     const s = await navigator.mediaDevices.getDisplayMedia({
@@ -334,7 +335,7 @@ export class CallManager {
         // Камеры нет или нет разрешения — звоним без видео
         s = await navigator.mediaDevices.getUserMedia({ audio: true });
       } else {
-        throw new Error(e?.name === 'NotAllowedError' ? 'Нет доступа к микрофону' : 'Микрофон недоступен');
+        throw new Error(e?.name === 'NotAllowedError' ? t('Нет доступа к микрофону') : t('Микрофон недоступен'));
       }
     }
     if (this.call !== c) {

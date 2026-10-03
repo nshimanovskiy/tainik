@@ -28,7 +28,9 @@ contextBridge.exposeInMainWorld('desktop', {
       body: String(n?.body ?? ''),
       chat: String(n?.chat ?? ''),
       call: !!n?.call,
+      force: !!n?.force,
     }),
+  dismissNotice: (n) => ipcRenderer.send('dismiss-notice', { chat: String(n?.chat ?? ''), call: !!n?.call }),
   onOpenChat: (handler) => {
     ipcRenderer.removeAllListeners('open-chat');
     ipcRenderer.on('open-chat', (_e, chat) => handler(String(chat)));
