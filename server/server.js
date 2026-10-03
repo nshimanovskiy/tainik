@@ -13,6 +13,7 @@ import { Store } from './store.js';
 import { createAdmin } from './admin.js';
 import { createWebclipHandler } from './webclip.js';
 import { createReleases } from './releases.js';
+import { createBlobs } from './blobs.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
@@ -106,7 +107,7 @@ function serveStatic(req, res) {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
       'Content-Security-Policy':
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     });
     res.end(req.method === 'HEAD' ? undefined : data);
   });
@@ -138,6 +139,8 @@ export function startServer({
   domain = null,
   // Загрузки с сайта: ретрансляция релизов GitHub { repo: 'owner/name', token?, fetch? }
   releases = null,
+  // Вложения: { maxMb = 100, maxTotalGb = 20 } — лимит файла и всего хранилища
+  uploads = {},
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -597,6 +600,17 @@ export function startServer({
         return send(conn, { type: 'push-subscribed', reqId: msg.reqId, enabled: true });
       }
 
+      // ----- вложения: разрешение на загрузку зашифрованного файла -----
+      case 'blob-new': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        try {
+          const b = blobs.newUpload(state.user, msg.size);
+          return send(conn, { type: 'blob-created', reqId: msg.reqId, ...b });
+        } catch (e) {
+          return error(conn, e.code || 'bad_size', { reqId: msg.reqId });
+        }
+      }
+
       case 'ping':
         return send(conn, { type: 'pong' });
 
@@ -636,7 +650,7 @@ export function startServer({
       version: VERSION,
       now,
       startedAt,
-      totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued },
+      totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued, media: store.blobStats() },
       users,
       bans: store.listBans(),
     };
@@ -689,6 +703,14 @@ export function startServer({
   if (adminHandler) say('панель администратора включена');
   const webclip = createWebclipHandler({ root: ROOT, domain, dataDir });
   const releasesHandler = releases?.repo ? createReleases({ ...releases, say, clientIp: ipOf }) : null;
+  const blobs = createBlobs({
+    dataDir,
+    store,
+    maxBytes: (uploads.maxMb ?? 100) * 1024 * 1024,
+    maxTotalBytes: (uploads.maxTotalGb ?? 20) * 1024 ** 3,
+    ttlDays: queueTtlDays,
+    say,
+  });
 
   const server = http.createServer((req, res) => {
     if (adminHandler && adminHandler(req, res)) return; // панель доступна и с заблокированного IP
@@ -698,6 +720,7 @@ export function startServer({
     }
     if (webclip(req, res)) return; // профиль iPhone; /ios → страница установки
     if (releasesHandler && releasesHandler(req, res)) return; // /api/releases, /download/…
+    if (blobs.handleHttp(req, res)) return; // /api/blob/… — зашифрованные вложения
     if (req.url === '/healthz') {
       let ok = false;
       try {
@@ -796,6 +819,7 @@ export function startServer({
   const purge = () => {
     const n = store.purgeOlderThan(queueTtlDays * 86400_000);
     if (n) say(`удалено просроченных конвертов: ${n}`);
+    blobs.purge();
   };
   const janitor = setInterval(purge, 3600_000);
   purge();
@@ -807,6 +831,7 @@ export function startServer({
       resolve({
         port: actual,
         store,
+        purge,
         async close() {
           clearInterval(heartbeat);
           clearInterval(janitor);
@@ -849,6 +874,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
               (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
           },
     domain: env.DOMAIN || null,
+    uploads: { maxMb: Number(env.MAX_UPLOAD_MB) || 100, maxTotalGb: Number(env.MAX_STORAGE_GB) || 20 },
     releases: env.RELEASES_REPO ? { repo: env.RELEASES_REPO.trim(), token: env.GITHUB_TOKEN || null } : null,
     admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,
   });

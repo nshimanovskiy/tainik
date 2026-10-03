@@ -35,6 +35,9 @@ services:
       # ретранслируются через ваш сервер. Пусто — выключено. Токен — только для приватного репозитория.
       RELEASES_REPO: ${RELEASES_REPO-nshimanovskiy/tainik}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Вложения (фото, видео, файлы — зашифрованы на устройстве): лимит файла и всего хранилища
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
+      MAX_STORAGE_GB: ${MAX_STORAGE_GB:-20}
     ports:
       - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
     volumes:

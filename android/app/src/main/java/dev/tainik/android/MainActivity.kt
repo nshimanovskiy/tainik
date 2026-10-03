@@ -26,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var root: FrameLayout
     private val app get() = application as TainikApp
     private val permissionCallbacks = HashMap<Int, () -> Unit>()
+    private val resultCallbacks = HashMap<Int, (Int, Intent?) -> Unit>()
     private var nextRequest = 100
     private var resumed = false
     private var focused = false
@@ -133,6 +134,26 @@ class MainActivity : Activity() {
         val code = nextRequest++
         permissionCallbacks[code] = then
         requestPermissions(perms, code)
+    }
+
+    /** Открыть системное окно (выбор файла, «Сохранить как») и получить результат. false — некому открыть. */
+    fun startForResult(intent: Intent, then: (Int, Intent?) -> Unit): Boolean {
+        val code = nextRequest++
+        resultCallbacks[code] = then
+        return try {
+            startActivityForResult(intent, code)
+            true
+        } catch (_: android.content.ActivityNotFoundException) {
+            resultCallbacks.remove(code)
+            false
+        }
+    }
+
+    @Deprecated("Activity Result API требует AndroidX, а приложение без зависимостей")
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        resultCallbacks.remove(requestCode)?.invoke(resultCode, data)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

@@ -126,8 +126,9 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self' data:",
-  'connect-src ws: wss:', // адрес сервера выбирает пользователь
+  "img-src 'self' data: blob:",
+  "media-src 'self' blob:", // фото и видео из вложений расшифровываются в blob:
+  'connect-src ws: wss: https: http:', // адрес сервера выбирает пользователь; http(s) — вложения
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",

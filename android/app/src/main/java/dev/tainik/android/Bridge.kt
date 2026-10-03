@@ -26,6 +26,7 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "tainik-store") }
     private val main = Handler(Looper.getMainLooper())
     private val settings = PageSettings(app)
+    private val saves = Saves()
 
     private fun ours() = host.isOurs(host.pageUrl)
 
@@ -64,6 +65,11 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
                 if (app.prefs.autoUpdate && app.updater.stateJson().optString("status") == "available") app.updater.download()
                 host.reply(id, true, "true")
             }
+            // Сохранение вложения: страница передаёт файл частями (base64), затем окно «Сохранить как»
+            "save.begin" -> onIo(id) { saves.begin(a.getString(0), a.optString(1)) }
+            "save.chunk" -> onIo(id) { saves.chunk(a.getString(0), a.getString(1)); null }
+            "save.end" -> io.execute { saves.end(id, a.getString(0)) }
+            "save.cancel" -> onIo(id) { saves.cancel(a.getString(0)); null }
             else -> host.reply(id, false, "Неизвестный вызов: $method")
         }
     }
@@ -116,6 +122,66 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
         val chat = host.pendingChat ?: return ""
         host.pendingChat = null
         return chat
+    }
+
+    /** Файлы, которые страница сохраняет (вложения). Временный файл — в кэше приложения. */
+    private inner class Saves {
+        private inner class Pending(val name: String, val mime: String, val file: java.io.File)
+        private val pending = HashMap<String, Pending>()
+        private val dir get() = java.io.File(app.cacheDir, "save").apply { mkdirs() }
+
+        fun begin(name: String, mime: String): String {
+            // Незавершённые сохранения от прошлых запусков
+            if (pending.isEmpty()) dir.listFiles()?.forEach { it.delete() }
+            val token = java.util.UUID.randomUUID().toString()
+            val safe = name.replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_").take(180).ifBlank { "file" }
+            pending[token] = Pending(safe, mime.ifBlank { "application/octet-stream" }, java.io.File(dir, token))
+            return JSONObject.quote(token)
+        }
+
+        fun chunk(token: String, b64: String) {
+            val p = pending[token] ?: throw IllegalStateException("нет такого сохранения")
+            java.io.FileOutputStream(p.file, true).use { it.write(android.util.Base64.decode(b64, android.util.Base64.DEFAULT)) }
+        }
+
+        fun cancel(token: String) {
+            pending.remove(token)?.file?.delete()
+        }
+
+        /** Окно «Сохранить как»; ответ — true (сохранено) или false (отменили). */
+        fun end(id: Int, token: String) {
+            val p = pending.remove(token) ?: return host.reply(id, false, "нет такого сохранения")
+            main.post {
+                val a = host.activity
+                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType(p.mime)
+                    .putExtra(Intent.EXTRA_TITLE, p.name)
+                val started = a != null && a.startForResult(intent) { code, data ->
+                    val uri = data?.data
+                    if (code != Activity.RESULT_OK || uri == null) {
+                        io.execute { p.file.delete() }
+                        return@startForResult host.reply(id, true, "false")
+                    }
+                    io.execute {
+                        try {
+                            app.contentResolver.openOutputStream(uri)?.use { out -> p.file.inputStream().use { it.copyTo(out) } }
+                                ?: throw IllegalStateException("не удалось открыть файл")
+                            host.reply(id, true, "true")
+                        } catch (e: Exception) {
+                            Log.w("Tainik", "сохранение файла", e)
+                            host.reply(id, false, e.message ?: "ошибка записи")
+                        } finally {
+                            p.file.delete()
+                        }
+                    }
+                }
+                if (!started) {
+                    io.execute { p.file.delete() }
+                    host.reply(id, false, "нет окна приложения")
+                }
+            }
+        }
     }
 
     private fun onIo(id: Int, block: () -> String?) = io.execute { finish(id, block) }

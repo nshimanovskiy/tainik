@@ -9,6 +9,7 @@ Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the 
 - 🔐 **End-to-end encryption.** X3DH + Double Ratchet, with forward secrecy and post-compromise security.
 - 💻 **Web, desktop and Android.** Runs in the browser, as a native app for Windows, macOS and Linux (Electron), and on Android (a dependency-free Kotlin shell). All share one UI and one crypto core.
 - 📞 **Voice & video calls with screen sharing.** WebRTC media (DTLS-SRTP) whose connection setup travels over the Double Ratchet channel, so the server cannot man-in-the-middle a call. Rings all your devices; an optional self-hosted TURN relay helps behind NAT.
+- 📎 **Photos, videos and files.** Attach, paste or drag-and-drop up to 10 files with a caption. Each file is encrypted on your device with its own AES-256-GCM key, which travels inside the Double Ratchet message; the server stores only ciphertext and deletes it after `QUEUE_TTL_DAYS` days.
 - 💬 **Telegram-style replies and deletion.** Quote-replies, "delete for me" (synced to all your devices) and "delete for everyone".
 - 🔔 **Notifications that work in the background.** The desktop app keeps running in the system tray (optional start at login). The web version uses Web Push, so notifications arrive even with the tab closed. Pushes carry only the sender's name, encrypted for your browser, and message text is hidden by default.
 - 🟢 **Online status.** "online" / "last seen …" with live updates; you can hide your own status.
@@ -87,7 +88,7 @@ The script runs the server on `127.0.0.1`, adds an nginx site with WebSocket sup
 
 **Calls:** to make calls work across NATs, enable the bundled TURN relay with `sudo ./deploy/setup-calls.sh` (coturn, short-lived HMAC credentials, relaying to private networks blocked). The relay forwards only encrypted media.
 
-**What the server stores:** usernames, public keys, and **encrypted** messages waiting for offline devices. Those messages are deleted after delivery, or after 30 days. Logs contain no usernames, IPs or content. The server keeps the **last IP of each device** (shown to the user in their device list and to the admin). An optional **admin panel** (enabled by `ADMIN_PASSWORD`) lists users, online status and device IPs, and can grant Telegram-style official verification badges (the `admin` account has one by default), delete accounts and block IP addresses. The server **can** see metadata: who talks to whom, and when.
+**What the server stores:** usernames, public keys, **encrypted** attachments (deleted after 30 days by default), and **encrypted** messages waiting for offline devices. Those messages are deleted after delivery, or after 30 days. Logs contain no usernames, IPs or content. The server keeps the **last IP of each device** (shown to the user in their device list and to the admin). An optional **admin panel** (enabled by `ADMIN_PASSWORD`) lists users, online status and device IPs, and can grant Telegram-style official verification badges (the `admin` account has one by default), delete accounts and block IP addresses. The server **can** see metadata: who talks to whom, and when.
 
 ## How it works
 

@@ -41,6 +41,7 @@ import {
   SPK_ROTATE_MS,
   SPK_KEEP_MS,
 } from './protocol/index.js';
+import { SEG, CAPTION_MAX, newFileKey, encryptSegment, decryptFile, encryptedSize, segments, cleanFile, safeName, kindOf } from './media.js';
 
 const SEEN_LIMIT = 5000;
 const DELETED_LIMIT = 2000;
@@ -50,18 +51,37 @@ const REPLY_SNIPPET = 120;
 /** Цитата для ответа: кто написал и начало текста. */
 function makeReply(orig, me, peer) {
   const body = String(orig.content?.body ?? '').replace(/\s+/g, ' ').trim();
-  return { id: orig.id, from: orig.dir === 'out' ? me : peer, body: body.slice(0, REPLY_SNIPPET) };
+  const out = { id: orig.id, from: orig.dir === 'out' ? me : peer, body: body.slice(0, REPLY_SNIPPET) };
+  if (orig.content?.file) out.kind = orig.content.file.kind;
+  return out;
 }
 
-/** Текстовое сообщение из расшифрованного содержимого (только известные поля). */
+/**
+ * Сообщение из расшифрованного содержимого (только известные поля): текст или
+ * вложение { t: 'file', body: подпись, file: {...} }. null — повреждённое вложение.
+ */
 function cleanText(c, tsFallback = Date.now()) {
   const ts = Number.isFinite(c?.ts) ? c.ts : tsFallback;
   const out = { t: 'text', body: String(c?.body ?? ''), ts };
+  if (c?.t === 'file' || c?.file) {
+    const file = cleanFile(c.file);
+    if (!file) return null;
+    out.t = 'file';
+    out.file = file;
+    out.body = out.body.slice(0, CAPTION_MAX);
+  }
   const r = c?.reply;
   if (r && typeof r.id === 'string' && typeof r.from === 'string') {
     out.reply = { id: r.id.slice(0, 64), from: r.from.slice(0, 32), body: String(r.body ?? '').slice(0, REPLY_SNIPPET) };
+    if (['image', 'video', 'audio', 'file'].includes(r.kind)) out.reply.kind = r.kind;
   }
   return out;
+}
+
+/** Часть источника файла: Blob/File (браузер) или Uint8Array. */
+async function readPart(src, start, end) {
+  if (src instanceof Uint8Array) return src.subarray(start, end);
+  return new Uint8Array(await src.slice(start, end).arrayBuffer());
 }
 const REQUEST_TIMEOUT = 10_000;
 const PING_TIMEOUT = 8_000;
@@ -93,6 +113,15 @@ export const ERROR_TEXT = {
   provision_decrypt_failed: t('Не удалось расшифровать данные привязки'),
   bad_device: t('Нельзя отвязать это устройство'),
   bad_url: t('Неверный адрес сервера'),
+  file_too_large: t('Файл слишком большой'),
+  upload_quota: t('Достигнут дневной предел загрузки файлов'),
+  storage_full: t('На сервере закончилось место для файлов'),
+  bad_size: t('Пустой файл'),
+  upload_failed: t('Не удалось загрузить файл'),
+  media_expired: t('Файл больше недоступен: он удалён с сервера'),
+  bad_media: t('Файл повреждён или подменён'),
+  download_failed: t('Не удалось скачать файл'),
+  cancelled: t('Отменено'),
 };
 
 const errorOf = (code) => Object.assign(new Error(ERROR_TEXT[code] || code), { code });
@@ -123,12 +152,14 @@ export class MessengerClient extends Emitter {
    * @param {string} o.url        адрес WebSocket, напр. wss://example.com/ws
    * @param {object} o.storage    { get(k), set(k,v), del(k), clear() } — async, значения JSON
    * @param {Function} [o.WebSocketImpl]
+   * @param {Function} [o.fetchImpl]      для загрузки и скачивания вложений
    */
-  constructor({ url, storage, WebSocketImpl = globalThis.WebSocket }) {
+  constructor({ url, storage, WebSocketImpl = globalThis.WebSocket, fetchImpl = (...a) => globalThis.fetch(...a) }) {
     super();
     this.url = url;
     this.storage = storage;
     this.WS = WebSocketImpl;
+    this.fetch = fetchImpl;
     this.account = null;
     this.status = 'offline';
     this.ws = null;
@@ -815,7 +846,6 @@ export class MessengerClient extends Emitter {
     this.emit('status-change', { contact: username, id, status });
   }
 
-  /** Отправить текст: копия каждому устройству собеседника и каждому своему устройству. */
   /**
    * Отправить текст. replyTo — id сообщения, на которое отвечаем (цитата
    * шифруется вместе с текстом, чтобы её видели и устройства без оригинала).
@@ -823,6 +853,11 @@ export class MessengerClient extends Emitter {
   async sendText(username, text, { replyTo = null } = {}) {
     text = String(text);
     if (!text.trim()) return;
+    await this._sendContent(username, { t: 'text', body: text }, replyTo);
+  }
+
+  /** Сообщение собеседнику и копия «отправлено» своим устройствам (общая часть sendText и sendFile). */
+  async _sendContent(username, base, replyTo) {
     await this._serial(async () => {
       const all = await this.contacts();
       const c = all[username];
@@ -830,20 +865,128 @@ export class MessengerClient extends Emitter {
       if (c.keyChanged) throw errorOf('key_changed');
       const id = randomId();
       const ts = Date.now();
-      const content = { t: 'text', body: text, ts };
+      const content = { ...base, ts };
       if (replyTo) {
         const orig = (await this.messages(username)).find((m) => m.id === replyTo && m.dir !== 'sys');
         if (orig) content.reply = makeReply(orig, this.account.username, username);
       }
       const outbox = (await this.storage.get('outbox')) || [];
       outbox.push({ id, to: username, kind: 'msg', content, attempts: 0 });
-      outbox.push({ id, to: this.account.username, kind: 'sync', content: { t: 'sync-sent', to: username, body: text, ts, reply: content.reply }, attempts: 0 });
+      const sync = { t: 'sync-sent', to: username, body: content.body, ts, reply: content.reply };
+      if (content.file) sync.file = content.file;
+      outbox.push({ id, to: this.account.username, kind: 'sync', content: sync, attempts: 0 });
       await this.storage.set('outbox', outbox);
       await this._appendMsg(username, { id, dir: 'out', ts, content, status: 'sending' });
       c.lastTs = ts;
       await this._saveContacts(all);
     });
     this._pumpOutbox();
+  }
+
+  // ---------- Вложения ----------
+
+  /** https://сервер — для загрузки и скачивания файлов (адрес WebSocket без /ws). */
+  _httpBase() {
+    const u = new URL(this.url);
+    u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
+    u.pathname = u.pathname.replace(/\/ws\/?$/, '');
+    u.search = '';
+    u.hash = '';
+    return u.toString().replace(/\/$/, '');
+  }
+
+  /**
+   * Отправить файл: зашифровать, загрузить на сервер частями, затем отправить
+   * собеседнику сообщение с ключом. source — File/Blob или Uint8Array.
+   * meta: { name, mime, kind?, w?, h?, dur?, thumb? }
+   * o: { caption, replyTo, onProgress(0..1), signal, onReady(file) — файл загружен, сообщение сейчас уйдёт }
+   */
+  async sendFile(username, source, meta = {}, { caption = '', replyTo = null, onProgress = () => {}, signal, onReady = () => {} } = {}) {
+    const all = await this.contacts();
+    if (!all[username]) throw new Error(t('Нет такого контакта'));
+    if (all[username].keyChanged) throw errorOf('key_changed');
+    const size = source.size ?? source.length;
+    const mime = String(meta.mime || source.type || 'application/octet-stream').toLowerCase();
+    const { keyB64, id } = await this._upload(source, size, onProgress, signal);
+    const file = cleanFile({ ...meta, id, key: keyB64, size, mime, name: safeName(meta.name ?? source.name), kind: meta.kind || kindOf(mime) });
+    onReady(file);
+    await this._sendContent(username, { t: 'file', body: String(caption).slice(0, CAPTION_MAX), file }, replyTo);
+    return file;
+  }
+
+  async _upload(source, size, onProgress, signal) {
+    if (!size) throw errorOf('bad_size');
+    const total = encryptedSize(size);
+    const r = await this._request({ type: 'blob-new', size: total });
+    if (SEG + 16 > r.chunk) throw errorOf('upload_failed');
+    const url = `${this._httpBase()}/api/blob/${r.id}`;
+    const { keyB64, key } = await newFileKey();
+    const n = segments(size);
+    let sent = 0;
+    for (let i = 0; i < n; i++) {
+      if (signal?.aborted) throw errorOf('cancelled');
+      const plain = await readPart(source, i * SEG, Math.min(size, (i + 1) * SEG));
+      const body = await encryptSegment(key, i, n, plain);
+      for (let attempt = 0; ; attempt++) {
+        let res;
+        try {
+          res = await this.fetch(`${url}?offset=${sent}`, { method: 'PUT', headers: { 'X-Blob-Token': r.token, 'Content-Type': 'application/octet-stream' }, body, signal });
+        } catch (e) {
+          if (signal?.aborted) throw errorOf('cancelled');
+          if (attempt >= 4) throw errorOf('upload_failed');
+          await new Promise((ok) => setTimeout(ok, 1000 * (attempt + 1)));
+          continue;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) break;
+        // Часть уже дошла, но ответ потерялся — продолжаем с того, что получил сервер
+        if (res.status === 409 && data.received === sent + body.length) break;
+        if (res.status === 409 && data.error === 'busy' && attempt < 4) {
+          await new Promise((ok) => setTimeout(ok, 1000));
+          continue;
+        }
+        throw errorOf('upload_failed');
+      }
+      sent += body.length;
+      onProgress(sent / total);
+    }
+    return { keyB64, id: r.id };
+  }
+
+  /** Скачать и расшифровать вложение. Возвращает Uint8Array. */
+  async fetchFile(file, { onProgress = () => {}, signal } = {}) {
+    let res;
+    try {
+      res = await this.fetch(`${this._httpBase()}/api/blob/${file.id}`, { signal });
+    } catch {
+      throw errorOf(signal?.aborted ? 'cancelled' : 'download_failed');
+    }
+    if (res.status === 404) throw errorOf('media_expired');
+    if (!res.ok) throw errorOf('download_failed');
+    const total = encryptedSize(file.size);
+    let data;
+    if (res.body?.getReader) {
+      data = new Uint8Array(total);
+      const reader = res.body.getReader();
+      let at = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (at + value.length > total) throw errorOf('bad_media');
+          data.set(value, at);
+          at += value.length;
+          onProgress(at / total);
+        }
+      } catch (e) {
+        if (e.code === 'bad_media') throw e;
+        throw errorOf(signal?.aborted ? 'cancelled' : 'download_failed');
+      }
+      if (at !== total) throw errorOf('bad_media');
+    } else {
+      data = new Uint8Array(await res.arrayBuffer());
+    }
+    return decryptFile(file.key, data, file.size);
   }
 
   /**
@@ -1144,7 +1287,8 @@ export class MessengerClient extends Emitter {
         } catch {
           return; // нет связи — сервер пришлёт снова
         }
-        if (contact) {
+        const content = cleanText(c);
+        if (contact && content) {
           contact.lastTs = Date.now();
           await this._saveContacts(all);
           const list = await this.messages(c.to);
@@ -1153,7 +1297,7 @@ export class MessengerClient extends Emitter {
               id: res.id,
               dir: 'out',
               ts: Number.isFinite(c.ts) ? c.ts : Date.now(),
-              content: cleanText(c),
+              content,
               status: 'sent',
             });
           }
@@ -1224,15 +1368,17 @@ export class MessengerClient extends Emitter {
       await this._removeMessages(from, res.content.ids.map(String).slice(0, MAX_DELETE));
       return ack(false);
     }
-    if (res.content?.t !== 'text') return ack(false); // неизвестный тип — игнорируем
+    if (res.content?.t !== 'text' && res.content?.t !== 'file') return ack(false); // неизвестный тип — игнорируем
+    const ts = Number.isFinite(res.content?.ts) ? res.content.ts : Date.now();
+    const content = cleanText(res.content, ts);
+    if (!content) return ack(false);
     if (await this._isDeleted(from, res.id)) return ack();
     const list = await this.messages(from);
     if (list.some((m) => m.id === res.id && m.dir === 'in')) return ack();
     c.unread = (c.unread || 0) + 1;
     c.lastTs = Date.now();
     await this._saveContacts(all);
-    const ts = Number.isFinite(res.content?.ts) ? res.content.ts : Date.now();
-    await this._appendMsg(from, { id: res.id, dir: 'in', ts, content: cleanText(res.content, ts) });
+    await this._appendMsg(from, { id: res.id, dir: 'in', ts, content });
     ack();
   }
 }

@@ -69,7 +69,7 @@ test('панель администратора: вход, сессия, пол�
   r = await fetch(`${base}/adminadminadmin/api/overview`, { headers: { Cookie: session } });
   assert.equal(r.status, 200);
   const o = await r.json();
-  assert.deepEqual(o.totals, { users: 2, online: 2, devices: 2, connections: 2, queued: 0 });
+  assert.deepEqual(o.totals, { users: 2, online: 2, devices: 2, connections: 2, queued: 0, media: { n: 0, bytes: 0 } });
   const a = o.users.find((u) => u.name === 'alice');
   const b = o.users.find((u) => u.name === 'bob');
   assert.equal(a.online, true);

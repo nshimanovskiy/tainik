@@ -5,6 +5,7 @@ import { IdbStorage, settings as webSettings } from './idb-storage.js';
 import config from './config.js';
 import { CallManager, CALL_RESULT_TEXT } from './call.js';
 import { t, LANG, LOCALE, setLang, translateDom } from '/shared/i18n.js';
+import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -137,11 +138,24 @@ function callText(ct) {
   return `📞 ${dir} ${kind} · ${CALL_RESULT_TEXT[ct.result] || ct.result}`;
 }
 
+// Вложения: подписи для списка чатов, уведомлений и цитат
+const SIZE_UNITS = [t('Б'), t('КБ'), t('МБ'), t('ГБ')];
+const sizeText = (b) => fmtSize(b, SIZE_UNITS, LOCALE);
+const KIND_LABEL = { image: t('📷 Фото'), video: t('🎬 Видео'), audio: t('🎵 Аудио'), file: t('📄 Файл') };
+function fileLabel(content) {
+  const f = content.file;
+  const base = f.kind === 'image' || f.kind === 'video' ? KIND_LABEL[f.kind] : `${f.kind === 'audio' ? '🎵' : '📄'} ${f.name}`;
+  const cap = String(content.body || '').replace(/\s+/g, ' ').trim();
+  return cap ? `${base} · ${cap}` : base;
+}
+/** Текст сообщения одной строкой: для вложения — вид и подпись. */
+const textOf = (content) => (content?.t === 'file' && content.file ? fileLabel(content) : String(content?.body ?? ''));
+
 function previewOf(m) {
   if (!m) return t('Нет сообщений');
   if (m.dir === 'sys' && m.content?.t === 'call') return callText(m.content);
   if (m.dir === 'sys') return t('Служебное сообщение');
-  const body = m.content?.body ?? '';
+  const body = textOf(m.content);
   return (m.dir === 'out' ? t('Вы: ') : '') + body.replace(/\s+/g, ' ');
 }
 
@@ -489,6 +503,7 @@ async function updateComposer(c) {
   if (!c) c = (await client.contacts())[current];
   const blocked = !c || !!c.keyChanged;
   $('send-btn').disabled = blocked || client.status !== 'online';
+  $('attach-btn').disabled = blocked || client.status !== 'online';
   const noCall = blocked || client.status !== 'online' || !window.RTCPeerConnection;
   $('call-audio-btn').disabled = noCall;
   $('call-video-btn').disabled = noCall;
@@ -525,10 +540,17 @@ function messageNode(m) {
     const q = el('button', 'quote');
     q.type = 'button';
     q.dataset.target = r.id;
-    q.append(el('b', '', r.from === client.account.username ? t('Вы') : r.from), el('span', '', r.body || t('Сообщение')));
+    const label = r.kind ? [KIND_LABEL[r.kind], r.body].filter(Boolean).join(' · ') : r.body || t('Сообщение');
+    q.append(el('b', '', r.from === client.account.username ? t('Вы') : r.from), el('span', '', label));
     bubble.append(q);
   }
-  bubble.append(document.createTextNode(m.content?.body ?? ''));
+  if (m.content?.t === 'file' && m.content.file) {
+    bubble.classList.add('has-media');
+    bubble.append(mediaNode(m.content.file));
+    if (m.content.body) bubble.append(el('div', 'caption', m.content.body));
+  } else {
+    bubble.append(document.createTextNode(m.content?.body ?? ''));
+  }
   li.append(bubble);
   const acts = el('div', 'msg-actions');
   const rb = el('button', '', '↩︎');
@@ -568,6 +590,7 @@ async function renderChat() {
     }
     ol.append(messageNode(m));
   }
+  for (const up of uploads) if (up.chat === current) ol.append(uploadNode(up));
   ol.scrollTop = ol.scrollHeight;
 }
 
@@ -605,6 +628,455 @@ $('composer').addEventListener('submit', async (e) => {
   }
   updateComposer();
 });
+
+// ---------- Вложения ----------
+// Файл шифруется здесь, на сервер уходит только шифротекст (см. shared/media.js).
+// Расшифрованные файлы живут только в памяти этой страницы (blob:), на диск не пишутся.
+const AUTO_LOAD = 8 * 1024 * 1024; // фото до 8 МБ скачиваются сами при показе чата
+const MEDIA_CACHE = 300 * 1024 * 1024;
+const MAX_PICK = 10;
+const media = new Map(); // id → { blob, url } | { promise }
+let mediaBytes = 0;
+
+function putMedia(id, blob) {
+  const entry = { blob, url: URL.createObjectURL(blob) };
+  media.set(id, entry);
+  mediaBytes += blob.size;
+  // Самые давние — из памяти (Map хранит порядок добавления)
+  for (const [k, v] of media) {
+    if (mediaBytes <= MEDIA_CACHE || k === id) break;
+    if (!v.url) continue;
+    URL.revokeObjectURL(v.url);
+    mediaBytes -= v.blob.size;
+    media.delete(k);
+  }
+  return entry;
+}
+
+/** Тип для blob: — только тот, что можно показать; остальное — просто байты. */
+const blobType = (f) => (f.kind !== 'file' && kindOf(f.mime) === f.kind ? f.mime : 'application/octet-stream');
+
+function mediaProgress(id, p) {
+  for (const n of document.querySelectorAll(`[data-media-id="${CSS.escape(id)}"]`)) {
+    n.classList.add('loading');
+    n.style.setProperty('--p', String(Math.round(p * 100)));
+  }
+}
+
+/** Скачать и расшифровать вложение (один раз — дальше из памяти). */
+function loadMedia(f) {
+  const e = media.get(f.id);
+  if (e?.url) {
+    media.delete(f.id); // свежий — в конец очереди
+    media.set(f.id, e);
+    return Promise.resolve(e);
+  }
+  if (e?.promise) return e.promise;
+  const promise = client
+    .fetchFile(f, { onProgress: (p) => mediaProgress(f.id, p) })
+    .then((bytes) => putMedia(f.id, new Blob([bytes], { type: blobType(f) })))
+    .catch((err) => {
+      media.delete(f.id);
+      throw err;
+    })
+    .finally(() => {
+      for (const n of document.querySelectorAll(`[data-media-id="${CSS.escape(f.id)}"]`)) n.classList.remove('loading');
+    });
+  media.set(f.id, { promise });
+  return promise;
+}
+
+function fmtClock(sec) {
+  const s = Math.max(0, Math.round(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Размер превью в ленте: не больше 300×320, не меньше 120 по ширине. */
+function fitBox(node, w, h) {
+  if (!w || !h) return;
+  const k = Math.min(1, 300 / w, 320 / h);
+  node.style.width = Math.max(120, Math.round(w * k)) + 'px';
+  node.style.aspectRatio = `${w} / ${h}`;
+}
+
+function mediaNode(f) {
+  if (f.kind === 'image' || f.kind === 'video') {
+    const box = el('button', 'media ' + f.kind);
+    box.type = 'button';
+    box.dataset.act = 'open';
+    box.dataset.mediaId = f.id;
+    box.setAttribute('aria-label', `${KIND_LABEL[f.kind]}: ${f.name}, ${sizeText(f.size)}`);
+    fitBox(box, f.w, f.h);
+    if (f.thumb) {
+      const th = el('img', 'thumb');
+      th.alt = '';
+      th.src = f.thumb;
+      box.append(th);
+    }
+    if (f.kind === 'image') {
+      const full = el('img', 'full');
+      full.alt = f.name;
+      full.hidden = true;
+      box.append(full);
+      const show = ({ url }) => {
+        full.onload = () => ((full.hidden = false), box.classList.add('loaded'));
+        full.onerror = () => box.classList.add('broken');
+        full.src = url;
+      };
+      const cached = media.get(f.id);
+      if (cached?.url) show(cached);
+      else if (f.size <= AUTO_LOAD) loadMedia(f).then(show, () => box.classList.add('broken'));
+    } else {
+      box.append(el('span', 'play', '▶'));
+      box.append(el('span', 'media-meta', [f.dur ? fmtClock(f.dur) : '', sizeText(f.size)].filter(Boolean).join(' · ')));
+    }
+    box.append(el('span', 'ring'));
+    return box;
+  }
+  const card = el('button', 'file-card');
+  card.type = 'button';
+  card.dataset.act = 'open';
+  card.dataset.mediaId = f.id;
+  card.title = t('Скачать');
+  const info = el('span', 'file-info');
+  info.append(el('span', 'file-name', f.name), el('span', 'file-size', sizeText(f.size)));
+  card.append(el('span', 'file-icon', f.kind === 'audio' ? '🎵' : '📄'), info, el('span', 'ring'));
+  return card;
+}
+
+// Просмотр
+let viewing = null;
+function closeViewer() {
+  viewing = null;
+  for (const v of $('viewer-body').querySelectorAll('video, audio')) v.pause();
+  $('viewer-body').replaceChildren();
+  if ($('viewer').open) $('viewer').close();
+}
+$('viewer-close').addEventListener('click', closeViewer);
+$('viewer').addEventListener('close', () => viewing && closeViewer());
+$('viewer').addEventListener('click', (e) => e.target === $('viewer-body') && closeViewer());
+$('viewer-save').addEventListener('click', () => viewing && saveMedia(viewing));
+
+async function openMedia(id) {
+  const m = await findMsg(id);
+  const f = m?.content?.file;
+  if (!f) return;
+  if (f.kind === 'file') return saveMedia(f);
+  viewing = f;
+  $('viewer-name').textContent = `${f.name} · ${sizeText(f.size)}`;
+  const body = $('viewer-body');
+  const wait = el('div', 'viewer-wait');
+  wait.dataset.mediaId = f.id;
+  wait.append(el('span', 'ring'), el('span', '', t('Расшифровываем…')));
+  body.replaceChildren(wait);
+  if (!$('viewer').open) $('viewer').showModal();
+  let entry;
+  try {
+    entry = await loadMedia(f);
+  } catch (err) {
+    if (viewing === f) body.replaceChildren(el('p', 'viewer-error', err.message));
+    return;
+  }
+  if (viewing !== f) return;
+  let node;
+  if (f.kind === 'image') {
+    node = el('img');
+    node.alt = f.name;
+  } else {
+    node = el(f.kind === 'video' ? 'video' : 'audio');
+    node.controls = true;
+    node.autoplay = true;
+    node.playsInline = true;
+    node.onerror = () => body.replaceChildren(el('p', 'viewer-error', t('Это устройство не может воспроизвести файл. Сохраните его и откройте в другом приложении.')));
+  }
+  node.src = entry.url;
+  body.replaceChildren(node);
+}
+
+async function saveMedia(f) {
+  let entry;
+  try {
+    entry = await loadMedia(f);
+  } catch (err) {
+    return toast(err.message);
+  }
+  if (desktop?.saveFile) {
+    // Android: WebView не скачивает blob:-ссылки — передаём файл приложению
+    try {
+      if (await desktop.saveFile(f.name, f.mime, new Uint8Array(await entry.blob.arrayBuffer()))) toast(t('Файл сохранён'));
+    } catch (err) {
+      toast(t('Не удалось сохранить файл: {0}', err.message));
+    }
+    return;
+  }
+  const a = document.createElement('a');
+  a.href = entry.url;
+  a.download = f.name;
+  a.rel = 'noopener';
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+// Подготовка файла: размеры, длительность, крошечное превью (уходит внутри сообщения)
+function thumbOf(src, w, h) {
+  const k = Math.min(1, 160 / Math.max(w, h));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * k));
+  c.height = Math.max(1, Math.round(h * k));
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  for (const q of [0.6, 0.45, 0.3]) {
+    const d = c.toDataURL('image/jpeg', q);
+    if (d.length <= THUMB_MAX) return d;
+  }
+  return undefined;
+}
+
+function videoInfo(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.muted = true;
+    v.playsInline = true;
+    v.preload = 'metadata';
+    const done = (r) => {
+      clearTimeout(timer);
+      v.removeAttribute('src');
+      v.load();
+      URL.revokeObjectURL(url);
+      resolve(r);
+    };
+    const timer = setTimeout(() => done({}), 8000);
+    v.onloadedmetadata = () => {
+      v.currentTime = Math.min(0.5, (v.duration || 0) / 2);
+    };
+    v.onseeked = () => {
+      const w = v.videoWidth;
+      const h = v.videoHeight;
+      let thumb;
+      try {
+        thumb = w && h ? thumbOf(v, w, h) : undefined;
+      } catch {}
+      done({ w, h, dur: Number.isFinite(v.duration) ? Math.round(v.duration) : undefined, thumb });
+    };
+    v.onerror = () => done({});
+    v.src = url;
+  });
+}
+
+async function describeFile(file) {
+  const mime = String(file.type || 'application/octet-stream').toLowerCase();
+  const meta = { name: file.name || 'file', mime, kind: kindOf(mime) };
+  try {
+    if (meta.kind === 'image') {
+      const bmp = await createImageBitmap(file);
+      Object.assign(meta, { w: bmp.width, h: bmp.height, thumb: thumbOf(bmp, bmp.width, bmp.height) });
+      bmp.close();
+    } else if (meta.kind === 'video') {
+      Object.assign(meta, await videoInfo(file));
+    }
+  } catch {
+    if (meta.kind === 'image') meta.kind = 'file'; // браузер не смог открыть картинку — отправим как файл
+  }
+  return meta;
+}
+
+// Загрузки: по очереди, в ленте — «пузырь» с ходом загрузки и кнопкой отмены
+const uploads = [];
+let uploadChain = Promise.resolve();
+let upSeq = 0;
+
+function uploadNode(up) {
+  const li = el('li', 'msg out uploading');
+  li.dataset.up = up.key;
+  const bubble = el('div', 'bubble has-media');
+  if (up.preview) {
+    const box = el('div', 'media ' + up.kind);
+    fitBox(box, up.w, up.h);
+    const img = el('img', 'full');
+    img.alt = '';
+    img.src = up.preview;
+    box.append(img);
+    bubble.append(box);
+  } else {
+    const card = el('div', 'file-card');
+    const info = el('span', 'file-info');
+    info.append(el('span', 'file-name', up.name), el('span', 'file-size', sizeText(up.size)));
+    card.append(el('span', 'file-icon', '📄'), info);
+    bubble.append(card);
+  }
+  const bar = el('div', 'up-bar');
+  const fill = el('span', 'up-fill');
+  fill.style.width = Math.round(up.progress * 100) + '%';
+  const x = el('button', 'up-cancel', '✕');
+  x.type = 'button';
+  x.dataset.act = 'cancel-upload';
+  x.dataset.up = up.key;
+  x.title = t('Отменить');
+  x.setAttribute('aria-label', t('Отменить загрузку'));
+  const label = el('span', 'up-text', up.started ? t('Загрузка {0}%', Math.round(up.progress * 100)) : t('В очереди'));
+  bar.append(fill);
+  bubble.append(bar);
+  const row = el('div', 'up-row');
+  row.append(label, x);
+  bubble.append(row);
+  li.append(bubble);
+  return li;
+}
+
+function updateUpload(up) {
+  const node = $('messages').querySelector(`.msg.uploading[data-up="${up.key}"]`);
+  if (!node) return;
+  node.querySelector('.up-fill').style.width = Math.round(up.progress * 100) + '%';
+  node.querySelector('.up-text').textContent = t('Загрузка {0}%', Math.round(up.progress * 100));
+}
+
+function dropUpload(up) {
+  const i = uploads.indexOf(up);
+  if (i >= 0) uploads.splice(i, 1);
+  $('messages').querySelector(`.msg.uploading[data-up="${up.key}"]`)?.remove();
+  if (up.preview) URL.revokeObjectURL(up.preview);
+}
+
+function cancelUpload(key) {
+  const up = uploads.find((u) => u.key === key);
+  if (!up) return;
+  up.ctrl.abort();
+  dropUpload(up);
+}
+
+function queueFile(chat, file, caption, replyTo) {
+  const kind = kindOf(String(file.type || '').toLowerCase());
+  const up = { key: 'u' + ++upSeq, chat, name: file.name || 'file', size: file.size, kind, progress: 0, started: false, ctrl: new AbortController() };
+  if (kind === 'image') up.preview = URL.createObjectURL(file);
+  uploads.push(up);
+  if (chat === current) {
+    $('messages').append(uploadNode(up));
+    $('messages').scrollTop = $('messages').scrollHeight;
+  }
+  uploadChain = uploadChain.then(async () => {
+    if (up.ctrl.signal.aborted) return;
+    try {
+      const meta = await describeFile(file);
+      Object.assign(up, { w: meta.w, h: meta.h, started: true });
+      if (chat === current) $('messages').querySelector(`.msg.uploading[data-up="${up.key}"]`)?.replaceWith(uploadNode(up));
+      await client.sendFile(chat, file, meta, {
+        caption,
+        replyTo,
+        signal: up.ctrl.signal,
+        onProgress: (p) => ((up.progress = p), updateUpload(up)),
+        // Свой файл не скачиваем обратно — он уже есть на этом устройстве
+        onReady: (f) => {
+          if (f.size <= MEDIA_CACHE / 4) putMedia(f.id, file.slice(0, file.size, blobType(f)));
+          dropUpload(up);
+        },
+      });
+    } catch (err) {
+      if (err.code !== 'cancelled') toast(`${up.name}: ${err.message}`, 6000);
+    } finally {
+      dropUpload(up);
+    }
+  });
+}
+
+// Выбор файлов: кнопка, вставка из буфера, перетаскивание
+let picked = [];
+function clearPicked() {
+  for (const p of picked) if (p.url) URL.revokeObjectURL(p.url);
+  picked = [];
+  $('attach-list').replaceChildren();
+}
+
+function pickFiles(list) {
+  if (!current || !client.account) return;
+  let files = [...list].filter((f) => f.size > 0);
+  if (files.length < list.length) toast(ERROR_TEXT.bad_size);
+  if (!files.length) return;
+  if (files.length > MAX_PICK) {
+    toast(t('За один раз — не больше {0} файлов', MAX_PICK));
+    files = files.slice(0, MAX_PICK);
+  }
+  clearPicked();
+  picked = files.map((file) => ({ file, url: kindOf(String(file.type).toLowerCase()) === 'image' ? URL.createObjectURL(file) : null }));
+  for (const p of picked) {
+    const li = el('li', 'attach-item');
+    if (p.url) {
+      const img = el('img');
+      img.alt = '';
+      img.src = p.url;
+      li.append(img);
+    } else li.append(el('span', 'file-icon', '📄'));
+    const info = el('span', 'file-info');
+    info.append(el('span', 'file-name', p.file.name || 'file'), el('span', 'file-size', sizeText(p.file.size)));
+    li.append(info);
+    $('attach-list').append(li);
+  }
+  $('attach-title').textContent = files.length === 1 ? t('Отправить файл') : t('Отправить файлы: {0}', files.length);
+  $('attach-caption').value = ta.value;
+  $('attach-dialog').returnValue = '';
+  $('attach-dialog').showModal();
+  $('attach-caption').focus();
+}
+
+$('attach-btn').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', (e) => {
+  pickFiles(e.target.files);
+  e.target.value = '';
+});
+ta.addEventListener('paste', (e) => {
+  const files = [...(e.clipboardData?.files || [])];
+  if (!files.length || $('attach-btn').disabled) return;
+  e.preventDefault();
+  pickFiles(files);
+});
+$('attach-caption').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    $('attach-dialog').close('send');
+  }
+});
+$('attach-dialog').addEventListener('close', () => {
+  const files = picked.map((p) => p.file);
+  clearPicked();
+  if ($('attach-dialog').returnValue !== 'send' || !current || !files.length) return;
+  const caption = $('attach-caption').value.trim();
+  if (caption === ta.value.trim()) {
+    ta.value = '';
+    ta.style.height = 'auto';
+  }
+  const replyId = reply?.id || null;
+  setReply(null);
+  // Подпись и ответ — у первого файла, как в Telegram
+  files.forEach((file, i) => queueFile(current, file, i === 0 ? caption : '', i === 0 ? replyId : null));
+  updateComposer();
+});
+
+let dragDepth = 0;
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+$('chat-view').addEventListener('dragenter', (e) => {
+  if (!hasFiles(e) || $('attach-btn').disabled) return;
+  e.preventDefault();
+  dragDepth++;
+  $('drop-hint').hidden = false;
+});
+$('chat-view').addEventListener('dragover', (e) => {
+  if (!hasFiles(e) || $('attach-btn').disabled) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'copy';
+});
+$('chat-view').addEventListener('dragleave', () => {
+  if (--dragDepth <= 0) (dragDepth = 0), ($('drop-hint').hidden = true);
+});
+$('chat-view').addEventListener('drop', (e) => {
+  dragDepth = 0;
+  $('drop-hint').hidden = true;
+  if (!hasFiles(e) || $('attach-btn').disabled) return;
+  e.preventDefault();
+  pickFiles(e.dataTransfer.files);
+});
+// Файл, брошенный мимо чата, браузер открыл бы вместо мессенджера
+window.addEventListener('dragover', (e) => hasFiles(e) && e.preventDefault());
+window.addEventListener('drop', (e) => hasFiles(e) && e.preventDefault());
 
 // ---------- Код безопасности ----------
 async function openSafety() {
@@ -892,7 +1364,7 @@ async function showNotice({ title, body, chat, tag, call = false, force = false 
 
 async function notifyMessage(contact, message) {
   const { preview } = await notifPrefs();
-  const text = preview && message.content?.t === 'text' ? String(message.content.body || '').replace(/\s+/g, ' ').slice(0, 160) : '';
+  const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
   await showNotice({ title: contact, body: text || t('Новое сообщение'), chat: contact, tag: 'msg:' + contact });
 }
 
@@ -1466,14 +1938,18 @@ async function findMsg(id) {
 async function replyTo(id) {
   const m = await findMsg(id);
   if (!m || m.dir === 'sys') return;
-  setReply({ id, name: m.dir === 'out' ? t('Вы') : current, text: (m.content?.body || '').replace(/\s+/g, ' ').slice(0, 120) });
+  setReply({ id, name: m.dir === 'out' ? t('Вы') : current, text: textOf(m.content).replace(/\s+/g, ' ').slice(0, 120) });
 }
 
 // Меню сообщения
 let menuFor = null;
-function openMenu(id, x, y) {
+async function openMenu(id, x, y) {
   menuFor = id;
   const menu = $('msg-menu');
+  const m = await findMsg(id);
+  if (menuFor !== id) return;
+  menu.querySelector('[data-act="save"]').hidden = !m?.content?.file;
+  menu.querySelector('[data-act="copy"]').hidden = !!m?.content?.file && !m.content.body;
   menu.hidden = false;
   const w = menu.offsetWidth;
   const h = menu.offsetHeight;
@@ -1506,9 +1982,11 @@ $('messages').addEventListener('click', (e) => {
   }
   const act = e.target.closest('[data-act]');
   if (!act) return;
+  if (act.dataset.act === 'cancel-upload') return cancelUpload(act.dataset.up);
   const id = msgId(act);
   if (!id) return;
   if (act.dataset.act === 'reply') return replyTo(id);
+  if (act.dataset.act === 'open') return openMedia(id);
   if (act.dataset.act === 'menu') {
     const r = act.getBoundingClientRect();
     openMenu(id, r.left, r.bottom + 4);
@@ -1536,6 +2014,11 @@ $('msg-menu').addEventListener('click', async (e) => {
   const id = menuFor;
   closeMenu();
   if (b.dataset.act === 'reply') return replyTo(id);
+  if (b.dataset.act === 'save') {
+    const m = await findMsg(id);
+    if (m?.content?.file) saveMedia(m.content.file);
+    return;
+  }
   if (b.dataset.act === 'copy') {
     const m = await findMsg(id);
     try {
@@ -1598,6 +2081,7 @@ $('presence-visible').addEventListener('change', async (e) => {
 // false — назад некуда, приложение уйдёт в фон (и продолжит работать).
 window.__tainikBack = () => {
   if (!$('msg-menu').hidden) return closeMenu(), true;
+  if ($('viewer').open) return closeViewer(), true;
   const dlg = [...document.querySelectorAll('dialog[open]')].pop();
   if (dlg) return dlg.close(), true;
   if (!$('call').hidden && minimizeCall()) return true;
@@ -1729,7 +2213,7 @@ client.on('status', () => $('accounts-dialog').open && renderAccounts());
 
 async function notifyOther(acc, contact, message) {
   const { preview } = await notifPrefs();
-  const text = preview && message.content?.t === 'text' ? String(message.content.body || '').replace(/\s+/g, ' ').slice(0, 160) : '';
+  const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
   await showNotice({
     title: `${contact} → ${acc.username}`,
     body: text || t('Новое сообщение'),

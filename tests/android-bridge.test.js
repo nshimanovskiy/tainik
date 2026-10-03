@@ -11,6 +11,7 @@ function load() {
   const calls = [];
   const sync = [];
   const store = new Map();
+  const saved = [];
   let pending = '';
   const win = {};
   win.TainikNative = {
@@ -24,6 +25,9 @@ function load() {
         if (method === 'storage.set') return store.set(a[0], a[1]), win.__tainikNative.done(id, true, null);
         if (method === 'storage.clear') return win.__tainikNative.done(id, true, null);
         if (method === 'version') return win.__tainikNative.done(id, true, JSON.stringify('0.8.0'));
+        if (method === 'save.begin') return win.__tainikNative.done(id, true, JSON.stringify('tok'));
+        if (method === 'save.chunk') return saved.push(a[1]), win.__tainikNative.done(id, true, null);
+        if (method === 'save.end') return win.__tainikNative.done(id, true, 'true');
         if (method === 'bg.get') return win.__tainikNative.done(id, true, JSON.stringify({ tray: true }));
         win.__tainikNative.done(id, false, 'Неизвестный вызов: ' + method);
       }, 1);
@@ -38,8 +42,8 @@ function load() {
       return c;
     },
   };
-  vm.runInNewContext(SRC, { window: win, JSON, Promise, Error, String, Number, Object, Map });
-  return { win, calls, sync, store, setPending: (c) => (pending = c) };
+  vm.runInNewContext(SRC, { window: win, JSON, Promise, Error, String, Number, Object, Map, btoa });
+  return { win, calls, sync, store, saved, setPending: (c) => (pending = c) };
 }
 
 test('android-мост: window.desktop с тем же интерфейсом, что у десктопа', async () => {
@@ -116,4 +120,15 @@ test('android-мост: хранилища аккаунтов разделены
     ['storage.clear', ['a1b2c3d4']],
   ]);
   assert.ok(Object.isFrozen(other));
+});
+
+test('android-мост: сохранение файла частями base64', async () => {
+  const { win, calls, saved } = load();
+  const bytes = new Uint8Array(1_000_000).map((_, i) => i % 251);
+  assert.equal(await win.desktop.saveFile('фото.jpg', 'image/jpeg', bytes), true);
+  assert.deepEqual(calls[0], ['save.begin', ['фото.jpg', 'image/jpeg']]);
+  assert.equal(calls.at(-1)[0], 'save.end');
+  assert.equal(saved.length, 3);
+  const back = Buffer.concat(saved.map((b) => Buffer.from(b, 'base64')));
+  assert.ok(back.equals(Buffer.from(bytes)));
 });

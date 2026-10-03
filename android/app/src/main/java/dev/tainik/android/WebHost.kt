@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -18,6 +19,7 @@ import android.webkit.ConsoleMessage
 import android.webkit.JsResult
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -284,6 +286,28 @@ class WebHost(private val app: TainikApp) {
                 .setNegativeButton(android.R.string.cancel) { _, _ -> result.cancel() }
                 .setOnCancelListener { result.cancel() }
                 .show()
+            return true
+        }
+
+        // Вложения: <input type="file"> открывает системный выбор файлов
+        override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: WebChromeClient.FileChooserParams): Boolean {
+            val a = activity
+            if (a == null || !isOurs(pageUrl)) {
+                callback.onReceiveValue(null)
+                return true
+            }
+            val intent = Intent(Intent.ACTION_GET_CONTENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*")
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE)
+            val started = a.startForResult(Intent.createChooser(intent, null)) { code, data ->
+                if (code != android.app.Activity.RESULT_OK || data == null) return@startForResult callback.onReceiveValue(null)
+                val uris = ArrayList<Uri>()
+                data.clipData?.let { clip -> for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let(uris::add) }
+                if (uris.isEmpty()) data.data?.let(uris::add)
+                callback.onReceiveValue(if (uris.isEmpty()) null else uris.toTypedArray())
+            }
+            if (!started) callback.onReceiveValue(null)
             return true
         }
 

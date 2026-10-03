@@ -98,6 +98,10 @@ function render() {
   $('t-devices').textContent = totals.devices;
   $('t-conns').textContent = totals.connections;
   $('t-queued').textContent = totals.queued;
+  if (totals.media) {
+    const mb = totals.media.bytes / 1048576;
+    $('t-media').textContent = `${totals.media.n} · ${mb >= 1024 ? (mb / 1024).toFixed(1) + ' ГБ' : mb.toFixed(mb < 10 ? 1 : 0) + ' МБ'}`;
+  }
   $('version').textContent = `Сервер ${version}, работает ${duration(now - startedAt)}`;
 
   const q = $('search').value.trim().toLowerCase();

@@ -89,6 +89,25 @@
         updHandler = handler;
       },
     }),
+    // Сохранить вложение (Uint8Array) через системное окно «Сохранить как».
+    // true — сохранено, false — отменили. Скачивание blob:-ссылок WebView не умеет.
+    async saveFile(name, mime, bytes) {
+      const token = await call('save.begin', String(name ?? 'file'), String(mime ?? '')).then(parsed(''));
+      try {
+        const STEP = 384 * 1024; // кратно 3: части base64 без «=» в середине
+        for (let i = 0; i < bytes.length || i === 0; i += STEP) {
+          const part = bytes.subarray(i, i + STEP);
+          let s = '';
+          for (let j = 0; j < part.length; j += 0x8000) s += String.fromCharCode.apply(null, part.subarray(j, j + 0x8000));
+          await call('save.chunk', token, btoa(s));
+          if (!bytes.length) break;
+        }
+      } catch (e) {
+        call('save.cancel', token).catch(() => {});
+        throw e;
+      }
+      return call('save.end', token).then(parsed(false));
+    },
   };
 
   Object.defineProperty(window, '__tainikNative', {

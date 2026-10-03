@@ -60,6 +60,17 @@ CREATE TABLE IF NOT EXISTS push_subs (
   PRIMARY KEY (user, device),
   FOREIGN KEY (user, device) REFERENCES devices(user, id) ON DELETE CASCADE
 );
+-- Вложения: зашифрованные файлы лежат в папке blobs, здесь — только размер и владелец
+CREATE TABLE IF NOT EXISTS blobs (
+  id          TEXT PRIMARY KEY,
+  owner       TEXT NOT NULL,
+  size        INTEGER NOT NULL,
+  received    INTEGER NOT NULL DEFAULT 0,
+  done        INTEGER NOT NULL DEFAULT 0,
+  token_hash  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS blobs_created ON blobs(created_at);
 -- Заблокированные администратором IP-адреса
 CREATE TABLE IF NOT EXISTS ip_bans (
   ip          TEXT PRIMARY KEY,
@@ -104,6 +115,13 @@ export class Store {
       touchIp: q('UPDATE devices SET last_seen = ?, last_ip = ? WHERE user = ? AND id = ?'),
       delUser: q('DELETE FROM users WHERE name = ?'),
       bans: q('SELECT ip, note, created_at FROM ip_bans ORDER BY created_at DESC'),
+      addBlob: q('INSERT INTO blobs(id, owner, size, token_hash, created_at) VALUES (?, ?, ?, ?, ?)'),
+      getBlob: q('SELECT id, owner, size, received, done, token_hash, created_at FROM blobs WHERE id = ?'),
+      updBlob: q('UPDATE blobs SET received = ?, done = ? WHERE id = ?'),
+      blobsTotal: q('SELECT COALESCE(SUM(size), 0) AS n FROM blobs'),
+      blobsExpired: q('SELECT id FROM blobs WHERE created_at < ? OR (done = 0 AND created_at < ?)'),
+      delBlob: q('DELETE FROM blobs WHERE id = ?'),
+      blobStats: q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM blobs WHERE done = 1'),
       addBan: q('INSERT INTO ip_bans(ip, note, created_at) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET note = excluded.note'),
       delBan: q('DELETE FROM ip_bans WHERE ip = ?'),
       setSpk: q('UPDATE devices SET spk = ? WHERE user = ? AND id = ?'),
@@ -210,6 +228,30 @@ export class Store {
   /** Удалить аккаунт целиком: устройства, ключи, очередь и подписки удаляются каскадом. */
   deleteUser(name) {
     return this.s.delUser.run(name).changes > 0;
+  }
+
+  // ----- вложения (зашифрованные файлы) -----
+  addBlob({ id, owner, size, tokenHash }) {
+    this.s.addBlob.run(id, owner, size, tokenHash, Date.now());
+  }
+  getBlob(id) {
+    const r = this.s.getBlob.get(id);
+    return r ? { ...r, done: !!r.done } : null;
+  }
+  updateBlob(id, received, done) {
+    this.s.updBlob.run(received, done ? 1 : 0, id);
+  }
+  blobsTotal() {
+    return this.s.blobsTotal.get().n;
+  }
+  blobStats() {
+    return this.s.blobStats.get();
+  }
+  expiredBlobs(createdBefore, partialBefore) {
+    return this.s.blobsExpired.all(createdBefore, partialBefore).map((r) => r.id);
+  }
+  deleteBlobs(ids) {
+    for (const id of ids) this.s.delBlob.run(id);
   }
 
   // ----- блокировки IP -----
