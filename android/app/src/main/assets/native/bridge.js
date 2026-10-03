@@ -35,6 +35,7 @@
     });
   }
 
+  let updHandler = null;
   let openChatHandler = null;
   function deliver() {
     if (!openChatHandler) return;
@@ -77,6 +78,17 @@
       set: (key, value) => call('bg.set', String(key), !!value).then(() => undefined),
     }),
     version: () => call('version').then(parsed('')),
+    // Самообновление: { status, version, progress, error, auto, … } — как в десктопе
+    updates: Object.freeze({
+      get: () => call('upd.get').then(parsed(null)),
+      check: () => call('upd.check').then(() => true),
+      download: () => call('upd.download').then(() => true),
+      install: () => call('upd.install').then(parsed(null)),
+      setAuto: (on) => call('upd.auto', !!on).then(() => true),
+      onChange: (handler) => {
+        updHandler = handler;
+      },
+    }),
   };
 
   Object.defineProperty(window, '__tainikNative', {
@@ -89,6 +101,12 @@
         else w.reject(new Error(text || 'Ошибка приложения'));
       },
       deliver,
+      updState(text) {
+        if (!updHandler) return;
+        try {
+          updHandler(JSON.parse(text));
+        } catch {}
+      },
     }),
   });
   Object.defineProperty(window, 'desktop', { value: Object.freeze(api) });

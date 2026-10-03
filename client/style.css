@@ -496,3 +496,9 @@ body.call-min #app { height: calc(100% - 44px); margin-top: 44px; }
 .notif-offer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 12px 8px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft, rgba(31, 111, 92, .1)); font-size: 13.5px; }
 .notif-offer-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .notif-offer-actions .primary { padding: 6px 12px; font-size: 13px; }
+
+/* Обновления приложения */
+.upd-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 8px; }
+.upd-actions button { padding: 7px 14px; font-size: 14px; }
+.ghost-link { font-size: 14px; color: var(--accent); }
+.upd-banner { background: var(--accent-soft); }

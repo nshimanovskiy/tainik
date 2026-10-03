@@ -31,6 +31,10 @@ services:
       # Панель администратора (пользователи, статус, IP текущих подключений). Без пароля выключена.
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       ADMIN_PATH: ${ADMIN_PATH:-/adminadminadmin}
+      # Загрузки с сайта и самообновление приложений: релизы этого репозитория GitHub
+      # ретранслируются через ваш сервер. Пусто — выключено. Токен — только для приватного репозитория.
+      RELEASES_REPO: ${RELEASES_REPO-nshimanovskiy/tainik}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     ports:
       - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
     volumes:

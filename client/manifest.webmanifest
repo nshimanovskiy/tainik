@@ -2,7 +2,7 @@
   "name": "Тайник",
   "short_name": "Тайник",
   "description": "Мессенджер со сквозным шифрованием",
-  "start_url": "/",
+  "start_url": "/app",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f3f1ec",

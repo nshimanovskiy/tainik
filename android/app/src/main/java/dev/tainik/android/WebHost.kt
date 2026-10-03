@@ -135,6 +135,12 @@ class WebHost(private val app: TainikApp) {
         webView.evaluateJavascript("window.__tainikWake && window.__tainikWake($restart)", null)
     }
 
+    /** Новое состояние обновления — в страницу (см. bridge.js updates.onChange). */
+    fun pushUpdateState(st: org.json.JSONObject) {
+        if (destroyed || !bridgeReady) return
+        webView.evaluateJavascript("window.__tainikNative && __tainikNative.updState(${JSONObject.quote(st.toString())})", null)
+    }
+
     /** Развернуть свёрнутый звонок (нажали на уведомление «Звонок: …»). */
     fun showCall() {
         if (!destroyed && bridgeReady) webView.evaluateJavascript("window.__tainikShowCall && window.__tainikShowCall()", null)

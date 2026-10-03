@@ -15,6 +15,8 @@ class TainikApp : Application() {
         private set
     lateinit var prefs: Prefs
         private set
+    lateinit var updater: Updater
+        private set
 
     private var hostRef: WebHost? = null
     private val extraStores = HashMap<String, SecureStore>()
@@ -42,6 +44,10 @@ class TainikApp : Application() {
         store = SecureStore(noBackupFilesDir)
         prefs = Prefs(this)
         Notifier.createChannels(this)
+        updater = Updater(this).also { u ->
+            u.onChange = { st -> hostRef?.pushUpdateState(st) }
+            u.start()
+        }
     }
 
     /** Закрыть страницу совсем: окно закрыто, а работа в фоне выключена. */
@@ -76,6 +82,11 @@ class Prefs(ctx: Context) {
     var askedNotifications: Boolean
         get() = sp.getBoolean("asked-notifications", false)
         set(v) = sp.edit().putBoolean("asked-notifications", v).apply()
+
+    /** Скачивать обновления автоматически (ставит их всё равно пользователь — так требует Android). */
+    var autoUpdate: Boolean
+        get() = sp.getBoolean("auto-update", true)
+        set(v) = sp.edit().putBoolean("auto-update", v).apply()
 
     var askedBattery: Boolean
         get() = sp.getBoolean("asked-battery", false)

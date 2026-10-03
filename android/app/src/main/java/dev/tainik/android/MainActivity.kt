@@ -20,6 +20,7 @@ class MainActivity : Activity() {
         const val ACTION_OPEN_CHAT = "dev.tainik.android.OPEN_CHAT"
         const val EXTRA_CHAT = "chat"
         const val ACTION_SHOW_CALL = "dev.tainik.android.SHOW_CALL"
+        const val ACTION_INSTALL_UPDATE = "dev.tainik.android.INSTALL_UPDATE"
     }
 
     private lateinit var root: FrameLayout
@@ -69,6 +70,11 @@ class MainActivity : Activity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent != null && intent.action == ACTION_INSTALL_UPDATE) {
+            app.updater.install()
+            intent.action = Intent.ACTION_MAIN
+            return
+        }
         if (intent != null && intent.action == ACTION_SHOW_CALL) {
             app.host.showCall()
             intent.action = Intent.ACTION_MAIN

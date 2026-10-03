@@ -44,7 +44,7 @@ self.addEventListener('notificationclick', (event) => {
         if (chat) win.postMessage({ type: 'open-chat', chat });
         return;
       }
-      await self.clients.openWindow(chat ? `/#chat=${encodeURIComponent(chat)}` : '/');
+      await self.clients.openWindow(chat ? `/app#chat=${encodeURIComponent(chat)}` : '/app');
     })()
   );
 });

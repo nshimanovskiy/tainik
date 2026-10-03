@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Тайник — мессенджер со сквозным шифрованием</title>
+  <meta name="description" content="Тайник — мессенджер со сквозным шифрованием на протоколе Signal: переписка, звонки и показ экрана. Windows, macOS, Linux, Android, iPhone и браузер.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111513" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="landing.css">
+  <script src="landing.js" type="module"></script>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/?home">
+      <img src="icon.svg" alt="" width="30" height="30">
+      <span>Тайник</span>
+    </a>
+    <nav class="tabs" role="tablist" aria-label="Разделы">
+      <a href="#about" class="tab" role="tab" id="tab-about" aria-controls="about">О Тайнике</a>
+      <a href="#download" class="tab" role="tab" id="tab-download" aria-controls="download">Скачать</a>
+    </nav>
+    <a class="btn small" href="/app">Открыть</a>
+  </header>
+
+  <main>
+    <!-- О Тайнике -->
+    <section id="about" class="panel" role="tabpanel" aria-labelledby="tab-about">
+      <div class="hero">
+        <p class="eyebrow">Мессенджер со сквозным шифрованием</p>
+        <h1>Переписка, которую читаете только&nbsp;вы</h1>
+        <p class="lead">Сообщения и звонки шифруются на вашем устройстве и расшифровываются только у собеседника. Сервер пересылает шифротекст — прочитать его он не может.</p>
+        <div class="cta">
+          <a class="btn primary" id="hero-download" href="#download">Скачать</a>
+          <a class="btn" href="/app">Открыть в браузере</a>
+        </div>
+        <p class="muted small" id="hero-hint"></p>
+      </div>
+
+      <ul class="features">
+        <li>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.3 8 11 4.6-1.7 8-6 8-11V5l-8-3zm0 6a2.5 2.5 0 0 1 1 4.8V16h-2v-3.2A2.5 2.5 0 0 1 12 8z"/></svg>
+          <h3>Протокол Signal</h3>
+          <p>X3DH и Double Ratchet: у каждого сообщения свой ключ. Украденный сегодня ключ не откроет ни прошлую, ни будущую переписку.</p>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11a2 2 0 0 1 2 2v1.6l3.4-2.3A1 1 0 0 1 22 8.1v7.8a1 1 0 0 1-1.6.8L17 14.4V16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
+          <h3>Звонки и показ экрана</h3>
+          <p>Голос и видео один на один, трансляция экрана. Звонок можно свернуть и продолжать переписку.</p>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3h-2V5H5v10h7v2H5a2 2 0 0 1-2-2V5zm11 5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-9zm2 0v8h4v-8h-4z"/></svg>
+          <h3>Все ваши устройства</h3>
+          <p>Windows, macOS, Linux, Android, iPhone и браузер. До пяти устройств на аккаунт — привязка по QR-коду.</p>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-7 1.7-7 4v2h14v-2c0-2.3-3.7-4-7-4zm8-2a3 3 0 1 0 0-6v6zm1.5 2.2A4.5 4.5 0 0 1 21 17v2h2v-2c0-1.8-2-3.2-4.5-3.8z"/></svg>
+          <h3>Несколько аккаунтов</h3>
+          <p>Переключайтесь между аккаунтами в один клик. Сообщения приходят по всем сразу.</p>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.5 2.5 0 0 0 2.5-2.5h-5A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2z"/></svg>
+          <h3>Работает в фоне</h3>
+          <p>Уведомления о сообщениях и звонках. На Android — без сервисов Google: приложение само держит связь с сервером.</p>
+        </li>
+        <li>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm0 9h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1zm2-6v1h2V7H6zm0 9v1h2v-1H6z"/></svg>
+          <h3>Свой сервер</h3>
+          <p>Открытый код и сервер, который можно поставить у себя. Ключи живут только на ваших устройствах.</p>
+        </li>
+      </ul>
+
+      <div class="band">
+        <div>
+          <h2>Как это устроено</h2>
+          <p>Когда вы впервые пишете собеседнику, ваше устройство договаривается с его устройствами о секретном ключе — даже если он не в сети. Дальше ключ меняется с каждым сообщением. Сервер видит только, кто кому и когда пишет, но не что.</p>
+          <p>Чтобы убедиться, что между вами нет посредника, сверьте с собеседником 60-значный код безопасности — при личной встрече или по звонку.</p>
+        </div>
+        <ul class="facts">
+          <li><b>Сообщения</b><span>AES-256-GCM, новый ключ на каждое</span></li>
+          <li><b>Звонки</b><span>напрямую между устройствами, DTLS-SRTP</span></li>
+          <li><b>Вход</b><span>без пароля — подписью ключа устройства</span></li>
+          <li><b>Хранение</b><span>переписка — только на устройствах</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- Скачать -->
+    <section id="download" class="panel" role="tabpanel" aria-labelledby="tab-download" hidden>
+      <div class="dl-head">
+        <h1>Скачать Тайник</h1>
+        <p class="muted" id="dl-version">Загружаем сведения о последней версии…</p>
+      </div>
+
+      <div id="dl-recommended" class="recommended" hidden>
+        <div class="rec-text">
+          <span class="muted small">Для вашего устройства</span>
+          <b id="rec-title"></b>
+          <span class="muted small" id="rec-meta"></span>
+        </div>
+        <a class="btn primary" id="rec-link" href="#">Скачать</a>
+      </div>
+
+      <p id="dl-error" class="notice" hidden></p>
+
+      <div class="platforms" id="platforms">
+        <article class="platform" data-os="windows">
+          <h3>Windows</h3>
+          <p class="muted small">Windows 10 и 11, 64-бит</p>
+          <div class="files" data-files="win,win-portable"></div>
+          <p class="muted small">Неподписанная сборка: в окне SmartScreen нажмите «Подробнее» → «Выполнить в любом случае».</p>
+        </article>
+        <article class="platform" data-os="mac">
+          <h3>macOS</h3>
+          <p class="muted small">Apple M1–M4 или Intel</p>
+          <div class="files" data-files="mac-arm64,mac-x64"></div>
+          <p class="muted small">Откройте .dmg, перетащите Тайник в «Программы», затем правый клик по приложению → «Открыть».</p>
+        </article>
+        <article class="platform" data-os="linux">
+          <h3>Linux</h3>
+          <p class="muted small">AppImage — для любого дистрибутива, .deb — Ubuntu и Debian</p>
+          <div class="files" data-files="linux-appimage,linux-deb"></div>
+        </article>
+        <article class="platform" data-os="android">
+          <h3>Android</h3>
+          <p class="muted small">Android 8.0 и новее</p>
+          <div class="files" data-files="android"></div>
+          <p class="muted small">Откройте скачанный файл и разрешите установку из этого источника. Дальше приложение обновляется само.</p>
+        </article>
+        <article class="platform" data-os="ios">
+          <h3>iPhone и iPad</h3>
+          <p class="muted small">iOS 18.4 и новее, из Safari</p>
+          <div class="files">
+            <a class="file" href="/ios"><span>Установить на экран «Домой»</span><span class="muted small">инструкция</span></a>
+          </div>
+        </article>
+        <article class="platform" data-os="web">
+          <h3>Браузер</h3>
+          <p class="muted small">Chrome, Edge, Firefox, Safari — без установки</p>
+          <div class="files">
+            <a class="file" href="/app"><span>Открыть веб-версию</span><span class="muted small">сейчас</span></a>
+          </div>
+        </article>
+      </div>
+
+      <p class="muted small center" id="dl-foot">
+        Файлы отдаются с этого сервера (копия выпуска с GitHub). Приложения на компьютере и Android обновляются сами.
+        <span id="dl-links"></span>
+      </p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Тайник — открытый мессенджер со сквозным шифрованием.</span>
+    <a href="/app">Веб-версия</a>
+    <a href="/ios">iPhone</a>
+  </footer>
+</body>
+</html>

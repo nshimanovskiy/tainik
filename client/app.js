@@ -603,6 +603,7 @@ $('menu-btn').addEventListener('click', async () => {
   $('my-fp').textContent = await client.myFingerprint();
   $('my-server').textContent = client.url;
   $('presence-visible').checked = !client.presenceHidden;
+  $('get-apps-row').hidden = !!desktop; // в вебе — ссылка на загрузки
   if (desktop?.version) {
     $('my-version').textContent = await desktop.version();
     $('my-version-row').hidden = false;
@@ -1759,4 +1760,91 @@ async function startOthers() {
     await recount();
     c.connect().catch(() => {});
   }
+}
+
+
+// ---------- Обновления приложения (десктоп и Android) ----------
+// Состояние приходит из нативной части: { status, current, version, progress, error, reason, downloadUrl, auto }.
+const updates = desktop?.updates || null;
+let upd = null;
+const dismissedUpdate = { v: null };
+const isAndroidApp = android;
+
+function updText(st) {
+  const v = st.version;
+  switch (st.status) {
+    case 'checking':
+      return 'Проверяем обновления…';
+    case 'latest':
+      return `Установлена последняя версия (${st.current}).`;
+    case 'available':
+      return `Доступна версия ${v}.`;
+    case 'downloading':
+      return `Скачиваем версию ${v}… ${Math.round((st.progress || 0) * 100)}%`;
+    case 'ready':
+      return `Версия ${v} скачана и проверена.`;
+    case 'installing':
+      return `Устанавливаем версию ${v}…`;
+    case 'manual':
+      return `Доступна версия ${v}. ${st.reason || ''}`;
+    case 'error':
+      return st.error || 'Не удалось проверить обновления.';
+    default:
+      return `Версия ${st.current || ''}.`;
+  }
+}
+function updAction(st) {
+  if (st.status === 'ready') return isAndroidApp ? 'Установить' : st.kind === 'linux-deb' ? 'Открыть установщик' : 'Перезапустить и обновить';
+  if (st.status === 'available') return 'Скачать и обновить';
+  if (st.status === 'manual') return 'Скачать';
+  return null;
+}
+async function updGo() {
+  if (!upd) return;
+  try {
+    if (upd.status === 'ready') {
+      const r = await updates.install();
+      if (r === 'opened') toast('Откройте скачанный файл, чтобы завершить установку', 6000);
+      if (r === 'permission') toast('Разрешите Тайнику установку приложений, вернитесь и нажмите «Установить» ещё раз', 8000);
+    } else if (upd.status === 'available') await updates.download();
+    else if (upd.status === 'manual' && upd.downloadUrl) window.open(upd.downloadUrl, '_blank', 'noopener');
+  } catch (e) {
+    toast(e.message || 'Не удалось обновить');
+  }
+}
+function renderUpdates(st) {
+  upd = st;
+  const on = !!st && st.status !== 'unsupported';
+  $('upd-settings').hidden = !on;
+  const action = on ? updAction(st) : null;
+  const show = on && !!action && dismissedUpdate.v !== st.version;
+  $('upd-banner').hidden = !show;
+  if (!on) return;
+  $('upd-text').textContent = updText(st);
+  $('upd-go').hidden = !action || st.status === 'manual';
+  $('upd-go').textContent = action || '';
+  $('upd-manual').hidden = st.status !== 'manual' || !st.downloadUrl;
+  if (st.downloadUrl) $('upd-manual').href = st.downloadUrl;
+  $('upd-check').disabled = st.status === 'checking' || st.status === 'downloading';
+  $('upd-auto').checked = st.auto !== false;
+  $('upd-hint').textContent = isAndroidApp
+    ? 'Новая версия скачивается с вашего сервера; Android проверяет, что она подписана тем же ключом, и спросит подтверждение установки.'
+    : 'Новая версия скачивается с вашего сервера и ставится, только если подпись выпуска верна. Скачанное обновление ставится и при выходе из приложения.';
+  if (show) {
+    $('upd-banner-text').textContent =
+      st.status === 'ready' ? `🎉 Версия ${st.version} готова` : `Доступна версия ${st.version}`;
+    $('upd-banner-go').textContent = st.status === 'ready' && !isAndroidApp && st.kind !== 'linux-deb' ? 'Перезапустить' : action;
+  }
+}
+if (updates) {
+  updates.onChange(renderUpdates);
+  updates.get().then(renderUpdates).catch(() => {});
+  $('upd-check').addEventListener('click', () => updates.check().catch((e) => toast(e.message)));
+  $('upd-go').addEventListener('click', updGo);
+  $('upd-banner-go').addEventListener('click', updGo);
+  $('upd-banner-no').addEventListener('click', () => {
+    dismissedUpdate.v = upd?.version || null;
+    $('upd-banner').hidden = true;
+  });
+  $('upd-auto').addEventListener('change', (e) => updates.setAuto(e.target.checked).catch(() => {}));
 }

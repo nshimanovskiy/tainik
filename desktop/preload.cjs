@@ -41,6 +41,18 @@ contextBridge.exposeInMainWorld('desktop', {
     set: (key, value) => ipcRenderer.invoke('bg:set', String(key), !!value),
   },
   version: () => ipcRenderer.invoke('app:version'),
+  // Самообновление: состояние { status, version, progress, error, auto, … }
+  updates: {
+    get: () => ipcRenderer.invoke('upd:get'),
+    check: () => ipcRenderer.invoke('upd:check'),
+    download: () => ipcRenderer.invoke('upd:download'),
+    install: () => ipcRenderer.invoke('upd:install'),
+    setAuto: (on) => ipcRenderer.invoke('upd:auto', !!on),
+    onChange: (handler) => {
+      ipcRenderer.removeAllListeners('upd:state');
+      ipcRenderer.on('upd:state', (_e, st) => handler(st));
+    },
+  },
   // Выбор экрана/окна для трансляции. handler(list) → Promise<id | null>
   onPickSource: (handler) => {
     ipcRenderer.removeAllListeners('pick-source');

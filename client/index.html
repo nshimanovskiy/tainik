@@ -111,6 +111,13 @@
           <button type="button" id="notif-offer-no" class="icon-btn" aria-label="Не сейчас" title="Не сейчас">✕</button>
         </span>
       </div>
+      <div id="upd-banner" class="notif-offer upd-banner" hidden>
+        <span id="upd-banner-text"></span>
+        <span class="notif-offer-actions">
+          <button type="button" id="upd-banner-go" class="primary"></button>
+          <button type="button" id="upd-banner-no" class="icon-btn" aria-label="Позже" title="Позже">✕</button>
+        </span>
+      </div>
       <ul id="contacts" class="contacts"></ul>
       <p id="no-contacts" class="muted empty-side">Пока никого. Добавьте собеседника по имени — он должен быть зарегистрирован.</p>
     </aside>
@@ -199,10 +206,22 @@
         <label class="check"><input type="checkbox" id="bg-autostart"> <span id="bg-autostart-text">Запускать при входе в систему</span></label>
         <p class="hint" id="bg-hint" hidden></p>
       </div>
+      <div id="upd-settings" hidden>
+        <h3 class="menu-sub">Обновления</h3>
+        <p class="small" id="upd-text"></p>
+        <div class="upd-actions">
+          <button type="button" id="upd-check" class="ghost">Проверить</button>
+          <button type="button" id="upd-go" class="primary" hidden></button>
+          <a id="upd-manual" class="ghost-link" href="#" target="_blank" rel="noopener" hidden>Скачать вручную</a>
+        </div>
+        <label class="check"><input type="checkbox" id="upd-auto"> Скачивать обновления автоматически</label>
+        <p class="hint" id="upd-hint"></p>
+      </div>
       <p class="small">Отпечаток ключа личности:</p>
       <code id="my-fp" class="fp"></code>
       <p class="small">Сервер: <code id="my-server" class="inline-code"></code></p>
       <p class="small" id="my-version-row" hidden>Версия приложения: <b id="my-version"></b></p>
+      <p class="small" id="get-apps-row" hidden><a href="/?home#download" target="_blank" rel="noopener">Скачать приложения</a> для компьютера, Android и iPhone</p>
       <p class="hint">Протокол: X3DH + Double Ratchet, несколько устройств (v3). «Выйти на этом устройстве» стирает ключи и переписку только здесь; лучше сначала отвязать устройство с другого.</p>
       <div class="dialog-actions">
         <button value="close" class="ghost">Закрыть</button>

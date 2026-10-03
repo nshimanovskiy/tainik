@@ -49,6 +49,12 @@ test('android-мост: window.desktop с тем же интерфейсом, ч
   for (const k of ['get', 'set', 'del', 'clear']) assert.equal(typeof d.storage[k], 'function');
   for (const k of ['get', 'set']) assert.equal(typeof d.settings[k], 'function');
   for (const k of ['notify', 'onOpenChat', 'setBadge', 'version', 'callActive', 'dismissNotice']) assert.equal(typeof d[k], 'function');
+  for (const k of ['get', 'check', 'download', 'install', 'setAuto', 'onChange']) assert.equal(typeof d.updates[k], 'function');
+  const seen = [];
+  d.updates.onChange((st) => seen.push(st));
+  win.__tainikNative.updState(JSON.stringify({ status: 'ready', version: '9.9.9' }));
+  win.__tainikNative.updState('не json');
+  assert.deepEqual(seen, [{ status: 'ready', version: '9.9.9' }], 'состояние обновления доходит до страницы');
   assert.equal(typeof d.background.get, 'function');
   assert.deepEqual(sync[0], ['hello']);
   assert.ok(Object.isFrozen(d) && Object.isFrozen(d.storage), 'страница не может подменить мост');

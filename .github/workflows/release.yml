@@ -140,6 +140,29 @@ jobs:
           cd out
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      # Подпись списка контрольных сумм ключом выпусков (Ed25519). Приложения ставят
+      # обновление, только если подпись верна (открытый ключ — desktop/release-key.pem).
+      - name: Подпись выпуска
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "::warning title=Выпуск не подписан::Добавьте секрет RELEASE_SIGNING_KEY (RELEASING.md) — без него приложения не будут обновляться сами, только сообщат о новой версии."
+            exit 0
+          fi
+          node - <<'JS'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const key = crypto.createPrivateKey(process.env.RELEASE_SIGNING_KEY);
+          const pub = crypto.createPublicKey(key).export({ type: 'spki', format: 'pem' }).trim();
+          if (pub !== fs.readFileSync('desktop/release-key.pem', 'utf8').trim()) {
+            console.log('::error title=Неверный ключ выпусков::RELEASE_SIGNING_KEY не соответствует desktop/release-key.pem');
+            process.exit(1);
+          }
+          const sums = fs.readFileSync('out/SHA256SUMS.txt');
+          fs.writeFileSync('out/SHA256SUMS.txt.sig', crypto.sign(null, sums, key).toString('base64') + '\n');
+          console.log('SHA256SUMS.txt подписан');
+          JS
       - name: Описание выпуска
         run: |
           V="${{ needs.meta.outputs.version }}"

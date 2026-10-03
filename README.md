@@ -39,11 +39,11 @@ Builds are not code-signed yet. Windows SmartScreen and macOS Gatekeeper will wa
 
 ```bash
 node --version   # Node.js 22.13+ is required (built-in SQLite)
-npm start        # server + web client at http://localhost:8080
+npm start        # server: home page http://localhost:8080, messenger http://localhost:8080/app
 npm test         # 35 tests: protocol, client↔server, multi-device, server, desktop, Android bridge
 ```
 
-To try it alone, open `http://localhost:8080` in a normal window and in a private window, register two names, and add each other as contacts.
+To try it alone, open `http://localhost:8080/app` in a normal window and in a private window, register two names, and add each other as contacts.
 
 > Browsers expose WebCrypto only in secure contexts, so use `https://` or `localhost`.
 
@@ -67,6 +67,10 @@ TAINIK_SERVER=chat.example.com ./gradlew assembleRelease  # bake in a default se
 ```
 
 The Android app loads the UI from inside the APK (like `app://` on desktop), keeps keys in files encrypted under an Android Keystore key, and stays connected to *your* server through a foreground service, so it needs no Google push services. It requires a current Android System WebView (Ed25519 in WebCrypto shipped in 137). Screen sharing is not available on Android.
+
+## Home page, downloads and auto-update
+
+The server's root (`/`) is a home page with a short description and a **Download** tab; the messenger lives at `/app`. Installers are relayed from this repository's GitHub releases through your server (`RELEASES_REPO`), so downloads work where GitHub is blocked. The desktop and Android apps check your server for new versions and update themselves. Desktop installs an update only if the release's `SHA256SUMS.txt` carries a valid Ed25519 signature from the release key (private key in the `RELEASE_SIGNING_KEY` Actions secret, public key shipped in the app), so a compromised server cannot push code; Android additionally relies on the OS's same-signer check.
 
 ## Self-hosting
 

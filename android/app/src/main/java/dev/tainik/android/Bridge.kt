@@ -54,6 +54,16 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
             "bg.get" -> onMain(id) { Background.state(app).toString() }
             "bg.set" -> onMain(id) { Background.set(app, host.activity, a.getString(0), a.getBoolean(1)); null }
             "version" -> host.reply(id, true, JSONObject.quote(BuildConfig.VERSION_NAME))
+            // Обновления (Updater.kt)
+            "upd.get" -> host.reply(id, true, app.updater.stateJson().toString())
+            "upd.check" -> { app.updater.check(); host.reply(id, true, "true") }
+            "upd.download" -> { app.updater.download(); host.reply(id, true, "true") }
+            "upd.install" -> onMain(id) { JSONObject.quote(app.updater.install()) }
+            "upd.auto" -> {
+                app.prefs.autoUpdate = a.optBoolean(0, true)
+                if (app.prefs.autoUpdate && app.updater.stateJson().optString("status") == "available") app.updater.download()
+                host.reply(id, true, "true")
+            }
             else -> host.reply(id, false, "Неизвестный вызов: $method")
         }
     }

@@ -30,7 +30,7 @@ export function webclipHost(req, domain) {
 
 export function buildWebclip({ host, icon, name = 'Тайник' }) {
   const local = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host);
-  const url = `${local ? 'http' : 'https'}://${host}/`;
+  const url = `${local ? 'http' : 'https'}://${host}/app`; // мессенджер; на / — главная страница
   const bare = host.replace(/:\d+$/, '');
   const id = bare.split('.').reverse().join('.') + '.tainik';
   const b64 = icon.toString('base64').replace(/.{1,64}/g, '$&\n\t\t\t');

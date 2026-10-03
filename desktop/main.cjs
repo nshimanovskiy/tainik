@@ -18,7 +18,10 @@ const {
   Menu,
   nativeImage,
   powerMonitor,
+  net,
 } = require('electron');
+const { spawn } = require('node:child_process');
+const { Updater, updateKind, serverBase, macInstallScript } = require('./updater.cjs');
 const { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry } = require('./lib.cjs');
 // Хранилище v3 (несколько устройств) несовместимо с v2 — отдельный файл
 
@@ -127,6 +130,117 @@ function quitApp() {
   app.quit();
 }
 
+// ---------- Самообновление (см. updater.cjs) ----------
+let updater = null;
+let pendingInstall = null; // { relaunch } — установить при выходе
+const autoUpdate = () => settings.autoUpdate !== '0';
+
+// Сервер, с которого брать обновления: тот, к которому подключён мессенджер
+function updateServer() {
+  let ws = settings.server;
+  if (!ws) {
+    try {
+      const list = JSON.parse(settings.accounts || '[]');
+      ws = list.find((a) => a && a.server)?.server;
+    } catch {}
+  }
+  if (!ws) {
+    try {
+      const cfg = fs.readFileSync(path.join(RENDERER_DIR, 'config.js'), 'utf8');
+      ws = /"defaultServer":\s*"([^"]+)"/.exec(cfg)?.[1];
+    } catch {}
+  }
+  return ws ? serverBase(ws) : null;
+}
+
+function setupUpdater() {
+  let publicKey = null;
+  try {
+    publicKey = fs.readFileSync(path.join(__dirname, 'release-key.pem'), 'utf8');
+  } catch {}
+  // В несобранном виде (npm start) не обновляемся: устанавливать некуда
+  const kind = app.isPackaged ? updateKind({ platform: process.platform, arch: process.arch, env: process.env }) : null;
+  updater = new Updater({
+    current: app.getVersion(),
+    kind,
+    dir: path.join(app.getPath('userData'), 'updates'),
+    base: updateServer,
+    publicKey,
+    fetch: (url, opts) => (net?.fetch ? net.fetch(url, opts) : fetch(url, opts)),
+    auto: autoUpdate,
+    onChange: (st) => {
+      win?.webContents.send('upd:state', { ...st, auto: autoUpdate() });
+      updateTrayMenu();
+    },
+  });
+  // Остатки прошлой замены файла (переносная версия Windows)
+  if (kind === 'win-portable') fs.rmSync(process.env.PORTABLE_EXECUTABLE_FILE + '.old', { force: true });
+  updater.start();
+}
+
+/** Перезапустить с новой версией (relaunch) или поставить её при выходе. */
+function installUpdate(relaunch) {
+  const r = updater?.ready;
+  if (!r) return false;
+  if (updater.kind === 'linux-deb') {
+    // .deb ставится с правами администратора — открываем его в установщике пакетов системы
+    shell.openPath(r.file);
+    return 'opened';
+  }
+  if (updater.kind.startsWith('mac')) {
+    const bundle = path.resolve(app.getPath('exe'), '../../..');
+    try {
+      fs.accessSync(path.dirname(bundle), fs.constants.W_OK);
+    } catch {
+      shell.openPath(r.file); // нет прав на папку с приложением — пусть пользователь перетащит сам
+      return 'opened';
+    }
+  }
+  pendingInstall = { relaunch };
+  if (relaunch && (updater.kind === 'win-portable' || updater.kind === 'linux-appimage')) {
+    app.relaunch({ execPath: updater.kind === 'win-portable' ? process.env.PORTABLE_EXECUTABLE_FILE : process.env.APPIMAGE, args: [] });
+  }
+  quitApp();
+  return true;
+}
+
+// Сама установка — в последний момент, когда окно закрыто и данные сохранены
+function runPendingInstall() {
+  const r = updater?.ready;
+  if (!r || !pendingInstall) return;
+  const { relaunch } = pendingInstall;
+  pendingInstall = null;
+  try {
+    const kind = updater.kind;
+    if (kind === 'win') {
+      // Установщик NSIS в тихом режиме ставит поверх; --force-run — запустить после установки
+      spawn(r.file, relaunch ? ['/S', '--force-run'] : ['/S'], { detached: true, stdio: 'ignore' }).unref();
+    } else if (kind === 'win-portable' || kind === 'linux-appimage') {
+      // Запущенный файл нельзя перезаписать, но можно переименовать: кладём новый на его место
+      const target = kind === 'win-portable' ? process.env.PORTABLE_EXECUTABLE_FILE : process.env.APPIMAGE;
+      const old = target + '.old';
+      fs.rmSync(old, { force: true });
+      fs.renameSync(target, old);
+      try {
+        fs.copyFileSync(r.file, target);
+        fs.chmodSync(target, 0o755);
+      } catch (e) {
+        fs.renameSync(old, target);
+        throw e;
+      }
+      if (kind === 'linux-appimage') fs.rmSync(old, { force: true });
+      fs.rmSync(r.file, { force: true });
+    } else if (kind.startsWith('mac')) {
+      const script = path.join(updater.dir, 'install.sh');
+      const bundle = path.resolve(app.getPath('exe'), '../../..');
+      fs.writeFileSync(script, macInstallScript({ pid: process.pid, dmg: r.file, bundle, relaunch }), { mode: 0o755 });
+      spawn('/bin/sh', [script], { detached: true, stdio: 'ignore' }).unref();
+    }
+  } catch (e) {
+    console.error('update install', e);
+  }
+}
+
 // Автозапуск. В несобранном виде (npm start) не включаем: в систему записался бы путь к electron.
 const autostartSupported = () => app.isPackaged && (isWin || isMac || isLinux);
 const winExe = () => process.env.PORTABLE_EXECUTABLE_FILE || process.execPath; // переносная версия — свой .exe
@@ -186,6 +300,9 @@ function updateTrayMenu() {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Открыть Тайник', click: showWindow },
+      ...(updater?.ready && updater.kind !== 'linux-deb'
+        ? [{ label: `Перезапустить и обновить до ${updater.ready.version}`, click: () => installUpdate(true) }]
+        : []),
       { type: 'separator' },
       {
         label: 'Запускать при входе в систему',
@@ -266,6 +383,20 @@ function registerIpc() {
     return k;
   };
   ipcMain.handle('app:version', guard(() => app.getVersion()));
+  // Обновления
+  ipcMain.handle('upd:get', guard(() => ({ ...(updater?.state || { status: 'unsupported' }), auto: autoUpdate() })));
+  ipcMain.handle('upd:check', guard(() => updater?.check().then(() => true)));
+  ipcMain.handle('upd:download', guard(() => updater?.download().then(() => true)));
+  ipcMain.handle('upd:install', guard(() => installUpdate(true)));
+  ipcMain.handle(
+    'upd:auto',
+    guard((on) => {
+      settings.autoUpdate = on ? '1' : '0';
+      saveSettings();
+      if (on && updater?.state.status === 'available') updater.download();
+      return true;
+    })
+  );
   ipcMain.handle('store:get', guard((k, ns) => storeFor(ns).get(key(k))));
   ipcMain.handle('store:set', guard((k, v, ns) => storeFor(ns).set(key(k), v)));
   ipcMain.handle('store:del', guard((k, ns) => storeFor(ns).del(key(k))));
@@ -473,6 +604,7 @@ app.whenReady().then(() => {
   });
   registerAppProtocol();
   registerIpc();
+  setupUpdater();
   createWindow();
   if (backgroundOn()) createTray();
   powerMonitor.on('shutdown', () => {
@@ -485,7 +617,21 @@ app.whenReady().then(() => {
 app.on('before-quit', () => {
   quitting = true;
   if (store) flushStores();
+  // Обновление скачано, а пользователь просто вышел — поставить его сейчас, без перезапуска
+  if (!pendingInstall && updater?.ready && updater.kind !== 'linux-deb') {
+    const macOk = !updater.kind.startsWith('mac') || (() => {
+      try {
+        fs.accessSync(path.dirname(path.resolve(app.getPath('exe'), '../../..')), fs.constants.W_OK);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+    if (macOk) pendingInstall = { relaunch: false };
+  }
 });
+
+app.on('will-quit', runPendingInstall);
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

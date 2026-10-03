@@ -40,7 +40,8 @@ ufw delete allow OpenSSH; ufw delete allow 80/tcp; ufw delete allow 443/tcp; ufw
 
 ## Подключить клиентов
 
-- **Веб:** откройте `https://chat.example.com`.
+- **Главная страница и загрузки:** `https://chat.example.com` — описание и вкладка «Скачать» (файлы последнего выпуска с GitHub отдаёт ваш сервер, см. `RELEASES_REPO`).
+- **Веб:** `https://chat.example.com/app`.
 - **Десктоп:** в поле «Адрес сервера» введите `chat.example.com`. Можно и сразу собрать приложение с вашим адресом: `cd desktop && TAINIK_SERVER=chat.example.com npm run dist`. В GitHub Actions для этого задайте переменную `TAINIK_SERVER`.
 
 ## Повседневное
@@ -191,6 +192,8 @@ sudo ./deploy/sign-profile.sh
 | `STUN_FALLBACK` | Google STUN | STUN-сервер, если TURN не настроен; пусто — не использовать |
 | `ADMIN_PASSWORD` | — | Пароль панели администратора (от 12 символов); пусто — панели нет |
 | `ADMIN_PATH` | `/adminadminadmin` | Адрес панели администратора |
+| `RELEASES_REPO` | `nshimanovskiy/tainik` | Репозиторий GitHub, чьи релизы сервер отдаёт на вкладке «Скачать» и для самообновления приложений; пусто — выключено |
+| `GITHUB_TOKEN` | — | Только для приватного репозитория: токен с доступом «Contents: Read-only» |
 
 После изменения `.env` выполните `docker compose up -d`.
 

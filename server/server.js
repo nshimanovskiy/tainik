@@ -12,6 +12,7 @@ import { acceptUpgrade } from './ws.js';
 import { Store } from './store.js';
 import { createAdmin } from './admin.js';
 import { createWebclipHandler } from './webclip.js';
+import { createReleases } from './releases.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
@@ -79,7 +80,13 @@ function serveStatic(req, res) {
     base = path.join(ROOT, 'shared');
     rel = rel.slice('/shared'.length);
   }
-  if (rel === '/' || rel === '') rel = '/index.html';
+  // Главная — описание и загрузки; мессенджер — /app
+  if (rel === '/' || rel === '') rel = '/landing.html';
+  else if (rel === '/app') rel = '/index.html';
+  else if (rel === '/app/') {
+    res.writeHead(301, { Location: '/app' }).end(); // относительные адреса файлов работают только без слэша
+    return;
+  }
   const file = path.normalize(path.join(base, rel));
   if (!file.startsWith(base + path.sep)) {
     res.writeHead(403).end();
@@ -129,6 +136,8 @@ export function startServer({
   admin = null,
   // Домен для профиля iPhone (/tainik.mobileconfig); без него — из заголовка Host
   domain = null,
+  // Загрузки с сайта: ретрансляция релизов GitHub { repo: 'owner/name', token?, fetch? }
+  releases = null,
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -679,6 +688,7 @@ export function startServer({
     : null;
   if (adminHandler) say('панель администратора включена');
   const webclip = createWebclipHandler({ root: ROOT, domain, dataDir });
+  const releasesHandler = releases?.repo ? createReleases({ ...releases, say, clientIp: ipOf }) : null;
 
   const server = http.createServer((req, res) => {
     if (adminHandler && adminHandler(req, res)) return; // панель доступна и с заблокированного IP
@@ -687,6 +697,7 @@ export function startServer({
       return;
     }
     if (webclip(req, res)) return; // профиль iPhone; /ios → страница установки
+    if (releasesHandler && releasesHandler(req, res)) return; // /api/releases, /download/…
     if (req.url === '/healthz') {
       let ok = false;
       try {
@@ -838,6 +849,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
               (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
           },
     domain: env.DOMAIN || null,
+    releases: env.RELEASES_REPO ? { repo: env.RELEASES_REPO.trim(), token: env.GITHUB_TOKEN || null } : null,
     admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,
   });
   let stopping = false;
