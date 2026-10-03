@@ -29,14 +29,14 @@ function waitIceGathering(pc, ms = ICE_GATHER_TIMEOUT) {
   if (pc.iceGatheringState === 'complete') return Promise.resolve();
   return new Promise((resolve) => {
     const done = () => {
-      clearTimeout(t);
+      clearTimeout(timer);
       pc.removeEventListener('icegatheringstatechange', onState);
       pc.removeEventListener('icecandidate', onCand);
       resolve();
     };
     const onState = () => pc.iceGatheringState === 'complete' && done();
     const onCand = (e) => !e.candidate && done();
-    const t = setTimeout(done, ms);
+    const timer = setTimeout(done, ms);
     pc.addEventListener('icegatheringstatechange', onState);
     pc.addEventListener('icecandidate', onCand);
   });
@@ -339,7 +339,7 @@ export class CallManager {
       }
     }
     if (this.call !== c) {
-      s.getTracks().forEach((t) => t.stop());
+      s.getTracks().forEach((tr) => tr.stop());
       throw new Error('cancelled');
     }
     c.local.mic = s.getAudioTracks()[0] || null;
@@ -367,7 +367,7 @@ export class CallManager {
       const idx = pc.getTransceivers().indexOf(e.transceiver);
       const target = idx === T_AUDIO ? c.remote.audio : idx === T_CAM ? c.remote.cam : idx === T_SCREEN ? c.remote.screen : null;
       if (!target) return;
-      for (const t of target.getTracks()) target.removeTrack(t);
+      for (const tr of target.getTracks()) target.removeTrack(tr);
       target.addTrack(e.track);
       e.track.onmute = e.track.onunmute = () => this._emit();
       this._emit();
@@ -498,7 +498,7 @@ export class CallManager {
     clearTimeout(c.dropTimer);
     this.tones.stop();
     if (result !== 'elsewhere' && result !== 'missed') this.tones.end();
-    for (const t of Object.values(c.local)) t?.stop();
+    for (const tr of Object.values(c.local)) tr?.stop();
     try {
       c.dc?.close();
     } catch {}

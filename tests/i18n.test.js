@@ -77,3 +77,18 @@ test('перевод: вне браузера — русский, парамет
   assert.equal(t('был(а) {0} мин. назад', 5), 'был(а) 5 мин. назад');
   assert.equal(t('Скачиваем версию {0}… {1}%', '1.0', 42), 'Скачиваем версию 1.0… 42%');
 });
+
+test('перевод: в файлах с t() нет локальных переменных t (они ломают перевод)', () => {
+  // Так сломалась 0.14.0: `const t = …; t.textContent = t('…')` — ошибка при показе галочки
+  const files = ['client/app.js', 'client/call.js', 'shared/client-core.js', 'client/landing.js', 'client/install.js', 'desktop/main.cjs', 'desktop/updater.cjs'];
+  const bad = [];
+  for (const f of files) {
+    read(f)
+      .split('\n')
+      .forEach((line, i) => {
+        if (/^\s*\/\//.test(line)) return;
+        if (/\b(const|let|var)\s+t\s*=|\(\s*t\s*\)\s*=>|\bfor\s*\(\s*(const|let)\s+t\s+of\b|\bfunction\s*\w*\s*\(\s*t\s*[,)]/.test(line)) bad.push(`${f}:${i + 1}: ${line.trim()}`);
+      });
+  }
+  assert.deepEqual(bad, []);
+});

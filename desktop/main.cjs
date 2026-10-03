@@ -477,10 +477,10 @@ function pickSource(list) {
     const onResult = (event, id, chosen) => {
       if (id !== reqId || !fromApp(event)) return;
       ipcMain.removeListener('pick-source-result', onResult);
-      clearTimeout(t);
+      clearTimeout(timer);
       resolve(typeof chosen === 'string' ? chosen : null);
     };
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       ipcMain.removeListener('pick-source-result', onResult);
       resolve(null);
     }, 120_000);
@@ -578,8 +578,8 @@ app.whenReady().then(() => {
     if (!allowed.has(permission) || !ours(wc, details?.requestingUrl)) return cb(false);
     if (permission === 'media' && process.platform === 'darwin') {
       // macOS: системный запрос доступа к микрофону/камере
-      for (const t of details?.mediaTypes || []) {
-        const kind = t === 'audio' ? 'microphone' : 'camera';
+      for (const mt of details?.mediaTypes || []) {
+        const kind = mt === 'audio' ? 'microphone' : 'camera';
         if (systemPreferences.getMediaAccessStatus(kind) !== 'granted') {
           const ok = await systemPreferences.askForMediaAccess(kind).catch(() => false);
           if (!ok) return cb(false);

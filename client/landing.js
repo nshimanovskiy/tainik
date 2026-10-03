@@ -36,10 +36,10 @@ const el = (tag, cls, text) => {
 // ---------- Вкладки ----------
 function showTab() {
   const tab = location.hash === '#download' ? 'download' : 'about';
-  for (const t of ['about', 'download']) {
-    $(t).hidden = t !== tab;
-    $('tab-' + t).setAttribute('aria-selected', String(t === tab));
-    $('tab-' + t).classList.toggle('active', t === tab);
+  for (const name of ['about', 'download']) {
+    $(name).hidden = name !== tab;
+    $('tab-' + name).setAttribute('aria-selected', String(name === tab));
+    $('tab-' + name).classList.toggle('active', name === tab);
   }
   if (tab === 'download') loadReleases();
 }

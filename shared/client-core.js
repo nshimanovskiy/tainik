@@ -310,8 +310,8 @@ export class MessengerClient extends Emitter {
     // Проверяем, что приватные части соответствуют публичным
     const probe = te.encode('tainik/v3/probe');
     const sigOk = await edVerify(identity.sign.pub, probe, await edSign(identity.sign.priv, probe));
-    const t = await genX25519();
-    const [x, y] = [await dh(identity.dh.priv, t.pub), await dh(t.priv, identity.dh.pub)];
+    const tmp = await genX25519();
+    const [x, y] = [await dh(identity.dh.priv, tmp.pub), await dh(tmp.priv, identity.dh.pub)];
     if (!sigOk || x.some((b, i) => b !== y[i])) throw errorOf('provision_decrypt_failed');
 
     await this.storage.clear();
@@ -366,10 +366,10 @@ export class MessengerClient extends Emitter {
     if (!this.account) return Promise.reject(new Error(t('Нет аккаунта')));
     this._stopped = false;
     return new Promise((resolve, reject) => {
-      const t = timeout ? setTimeout(() => this._fatal('timeout'), timeout) : null;
+      const timer = timeout ? setTimeout(() => this._fatal('timeout'), timeout) : null;
       this._firstReady = {
-        resolve: (v) => (clearTimeout(t), resolve(v)),
-        reject: (e) => (clearTimeout(t), reject(e)),
+        resolve: (v) => (clearTimeout(timer), resolve(v)),
+        reject: (e) => (clearTimeout(timer), reject(e)),
       };
       this._open();
     });
@@ -469,9 +469,9 @@ export class MessengerClient extends Emitter {
     const ws = this.ws;
     // Сервер отвечает на ping сообщением pong без reqId (так и в старых версиях)
     const alive = await new Promise((resolve) => {
-      const t = setTimeout(() => done(false), this.pingTimeout);
+      const timer = setTimeout(() => done(false), this.pingTimeout);
       const done = (v) => {
-        clearTimeout(t);
+        clearTimeout(timer);
         this._pongWaiters.delete(done);
         resolve(v);
       };
@@ -492,13 +492,13 @@ export class MessengerClient extends Emitter {
     const reqId = ++this._reqId;
     return new Promise((resolve, reject) => {
       if (!this._send({ ...obj, reqId })) return reject(errorOf('offline'));
-      const t = setTimeout(() => {
+      const timer = setTimeout(() => {
         this._pending.delete(reqId);
         reject(errorOf('timeout'));
       }, REQUEST_TIMEOUT);
       this._pending.set(reqId, {
-        resolve: (v) => (clearTimeout(t), resolve(v)),
-        reject: (e) => (clearTimeout(t), reject(e)),
+        resolve: (v) => (clearTimeout(timer), resolve(v)),
+        reject: (e) => (clearTimeout(timer), reject(e)),
       });
     });
   }

@@ -87,15 +87,15 @@ function verifiedBadge() {
   svg.setAttribute('class', 'official');
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', t('Официальный аккаунт'));
-  const t = document.createElementNS(NS, 'title');
-  t.textContent = t('Официальный аккаунт');
+  const titleEl = document.createElementNS(NS, 'title');
+  titleEl.textContent = t('Официальный аккаунт');
   const bg = document.createElementNS(NS, 'path');
   bg.setAttribute('class', 'official-bg');
   bg.setAttribute('d', 'M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1-2.6-1.9 1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z');
   const ck = document.createElementNS(NS, 'path');
   ck.setAttribute('class', 'official-check');
   ck.setAttribute('d', 'M7.6 12.3l3 3 5.8-6.2');
-  svg.append(t, bg, ck);
+  svg.append(titleEl, bg, ck);
   return svg;
 }
 /** Имя с галочкой, если аккаунт официальный. */
@@ -116,11 +116,11 @@ function dayLabel(ts) {
 }
 let toastTimer;
 function toast(text, ms = 3500) {
-  const t = $('toast');
-  t.textContent = text;
-  t.hidden = false;
+  const box = $('toast');
+  box.textContent = text;
+  box.hidden = false;
   clearTimeout(toastTimer);
-  if (ms) toastTimer = setTimeout(() => (t.hidden = true), ms);
+  if (ms) toastTimer = setTimeout(() => (box.hidden = true), ms);
 }
 const STATUS_ICON = { sending: '⏳', sent: '✓', delivered: '✓✓', failed: t('⚠ не отправлено') };
 const STATUS_TEXT = { online: t('в сети'), connecting: t('подключение…'), offline: t('нет связи'), replaced: t('открыт в другом месте') };
@@ -736,7 +736,7 @@ $('link-form').addEventListener('submit', (e) => {
 // Сканирование QR камерой (где браузер поддерживает BarcodeDetector)
 let scanStream = null;
 function stopScan() {
-  if (scanStream) scanStream.getTracks().forEach((t) => t.stop());
+  if (scanStream) scanStream.getTracks().forEach((tr) => tr.stop());
   scanStream = null;
   $('scan-video').hidden = true;
 }
@@ -1110,10 +1110,10 @@ const calls = new CallManager({ client, onChange: renderCall });
 let callTicker = null;
 
 function fmtDur(ms) {
-  const t = Math.max(0, Math.floor(ms / 1000));
-  const h = Math.floor(t / 3600);
-  const mm = String(Math.floor((t % 3600) / 60)).padStart(h ? 2 : 1, '0');
-  const ss = String(t % 60).padStart(2, '0');
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(sec / 3600);
+  const mm = String(Math.floor((sec % 3600) / 60)).padStart(h ? 2 : 1, '0');
+  const ss = String(sec % 60).padStart(2, '0');
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
@@ -1308,10 +1308,10 @@ function renderCall(c) {
   if (c.phase === 'active' && !callTicker) {
     callTicker = setInterval(() => {
       if (calls.call?.phase === 'active') {
-        const t = callStatusText(calls.call);
-        $('call-status').textContent = t;
-        $('call-top-status').textContent = t;
-        $('call-mini-status').textContent = t;
+        const st = callStatusText(calls.call);
+        $('call-status').textContent = st;
+        $('call-top-status').textContent = st;
+        $('call-mini-status').textContent = st;
       }
     }, 1000);
   }
@@ -1525,8 +1525,8 @@ let pressTimer = null;
 $('messages').addEventListener('touchstart', (e) => {
   const id = msgId(e.target);
   if (!id) return;
-  const t = e.touches[0];
-  pressTimer = setTimeout(() => openMenu(id, t.clientX, t.clientY), 500);
+  const touch = e.touches[0];
+  pressTimer = setTimeout(() => openMenu(id, touch.clientX, touch.clientY), 500);
 }, { passive: true });
 for (const ev of ['touchend', 'touchmove', 'touchcancel']) $('messages').addEventListener(ev, () => clearTimeout(pressTimer), { passive: true });
 
