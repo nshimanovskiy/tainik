@@ -45,6 +45,8 @@ const MIME = {
 };
 
 const b64 = (buf) => Buffer.from(buf).toString('base64');
+// Версия приложения, которую сообщает устройство: «0.21.0», «0.21.0-beta.1» и т. п.
+const cleanVersion = (v) => (typeof v === 'string' && /^[0-9A-Za-z][0-9A-Za-z.+-]{0,31}$/.test(v) ? v : null);
 const cleanName = (s) => String(s || 'Устройство').replace(/[\u0000-\u001f]/g, '').slice(0, 64) || 'Устройство';
 
 function validOpks(list) {
@@ -329,7 +331,7 @@ export function startServer({
             mode = 'login';
           }
         }
-        state.pending = { username, identity, mode, keys, deviceId: Number(msg.deviceId), nonce: b64(randomBytes(32)) };
+        state.pending = { username, identity, mode, keys, deviceId: Number(msg.deviceId), appVersion: cleanVersion(msg.appVersion), nonce: b64(randomBytes(32)) };
         return send(conn, { type: 'challenge', nonce: state.pending.nonce });
       }
 
@@ -358,6 +360,7 @@ export function startServer({
           }
         }
         store.touchDevice(p.username, deviceId, Date.now(), state.ip); // последний IP устройства
+        if (p.appVersion) store.setAppVersion(p.username, deviceId, p.appVersion);
         const key = addr(p.username, deviceId);
         const prev = online.get(key);
         if (prev && prev !== conn) {
@@ -699,6 +702,7 @@ export function startServer({
           lastSeen: conn ? now : d.lastSeen,
           ip: conn?.meta?.ip ?? null,
           lastIp: d.lastIp,
+          appVersion: d.appVersion,
           since: conn?.meta?.since ?? null,
         };
       });

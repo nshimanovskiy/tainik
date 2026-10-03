@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на 3 октября 2026, версия **0.20.0** (`main`): добавлена платная подписка «Тайник Премиум» (xRocket Pay) с фото профиля. Выпуск приложений v0.20.0 ещё не опубликован (последний — v0.19.0). Сервер работает на `https://chat.sdsds.top`.
+Состояние на 3 октября 2026, версия **0.21.0** (`main`): подписка «Тайник Премиум» (xRocket Pay) с фото профиля, версия приложения у каждого устройства. Выпуск приложений v0.20.0 опубликован; v0.21.0 — нужно выпустить. Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано и что известно плохого. Подробности для пользователей — в `README.md` / `README.ru.md`, развёртывание — в `DEPLOY.md`, выпуски — в `RELEASING.md`, история — в `CHANGELOG.md`.
 
@@ -87,7 +87,8 @@
 - `call` — сигнализация звонков, отправляется **эфемерно**: только устройствам в сети, без очереди.
 - `delete` — удалить у всех.
 - `clear-chat` — удалить чат у собеседника.
-- `profile` — имя, «о себе» и фото (`avatar`, проверяет `validAvatar`).
+- `profile` — имя, «о себе» и фото (`avatar`, проверяет `validAvatar`). Профиль той же версии, но с фото, тоже принимается.
+- `profile-req` — «пришли профиль ещё раз» (`v` — версия, что у нас есть): шлётся, когда у собеседника подписка, а фото у нас нет; отвечают только тем, кому пишут (`shareProfile`).
 - Синхронизация своих устройств: `sync-sent`, `sync-read`, `sync-delete`, `sync-delete-chat`, `sync-profile`.
 - Локальные системные: `rejected`, `key-accepted`.
 
@@ -97,7 +98,7 @@
 
 - `server.js` — HTTP (статика, `/healthz`, `/api/releases`, `/download/*`, `/api/blob/*`, веб-клип iOS, админка) и WebSocket `/ws`. Сокет реализован в `ws.js` своими силами.
 - WS-сообщения:
-  - `auth`, `auth-proof`;
+  - `auth` (с `appVersion` — версия приложения, хранится в `devices.app_version`), `auth-proof`;
   - `upload-prekeys`, `get-identity`, `get-bundles`;
   - `send`, `send-ephemeral`, `ack`;
   - `list-devices`, `unlink-device`, `provision-open`, `provision-send`;
@@ -107,7 +108,7 @@
   - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}` и `billing {plans, testnet}`), `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
 - `store.js` — SQLite (`node:sqlite`), файл `data/tainik.db`. Таблицы:
   - `users` (с колонками `presence_hidden`, `verified`);
-  - `devices` (с `last_ip`);
+  - `devices` (с `last_ip`, `app_version`);
   - `opks`, `queue`, `meta`, `push_subs`;
   - `blobs`, `ip_bans`, `blocks`;
   - `premium` (user → until, каскадно с аккаунтом), `payments` (счета xRocket: наш id = clientInvoiceId, тариф, сумма-строка, статус; не удаляются с аккаунтом).
@@ -249,11 +250,11 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test`. На 0.20.0 — **73 теста**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
+- **Тесты:** `npm test`. На 0.21.0 — **77 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
 - **Локально:** `npm start` → главная `http://localhost:8080`, мессенджер `/app`. Чтобы проверить вдвоём, откройте обычное окно и окно инкогнито.
 - **CI:** каждый push в `main` запускает `build.yml`: test, docker, desktop×3, android. Статус:
   `curl -s "https://api.github.com/repos/nshimanovskiy/tainik/actions/runs?branch=main&per_page=1"`
-- **Версия:** в `package.json` и `desktop/package.json`; Android берёт её из тега. Раздел в `CHANGELOG.md` — на каждую версию.
+- **Версия:** в `package.json`, `desktop/package.json` и `shared/version.js` (сверяет `tests/version.test.js`); Android берёт её из тега. Раздел в `CHANGELOG.md` — на каждую версию.
 - **Выпуск приложений:** Actions → «Выпуск приложений» → указать версию (или тег `vX.Y.Z`).
 - **Обновление сервера:** `cd /opt/tainik/e2e-messenger && sudo ./deploy/update.sh`. Скрипт:
   1. делает бэкап базы;
@@ -313,6 +314,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.18 | Встроенный сканер QR во всех версиях |
 | 0.19 | Юзернейм и имя, «о себе», профиль собеседника, ссылка на главную в «О Тайнике» |
 | 0.20 | Подписка «Тайник Премиум» через xRocket Pay, фото профиля, звезда ★, подписка в админке |
+| 0.21 | Версия приложения у устройств (список устройств, админка); повторный запрос профиля, если фото потерялось |
 
 ---
 

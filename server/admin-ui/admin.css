@@ -79,6 +79,7 @@ tr:last-child td { border-bottom: 0; }
 .name b { margin-right: 6px; }
 .tag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); margin-right: 4px; vertical-align: 1px; }
 .tag.premium { background: #f5b94233; color: #c98a0c; }
+.tag.ver { background: transparent; border: 1px solid var(--accent-soft); color: inherit; opacity: .75; font-variant-numeric: tabular-nums; }
 .status { white-space: nowrap; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--line); margin-right: 7px; vertical-align: 1px; }
 .dot.on { background: var(--on); }

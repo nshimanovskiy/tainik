@@ -607,4 +607,7 @@ export default {
   'Оплата — криптовалютой через xRocket Pay в Telegram. Счёт действует час. Подписка включится сама через несколько секунд после оплаты; продление добавляет дни к текущему сроку.': 'You pay in cryptocurrency via xRocket Pay in Telegram. An invoice is valid for one hour. The subscription turns on by itself a few seconds after payment; renewing adds days to the current term.',
   'Тестовый режим: счета выставляются в тестовой сети xRocket, настоящие деньги не списываются.': 'Test mode: invoices are issued on the xRocket testnet, no real money is charged.',
   'Платёжный сервис не узнаёт ваш юзернейм, а сервер Тайника — данные вашего кошелька. Фото профиля зашифровано, как и имя: сервер знает только, что у вас есть подписка.': 'The payment service doesn\'t learn your username, and the Tainik server doesn\'t learn your wallet details. Your profile photo is encrypted, like your name: the server only knows that you have a subscription.',
+  // ---------- Версия приложения на устройствах ----------
+  'версия {0}': 'version {0}',
+  'версия неизвестна': 'version unknown',
 };

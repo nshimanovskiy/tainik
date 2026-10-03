@@ -277,3 +277,53 @@ test('подписка выключена: сервер без токена xRoc
   assert.equal((await c.checkPremium()).active, false);
   assert.equal((await fetch(`http://127.0.0.1:${srv.port}${WEBHOOK_PATH}`, { method: 'POST', body: '{}' })).status, 405, 'вебхука нет');
 });
+
+test('фото, потерянное старой версией приложения, приходит снова по запросу', async (t) => {
+  const { x, mk } = await setup(t);
+  const alice = mk();
+  const bob = mk();
+  await alice.register('alice');
+  await bob.register('bob');
+  await alice.addContact('bob');
+  await bob.addContact('alice');
+  const inv = await alice.buyPremium('30d');
+  x.invoices.get(inv.id).status = 'paid';
+  await alice.checkPremium();
+  await alice.setProfile({ name: 'Алиса', avatar: avatar(14_800) }); // фото почти предельного размера
+  const got = incoming(bob, 'привет');
+  await alice.sendText('bob', 'привет');
+  await got;
+  await sleep(100);
+  assert.equal((await bob.profileOf('alice')).avatar, avatar(14_800));
+
+  // Старая версия Боба (до 0.20) сохранила профиль без фото — та же версия профиля
+  const all = await bob.contacts();
+  delete all.alice.profile.avatar;
+  await bob.storage.set('contacts', all);
+  bob._indexNames(all);
+  assert.equal(bob.avatarOf('alice'), null);
+
+  // Обновлённый Боб видит подписку Алисы и просит профиль заново — фото возвращается
+  const back = waitFor(bob, 'profile-changed', (d) => d.username === 'alice' && d.profile.avatar);
+  await bob._subscribePresence();
+  await back;
+  assert.equal(bob.avatarOf('alice'), avatar(14_800));
+  assert.equal(bob.nameOf('alice'), 'Алиса');
+  // Повторно не просит, если фото уже есть
+  const before = ((await bob.storage.get('outbox')) || []).length;
+  await bob._subscribePresence();
+  await sleep(200);
+  assert.ok(!((await bob.storage.get('outbox')) || []).slice(before).some((i) => i.content?.t === 'profile-req'));
+});
+
+test('версия приложения видна в списке устройств и в панели', async (t) => {
+  const { mk, srv } = await setup(t);
+  const a = new MessengerClient({ url: `ws://127.0.0.1:${srv.port}/ws`, storage: new MemoryStorage(), appVersion: '0.21.0' });
+  const b = new MessengerClient({ url: `ws://127.0.0.1:${srv.port}/ws`, storage: new MemoryStorage(), appVersion: '<script>' });
+  t.after(() => (a.disconnect(), b.disconnect()));
+  await a.register('dora');
+  await b.register('erin');
+  assert.equal((await a.listDevices())[0].appVersion, '0.21.0');
+  assert.equal((await b.listDevices())[0].appVersion, null, 'мусор вместо версии не сохраняется');
+  void mk;
+});

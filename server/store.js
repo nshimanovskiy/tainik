@@ -151,6 +151,7 @@ export class Store {
     }
     const dcols = this.db.prepare("SELECT name FROM pragma_table_info('devices')").all().map((r) => r.name);
     if (!dcols.includes('last_ip')) this.db.exec('ALTER TABLE devices ADD COLUMN last_ip TEXT'); // последний IP устройства
+    if (!dcols.includes('app_version')) this.db.exec('ALTER TABLE devices ADD COLUMN app_version TEXT'); // версия приложения при последнем входе
     this.limits = { maxOpks, maxQueue, maxDevices };
     const q = (sql) => this.db.prepare(sql);
     this.s = {
@@ -159,7 +160,8 @@ export class Store {
       bumpDevice: q('UPDATE users SET next_device_id = next_device_id + 1 WHERE name = ?'),
       deviceIds: q('SELECT id FROM devices WHERE user = ? ORDER BY id'),
       device: q('SELECT id, name, spk, created_at, last_seen FROM devices WHERE user = ? AND id = ?'),
-      devices: q('SELECT id, name, created_at, last_seen, last_ip FROM devices WHERE user = ? ORDER BY id'),
+      devices: q('SELECT id, name, created_at, last_seen, last_ip, app_version FROM devices WHERE user = ? ORDER BY id'),
+      setAppVersion: q('UPDATE devices SET app_version = ? WHERE user = ? AND id = ?'),
       insDevice: q('INSERT INTO devices(user, id, name, spk, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?)'),
       delDevice: q('DELETE FROM devices WHERE user = ? AND id = ?'),
       touch: q('UPDATE devices SET last_seen = ? WHERE user = ? AND id = ?'),
@@ -229,7 +231,7 @@ export class Store {
            (SELECT COUNT(*) FROM push_subs p WHERE p.user = u.name) AS push
          FROM users u ORDER BY u.name`
       ),
-      adminDevices: q('SELECT user, id, name, created_at, last_seen, last_ip FROM devices ORDER BY user, id'),
+      adminDevices: q('SELECT user, id, name, created_at, last_seen, last_ip, app_version FROM devices ORDER BY user, id'),
       stats: q('SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM devices) AS devices, (SELECT COUNT(*) FROM queue) AS queued'),
     };
   }
@@ -259,7 +261,7 @@ export class Store {
     return r ? { id: r.id, name: r.name, spk: JSON.parse(r.spk), createdAt: r.created_at, lastSeen: r.last_seen } : null;
   }
   listDevices(name) {
-    return this.s.devices.all(name).map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, lastSeen: r.last_seen, lastIp: r.last_ip || null }));
+    return this.s.devices.all(name).map((r) => ({ id: r.id, name: r.name, createdAt: r.created_at, lastSeen: r.last_seen, lastIp: r.last_ip || null, appVersion: r.app_version || null }));
   }
   _insertDevice(name, id, keys, now) {
     this.s.insDevice.run(name, id, keys.name, JSON.stringify(keys.spk), now, now);
@@ -294,6 +296,10 @@ export class Store {
   touchDevice(name, id, ts = Date.now(), ip = null) {
     if (ip) this.s.touchIp.run(ts, ip, name, id);
     else this.s.touch.run(ts, name, id);
+  }
+  /** Версия приложения устройства (сообщает само устройство при входе). */
+  setAppVersion(name, id, version) {
+    this.s.setAppVersion.run(version, name, id);
   }
   /** Удалить аккаунт целиком: устройства, ключи, очередь и подписки удаляются каскадом. */
   deleteUser(name) {
@@ -521,7 +527,7 @@ export class Store {
     const devices = new Map();
     for (const d of this.s.adminDevices.all()) {
       if (!devices.has(d.user)) devices.set(d.user, []);
-      devices.get(d.user).push({ id: d.id, name: d.name, createdAt: d.created_at, lastSeen: d.last_seen, lastIp: d.last_ip || null });
+      devices.get(d.user).push({ id: d.id, name: d.name, createdAt: d.created_at, lastSeen: d.last_seen, lastIp: d.last_ip || null, appVersion: d.app_version || null });
     }
     return this.s.adminUsers.all().map((u) => ({
       name: u.name,

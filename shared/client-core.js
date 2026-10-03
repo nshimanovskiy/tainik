@@ -188,9 +188,10 @@ export class MessengerClient extends Emitter {
    * @param {Function} [o.WebSocketImpl]
    * @param {Function} [o.fetchImpl]      для загрузки и скачивания вложений
    */
-  constructor({ url, storage, WebSocketImpl = globalThis.WebSocket, fetchImpl = (...a) => globalThis.fetch(...a) }) {
+  constructor({ url, storage, WebSocketImpl = globalThis.WebSocket, fetchImpl = (...a) => globalThis.fetch(...a), appVersion = null }) {
     super();
     this.url = url;
+    this.appVersion = appVersion; // версия приложения — видна в списке устройств аккаунта
     this.storage = storage;
     this.WS = WebSocketImpl;
     this.fetch = fetchImpl;
@@ -219,6 +220,7 @@ export class MessengerClient extends Emitter {
     this.profile = { name: '', bio: '', v: 0 };
     this._names = new Map(); // имя собеседника по юзернейму — для интерфейса
     this._avatars = new Map(); // фото профиля собеседника по юзернейму
+    this._profileReplies = new Map(); // кому и когда повторно отправляли профиль по запросу
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
 
@@ -501,6 +503,7 @@ export class MessengerClient extends Emitter {
         username: this.account.username,
         deviceId: this.account.deviceId ?? undefined,
         identity: this.account.pub,
+        ...(this.appVersion ? { appVersion: String(this.appVersion) } : {}),
         ...(this._authExtra || {}),
       });
     };
@@ -845,6 +848,33 @@ export class MessengerClient extends Emitter {
       this.presence.set(p.username, { online: !!p.online, lastSeen: p.lastSeen || null, hidden: !!p.hidden, verified: !!p.verified, premium: !!p.premium });
       this.emit('presence', { username: p.username, ...this.presence.get(p.username) });
     }
+    // У собеседника подписка, а его фото у нас нет — попросить профиль ещё раз
+    const premium = (Array.isArray(list) ? list : []).filter((p) => p?.premium && typeof p.username === 'string').map((p) => p.username);
+    if (premium.length && this.account) this._serial(() => this._askProfiles(premium)).catch(() => {});
+  }
+
+  /**
+   * Запрос профиля (profile-req). Нужен, когда фото «потерялось»: его отбросила старая версия
+   * приложения (до 0.20), а собеседник повторно тот же профиль сам не пришлёт. Спрашиваем один
+   * раз на каждую версию его профиля; отвечает он, только если сам вам пишет (shareProfile).
+   */
+  async _askProfiles(names) {
+    const all = await this.contacts();
+    const outbox = (await this.storage.get('outbox')) || [];
+    let asked = false;
+    for (const name of names) {
+      const c = all[name];
+      if (!c || c.profile?.avatar || c.keyChanged || this.isBlocked(name) || name === this.account.username) continue;
+      const v = c.profile?.v || 0;
+      if (c.profileAskedV === v) continue;
+      c.profileAskedV = v;
+      outbox.push({ id: randomId(), to: name, kind: 'ctl', content: { t: 'profile-req', v }, attempts: 0 });
+      asked = true;
+    }
+    if (!asked) return;
+    await this.storage.set('outbox', outbox);
+    await this.storage.set('contacts', all);
+    this._pumpOutbox();
   }
 
   async _subscribePresence(names) {
@@ -1617,9 +1647,28 @@ export class MessengerClient extends Emitter {
     // Заблокирован: сервер такое уже не доставляет, а пришедшее до блокировки — отбрасываем
     // (расшифровали, чтобы не сбить храповик на случай разблокировки)
     if (this.isBlocked(from)) return ack(false);
+    if (res.content?.t === 'profile-req') {
+      // Повторная отправка профиля по просьбе собеседника — тем, кому вы пишете. На один и тот же
+      // запрос (та же версия профиля у собеседника) — не чаще раза в час.
+      const now = Date.now();
+      const asked = Number.isFinite(res.content.v) ? res.content.v : 0;
+      const last = this._profileReplies.get(from);
+      if (c.shareProfile && this.profile.v && (!last || last.v !== asked || now - last.at > 3600_000)) {
+        this._profileReplies.set(from, { v: asked, at: now });
+        const outbox = (await this.storage.get('outbox')) || [];
+        delete c.profileSentV;
+        this._shareProfileTo(c, outbox);
+        await this.storage.set('outbox', outbox);
+        await this._saveContacts(all);
+        this._pumpOutbox();
+      }
+      return ack(false);
+    }
     if (res.content?.t === 'profile') {
       const prof = cleanProfile(res.content);
-      if (prof && prof.v > (c.profile?.v || 0)) {
+      const old = c.profile;
+      // Та же версия, но с фото (повтор по запросу) — тоже принимаем
+      if (prof && (prof.v > (old?.v || 0) || (prof.v === old?.v && prof.avatar && !old.avatar))) {
         c.profile = prof;
         if (!known) c.hidden = true; // только профиль, без сообщений — в списке чатов не показываем
         await this._saveContacts(all);

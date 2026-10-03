@@ -6,6 +6,7 @@ import config from './config.js';
 import { CallManager, CALL_RESULT_TEXT } from './call.js';
 import { t, LANG, LOCALE, setLang, translateDom } from '/shared/i18n.js';
 import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
+import { VERSION } from '/shared/version.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -65,7 +66,9 @@ const activeAccount = () => accounts.find((a) => a.id === activeId);
 const savedAccounts = () => accounts.filter((a) => a.username);
 const saveAccounts = () => settings.set('accounts', JSON.stringify(accounts));
 
-const client = new MessengerClient({ url: DEFAULT_SERVER, storage: storageFor(activeId) });
+// Версия приложения: у десктопа и Android — версия установленного приложения, в вебе — версия страницы
+const APP_VERSION = (desktop?.version && (await desktop.version().catch(() => ''))) || VERSION;
+const client = new MessengerClient({ url: DEFAULT_SERVER, storage: storageFor(activeId), appVersion: APP_VERSION });
 let ownUnread = 0;
 const others = new Map(); // id → { acc, client, unread } — остальные аккаунты, работают в фоне
 let current = null;
@@ -1438,6 +1441,8 @@ async function renderDevices() {
       li.append(el('span', 'd-ico', /Приложение|^App /.test(d.name) ? '🖥' : /Android|iOS/.test(d.name) ? '📱' : '🌐'));
       const body = el('div', 'd-body');
       const meta = el('div', 'd-meta', seenText(d));
+      // Версия приложения на устройстве (старые версии её не сообщают)
+      meta.append(' · ', el('span', 'd-ver', d.appVersion ? t('версия {0}', d.appVersion) : t('версия неизвестна')));
       if (d.ip) meta.append(' · ', el('code', 'd-ip', d.ip));
       body.append(el('div', 'd-name', `${d.name} · ${t('№{0}', d.id)}`), meta);
       li.append(body);
@@ -2959,7 +2964,7 @@ async function notifyOther(acc, contact, message) {
 async function startOthers() {
   for (const acc of savedAccounts()) {
     if (acc.id === activeId || others.has(acc.id)) continue;
-    const c = new MessengerClient({ url: acc.server || DEFAULT_SERVER, storage: storageFor(acc.id) });
+    const c = new MessengerClient({ url: acc.server || DEFAULT_SERVER, storage: storageFor(acc.id), appVersion: APP_VERSION });
     const item = { acc, client: c, unread: 0 };
     others.set(acc.id, item);
     try {

@@ -134,6 +134,7 @@ function render() {
     for (const d of u.devices) {
       const row = el('div', 'device' + (d.online ? ' on' : ''));
       row.append(el('span', 'dev-name', `№${d.id} ${d.name}`));
+      row.append(el('span', 'tag ver', d.appVersion ? `v${d.appVersion}` : 'версия ?'));
       if (d.online) {
         if (d.ip) row.append(ipChip(d.ip, true));
         row.append(el('span', 'muted small', `с ${timeFmt.format(d.since)}`));
