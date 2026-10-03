@@ -144,6 +144,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11a2 2 0 0 1 2 2v1.6l3.4-2.3A1 1 0 0 1 22 8.1v7.8a1 1 0 0 1-1.6.8L17 14.4V16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
           </button>
           <button id="safety-btn" class="ghost" title="Код безопасности"><span class="lbl">Код безопасности</span><span class="ico" aria-hidden="true">🔑</span></button>
+          <button id="chat-menu-btn" class="icon-btn" title="Ещё" aria-label="Действия с чатом">⋮</button>
         </header>
 
         <div id="key-banner" class="banner danger" hidden>
@@ -167,6 +168,10 @@
             <div id="reply-text" class="rb-text"></div>
           </div>
           <button type="button" id="reply-cancel" class="icon-btn" aria-label="Отменить ответ">✕</button>
+        </div>
+        <div id="blocked-bar" class="blocked-bar" hidden>
+          <span>🚫 Вы заблокировали этого пользователя</span>
+          <button type="button" id="unblock-btn" class="ghost">Разблокировать</button>
         </div>
         <form id="composer" class="composer">
           <button type="button" id="attach-btn" class="icon-btn attach" aria-label="Прикрепить файл" title="Прикрепить файл"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6.5v10.5a4.5 4.5 0 0 1-9 0V5.5a3 3 0 0 1 6 0V16a1.5 1.5 0 0 1-3 0V6.5H9V16a3 3 0 0 0 6 0V5.5a4.5 4.5 0 0 0-9 0V17a6 6 0 0 0 12 0V6.5z"/></svg></button>
@@ -198,6 +203,7 @@
       <p class="small">Это устройство: <b id="my-device"></b></p>
       <button value="accounts" class="ghost wide">Аккаунты: переключиться или добавить…</button>
       <button value="devices" class="ghost wide">Устройства и привязка…</button>
+      <button value="blocked" class="ghost wide">Заблокированные…</button>
       <label class="check"><input type="checkbox" id="presence-visible"> Показывать другим, что я в сети и когда был(а)</label>
       <label class="lang-row">🌐 <span>Язык</span> <select id="lang-select" aria-label="Язык"></select></label>
       <h3 class="menu-sub">Уведомления</h3>
@@ -297,6 +303,52 @@
       <button type="button" id="viewer-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
     </div>
     <div id="viewer-body" class="viewer-body"></div>
+  </dialog>
+
+  <!-- Действия с чатом (шапка чата или правый клик по чату в списке) -->
+  <div id="chat-menu" class="msg-menu" role="menu" hidden>
+    <button type="button" data-act="block" role="menuitem" class="danger">🚫 Заблокировать</button>
+    <button type="button" data-act="unblock" role="menuitem">✓ Разблокировать</button>
+    <button type="button" data-act="delete-chat" role="menuitem" class="danger">🗑 Удалить чат</button>
+  </div>
+
+  <!-- Удаление чата -->
+  <dialog id="delchat-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Удалить чат с <span id="delchat-peer"></span>?</h2>
+      <label class="check"><input type="checkbox" id="delchat-all"> Удалить также у <b id="delchat-peer2"></b></label>
+      <p class="hint">Переписка пропадёт на всех ваших устройствах. С отметкой — и у собеседника. Если он напишет снова, чат появится опять.</p>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Отмена</button>
+        <button value="delete" class="danger-btn">Удалить чат</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Блокировка -->
+  <dialog id="block-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Заблокировать <span id="block-peer"></span>?</h2>
+      <p class="small">Он не сможет писать и звонить вам и не будет видеть, когда вы в сети. Об этом он не узнает: его сообщения будут выглядеть отправленными, но не доставленными.</p>
+      <label class="check"><input type="checkbox" id="block-delete"> Также удалить чат</label>
+      <p class="hint">Блокировка действует на всех ваших устройствах. Снять её можно в ⋯ → «Заблокированные».</p>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Отмена</button>
+        <button value="block" class="danger-btn">Заблокировать</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Список заблокированных -->
+  <dialog id="blocked-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Заблокированные</h2>
+      <ul id="blocked-list" class="blocked-list"></ul>
+      <p id="blocked-empty" class="muted small">Вы никого не заблокировали. Заблокировать можно в чате: ⋮ → «Заблокировать».</p>
+      <div class="dialog-actions">
+        <button value="close" class="ghost">Закрыть</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- Удаление -->

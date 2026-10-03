@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS ip_bans (
   note        TEXT NOT NULL DEFAULT '',
   created_at  INTEGER NOT NULL
 );
+-- Чёрный список: user заблокировал blocked. Сервер не доставляет blocked сообщения и звонки
+-- от него к user и не показывает ему статус user. Нужен серверу, иначе блокировку не обеспечить.
+CREATE TABLE IF NOT EXISTS blocks (
+  user        TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  blocked     TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (user, blocked)
+);
+CREATE INDEX IF NOT EXISTS blocks_blocked ON blocks(blocked);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -227,7 +236,22 @@ export class Store {
   }
   /** Удалить аккаунт целиком: устройства, ключи, очередь и подписки удаляются каскадом. */
   deleteUser(name) {
+    this.db.prepare('DELETE FROM blocks WHERE blocked = ?').run(name);
     return this.s.delUser.run(name).changes > 0;
+  }
+
+  // ----- чёрный список -----
+  setBlocked(user, blocked, on) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO blocks(user, blocked, created_at) VALUES (?, ?, ?)').run(user, blocked, Date.now());
+    else this.db.prepare('DELETE FROM blocks WHERE user = ? AND blocked = ?').run(user, blocked);
+  }
+  /** Кого заблокировал user */
+  blocksOf(user) {
+    return this.db.prepare('SELECT blocked FROM blocks WHERE user = ? ORDER BY created_at').all(user).map((r) => r.blocked);
+  }
+  /** user заблокировал other? */
+  hasBlocked(user, other) {
+    return !!this.db.prepare('SELECT 1 FROM blocks WHERE user = ? AND blocked = ?').get(user, other);
   }
 
   // ----- вложения (зашифрованные файлы) -----

@@ -10,7 +10,8 @@ Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the 
 - 💻 **Web, desktop and Android.** Runs in the browser, as a native app for Windows, macOS and Linux (Electron), and on Android (a dependency-free Kotlin shell). All share one UI and one crypto core.
 - 📞 **Voice & video calls with screen sharing.** WebRTC media (DTLS-SRTP) whose connection setup travels over the Double Ratchet channel, so the server cannot man-in-the-middle a call. Rings all your devices; an optional self-hosted TURN relay helps behind NAT.
 - 📎 **Photos, videos and files.** Attach, paste or drag-and-drop up to 10 files with a caption. Each file is encrypted on your device with its own AES-256-GCM key, which travels inside the Double Ratchet message; the server stores only ciphertext and deletes it after `QUEUE_TTL_DAYS` days.
-- 💬 **Telegram-style replies and deletion.** Quote-replies, "delete for me" (synced to all your devices) and "delete for everyone".
+- 💬 **Telegram-style replies and deletion.** Quote-replies, "delete for me" (synced to all your devices) and "delete for everyone", for single messages or the whole chat.
+- 🚫 **Blocking.** Blocked users can't message or call you or see your online status; their messages just stay "sent". Enforced by the server and shared across your devices.
 - 🔔 **Notifications that work in the background.** The desktop app keeps running in the system tray (optional start at login). The web version uses Web Push, so notifications arrive even with the tab closed. Pushes carry only the sender's name, encrypted for your browser, and message text is hidden by default.
 - 🟢 **Online status.** "online" / "last seen …" with live updates; you can hide your own status.
 - 👥 **Several accounts on one device.** Switch between them like in Telegram; inactive accounts stay connected, so their messages and notifications keep arriving.

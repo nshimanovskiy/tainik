@@ -113,6 +113,8 @@ export const ERROR_TEXT = {
   provision_decrypt_failed: t('Не удалось расшифровать данные привязки'),
   bad_device: t('Нельзя отвязать это устройство'),
   bad_url: t('Неверный адрес сервера'),
+  you_blocked: t('Вы заблокировали этого пользователя. Разблокируйте, чтобы написать'),
+  too_many_blocks: t('Заблокировано слишком много пользователей'),
   file_too_large: t('Файл слишком большой'),
   upload_quota: t('Достигнут дневной предел загрузки файлов'),
   storage_full: t('На сервере закончилось место для файлов'),
@@ -177,6 +179,7 @@ export class MessengerClient extends Emitter {
     this.presence = new Map();
     this.presenceHidden = false;
     this.verified = false; // у своего аккаунта официальная галочка
+    this.blocked = new Set(); // чёрный список (хранится на сервере, общий для своих устройств)
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
 
@@ -571,6 +574,7 @@ export class MessengerClient extends Emitter {
           this.emit('verified', this.verified);
         }
         this.push = { vapidKey: msg.vapidKey || null, endpoint: msg.pushEndpoint || null };
+        if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._setStatus('online');
         this._subscribePresence().catch(() => {});
         if (this._firstReady) {
@@ -582,6 +586,9 @@ export class MessengerClient extends Emitter {
         return;
       case 'presence':
         this._onPresence(msg.list);
+        return;
+      case 'blocks':
+        this._setBlocks(msg.list);
         return;
       case 'verified':
         this.verified = !!msg.verified;
@@ -658,6 +665,63 @@ export class MessengerClient extends Emitter {
 
   // ---------- Присутствие ----------
 
+  // ---------- Чёрный список ----------
+  // Сервер не доставляет вам сообщения и звонки заблокированного (у него они остаются
+  // «отправленными»), а ему показывает «был(а) давно» вместо вашего статуса.
+
+  _setBlocks(list) {
+    const next = new Set((Array.isArray(list) ? list : []).filter((n) => typeof n === 'string'));
+    const same = next.size === this.blocked.size && [...next].every((n) => this.blocked.has(n));
+    this.blocked = next;
+    if (!same) this.emit('blocks', [...next]);
+  }
+
+  isBlocked(username) {
+    return this.blocked.has(String(username).toLowerCase());
+  }
+
+  /** Заблокировать (on = true) или разблокировать собеседника. */
+  async setBlocked(username, on) {
+    const r = await this._request({ type: 'block', username: String(username).toLowerCase(), on: !!on });
+    this._setBlocks(r.list);
+  }
+
+  /**
+   * Удалить чат: переписка стирается на всех ваших устройствах, чат пропадает из списка
+   * (ключ собеседника остаётся — при новом сообщении проверка ключа продолжит работать).
+   * forAll — стереть переписку и у собеседника.
+   */
+  async deleteChat(username, { forAll = false } = {}) {
+    await this._serial(async () => {
+      const me = this.account.username;
+      await this._clearChat(username, true);
+      let outbox = (await this.storage.get('outbox')) || [];
+      // Неотправленное в этот чат больше не нужно
+      outbox = outbox.filter((x) => !((x.kind === 'msg' && x.to === username) || (x.kind === 'sync' && x.content?.to === username)));
+      const ts = Date.now();
+      const c = (await this.contacts())[username];
+      if (forAll && c && !c.keyChanged) outbox.push({ id: randomId(), to: username, kind: 'ctl', content: { t: 'clear-chat', ts }, attempts: 0 });
+      outbox.push({ id: randomId(), to: me, kind: 'ctl', content: { t: 'sync-delete-chat', chat: username, forAll, ts }, attempts: 0 });
+      await this.storage.set('outbox', outbox);
+    });
+    this._pumpOutbox();
+  }
+
+  async _clearChat(chat, hide) {
+    const ids = (await this.messages(chat)).map((m) => m.id);
+    await this.storage.set('chat:' + chat, []);
+    const del = (await this.storage.get('deleted:' + chat)) || [];
+    for (const id of ids) if (!del.includes(id)) del.push(id);
+    await this.storage.set('deleted:' + chat, del.slice(-DELETED_LIMIT));
+    const all = await this.contacts();
+    if (all[chat]) {
+      all[chat].unread = 0;
+      if (hide) all[chat].hidden = true;
+      await this._saveContacts(all);
+    }
+    this.emit('deleted', { contact: chat, ids, chat: true });
+  }
+
   /** Последний известный статус собеседника: { online, lastSeen, hidden, verified } или undefined */
   presenceOf(username) {
     return this.presence.get(username);
@@ -730,6 +794,7 @@ export class MessengerClient extends Emitter {
         c.keyChanged = identity;
         this.emit('key-changed', c);
       }
+      delete all[username].hidden; // удалённый чат снова в списке
       await this._saveContacts(all);
       return all[username];
     });
@@ -863,6 +928,8 @@ export class MessengerClient extends Emitter {
       const c = all[username];
       if (!c) throw new Error(t('Нет такого контакта'));
       if (c.keyChanged) throw errorOf('key_changed');
+      if (this.isBlocked(username)) throw errorOf('you_blocked');
+      delete c.hidden;
       const id = randomId();
       const ts = Date.now();
       const content = { ...base, ts };
@@ -905,6 +972,7 @@ export class MessengerClient extends Emitter {
     const all = await this.contacts();
     if (!all[username]) throw new Error(t('Нет такого контакта'));
     if (all[username].keyChanged) throw errorOf('key_changed');
+    if (this.isBlocked(username)) throw errorOf('you_blocked');
     const size = source.size ?? source.length;
     const mime = String(meta.mime || source.type || 'application/octet-stream').toLowerCase();
     const { keyB64, id } = await this._upload(source, size, onProgress, signal);
@@ -1274,6 +1342,10 @@ export class MessengerClient extends Emitter {
         await this._applyReadSync(c.chat, c.upTo);
         return ack(false);
       }
+      if (c?.t === 'sync-delete-chat' && typeof c.chat === 'string') {
+        await this._clearChat(c.chat, true);
+        return ack(false);
+      }
       if (c?.t === 'sync-delete' && typeof c.chat === 'string' && Array.isArray(c.ids)) {
         await this._removeMessages(c.chat, c.ids.map(String).slice(0, MAX_DELETE));
         return ack(false);
@@ -1290,6 +1362,7 @@ export class MessengerClient extends Emitter {
         const content = cleanText(c);
         if (contact && content) {
           contact.lastTs = Date.now();
+          delete contact.hidden;
           await this._saveContacts(all);
           const list = await this.messages(c.to);
           if (!list.some((m) => m.id === res.id)) {
@@ -1355,6 +1428,13 @@ export class MessengerClient extends Emitter {
 
     await this._learnDevice(from, res.fromDevice);
     await this._remember(from, res.id);
+    // Заблокирован: сервер такое уже не доставляет, а пришедшее до блокировки — отбрасываем
+    // (расшифровали, чтобы не сбить храповик на случай разблокировки)
+    if (this.isBlocked(from)) return ack(false);
+    if (res.content?.t === 'clear-chat') {
+      await this._clearChat(from, false);
+      return ack(false);
+    }
     if (res.content?.t === 'call') {
       // Сигнализация звонка: в историю не пишется. Устаревшие (старше 2 минут) отбрасываются.
       const age = Date.now() - Number(res.content.ts || 0);
@@ -1377,6 +1457,7 @@ export class MessengerClient extends Emitter {
     if (list.some((m) => m.id === res.id && m.dir === 'in')) return ack();
     c.unread = (c.unread || 0) + 1;
     c.lastTs = Date.now();
+    delete c.hidden; // удалённый чат появляется снова, как в Telegram
     await this._saveContacts(all);
     await this._appendMsg(from, { id: res.id, dir: 'in', ts, content });
     ack();

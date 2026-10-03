@@ -23,6 +23,7 @@ const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf
 
 const USERNAME_RE = /^[a-z0-9_]{3,32}$/;
 const MAX_ENVELOPE = 64 * 1024; // байт на один конверт
+const MAX_BLOCKS = 1000; // заблокированных у одного аккаунта
 const MAX_OPKS = 200; // одноразовых ключей на устройство
 const MAX_DEVICES = 5; // устройств на аккаунт
 const MAX_WATCH = 500; // за статусом скольких пользователей может следить одно соединение
@@ -231,11 +232,12 @@ export function startServer({
 
   // ---------- Присутствие («в сети» / «был(а) …») ----------
   const isOnline = (name) => store.deviceIds(name).some((d) => online.has(addr(name, d)));
-  function presenceOf(name) {
+  /** Статус name глазами viewer: кого name заблокировал, видит «был(а) давно», как при скрытом статусе. */
+  function presenceOf(name, viewer) {
     const p = store.getPresence(name);
     if (!p) return { username: name, exists: false };
     // Галочку видно всегда, даже если статус «в сети» скрыт
-    if (p.hidden) return { username: name, exists: true, verified: p.verified, hidden: true, online: false, lastSeen: null };
+    if (p.hidden || (viewer && store.hasBlocked(name, viewer))) return { username: name, exists: true, verified: p.verified, hidden: true, online: false, lastSeen: null };
     const on = isOnline(name);
     return { username: name, exists: true, verified: p.verified, hidden: false, online: on, lastSeen: on ? Date.now() : p.lastSeen };
   }
@@ -243,7 +245,7 @@ export function startServer({
     const set = watchers.get(name);
     if (!set || !set.size) return;
     const p = presenceOf(name);
-    for (const c of set) send(c, { type: 'presence', list: [p] });
+    for (const c of set) send(c, { type: 'presence', list: [c.meta?.user && !p.hidden && p.exists ? presenceOf(name, c.meta.user) : p] });
   }
   function unwatchAll(conn, state) {
     for (const name of state.watching) {
@@ -347,6 +349,7 @@ export function startServer({
         const wasOnline = isOnline(p.username);
         state.user = p.username;
         state.device = deviceId;
+        if (conn.meta) conn.meta.user = p.username;
         online.set(key, conn);
         if (!wasOnline) broadcastPresence(p.username);
         const d = store.getDevice(p.username, deviceId);
@@ -358,6 +361,7 @@ export function startServer({
           spkId: d.spk.id,
           presenceHidden: store.getPresence(p.username)?.hidden || false,
           verified: store.getPresence(p.username)?.verified || false,
+          blocks: store.blocksOf(p.username),
           vapidKey: vapid ? vapid.publicKey : null,
           pushEndpoint: store.getPushSub(p.username, deviceId)?.endpoint || null,
         });
@@ -440,6 +444,8 @@ export function startServer({
             JSON.stringify(env).length <= MAX_ENVELOPE;
           if (!ok) return error(conn, 'bad_envelope', { reqId: msg.reqId });
         }
+        // Получатель заблокировал отправителя: звонок молча «не доходит»
+        if (to !== state.user && store.hasBlocked(to, state.user)) return send(conn, { type: 'sent-ephemeral', reqId: msg.reqId, id: msg.id, delivered: [] });
         const delivered = [];
         for (const { deviceId, envelope } of msg.messages) {
           const rc = online.get(addr(to, deviceId));
@@ -488,6 +494,8 @@ export function startServer({
             JSON.stringify(env).length <= MAX_ENVELOPE;
           if (!ok) return error(conn, 'bad_envelope', { cid: msg.cid });
         }
+        // Получатель заблокировал отправителя: как в Telegram — «отправлено», но не доставляется
+        if (to !== state.user && store.hasBlocked(to, state.user)) return send(conn, { type: 'sent', cid: msg.cid, id: msg.id, to });
         const now = Date.now();
         for (const { deviceId, envelope } of msg.messages) {
           const item = { qid: b64(randomBytes(12)), from: state.user, envelope, ts: now };
@@ -576,7 +584,22 @@ export function startServer({
           if (!watchers.has(n)) watchers.set(n, new Set());
           watchers.get(n).add(conn);
         }
-        return send(conn, { type: 'presence', reqId: msg.reqId, list: names.map(presenceOf) });
+        return send(conn, { type: 'presence', reqId: msg.reqId, list: names.map((n) => presenceOf(n, state.user)) });
+      }
+
+      // ----- чёрный список (общий для всех своих устройств) -----
+      case 'block': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        const name = String(msg.username || '').toLowerCase();
+        if (!USERNAME_RE.test(name) || name === state.user) return error(conn, 'bad_username', { reqId: msg.reqId });
+        if (msg.on && store.blocksOf(state.user).length >= MAX_BLOCKS) return error(conn, 'too_many_blocks', { reqId: msg.reqId });
+        store.setBlocked(state.user, name, !!msg.on);
+        const list = store.blocksOf(state.user);
+        for (const c of onlineDevices(state.user)) if (c !== conn) send(c, { type: 'blocks', list });
+        // Заблокированный сразу перестаёт видеть статус (или снова видит)
+        const watching = watchers.get(state.user);
+        if (watching) for (const c of watching) if (c.meta?.user === name) send(c, { type: 'presence', list: [presenceOf(state.user, name)] });
+        return send(conn, { type: 'blocks', reqId: msg.reqId, list });
       }
 
       case 'set-presence-visibility': {

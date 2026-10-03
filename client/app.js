@@ -348,7 +348,10 @@ $('link-copy').addEventListener('click', async () => {
 let contactsGen = 0;
 async function renderContacts() {
   const gen = ++contactsGen;
-  const all = Object.values(await client.contacts()).sort((a, b) => b.lastTs - a.lastTs);
+  // Удалённые чаты не показываем (ключ собеседника хранится — чат вернётся с новым сообщением)
+  const all = Object.values(await client.contacts())
+    .filter((c) => !c.hidden || c.username === current)
+    .sort((a, b) => b.lastTs - a.lastTs);
   const lasts = [];
   for (const c of all) {
     const msgs = await client.messages(c.username);
@@ -370,11 +373,13 @@ async function renderContacts() {
     const cn = el('span', 'c-name');
     setName(cn, c.username, client.isVerified(c.username));
     top.append(cn);
-    if (c.keyChanged) top.append(el('span', 'shield warn', t('⚠ ключ изменён')));
+    if (client.isBlocked(c.username)) top.append(el('span', 'shield warn', t('🚫 заблокирован')));
+    else if (c.keyChanged) top.append(el('span', 'shield warn', t('⚠ ключ изменён')));
     else if (c.verified) top.append(el('span', 'shield', t('✔ проверен')));
     body.append(top, el('div', 'c-preview', previewOf(lasts[i])));
     btn.append(avWrap, body);
     if (c.unread && c.username !== current) btn.append(el('span', 'badge', String(c.unread)));
+    btn.dataset.chat = c.username;
     btn.addEventListener('click', () => openChat(c.username));
     li.append(btn);
     frag.append(li);
@@ -501,7 +506,12 @@ setInterval(renderPresence, 30_000);
 async function updateComposer(c) {
   if (!current) return;
   if (!c) c = (await client.contacts())[current];
-  const blocked = !c || !!c.keyChanged;
+  // Заблокировали собеседника — вместо поля ввода полоска «Разблокировать»
+  const iBlocked = client.isBlocked(current);
+  $('blocked-bar').hidden = !iBlocked;
+  $('composer').hidden = iBlocked;
+  if (iBlocked) setReply(null);
+  const blocked = !c || !!c.keyChanged || iBlocked;
   $('send-btn').disabled = blocked || client.status !== 'online';
   $('attach-btn').disabled = blocked || client.status !== 'online';
   const noCall = blocked || client.status !== 'online' || !window.RTCPeerConnection;
@@ -1120,6 +1130,7 @@ $('menu-dialog').addEventListener('close', async () => {
   const v = $('menu-dialog').returnValue;
   if (v === 'devices') return openDevices();
   if (v === 'accounts') return openAccounts();
+  if (v === 'blocked') return openBlocked();
   if (v !== 'reset') return;
   if (!confirm(t('Стереть ключи и переписку этого аккаунта на этом устройстве? Другие устройства аккаунта и другие аккаунты здесь продолжат работать.'))) return;
   if (calls.busy) calls.hangup();
@@ -2049,10 +2060,154 @@ $('delete-dialog').addEventListener('close', async () => {
   }
 });
 
-client.on('deleted', async ({ contact, ids }) => {
+client.on('deleted', async ({ contact, ids, chat }) => {
   if (reply && ids.includes(reply.id) && contact === current) setReply(null);
+  // Чат удалён (здесь или на другом своём устройстве) — закрываем его
+  if (chat && contact === current && (await client.contacts())[contact]?.hidden) {
+    $('back-btn').click();
+    return;
+  }
   if (contact === current) await renderChat();
   renderContacts();
+});
+
+// ---------- Блокировка и удаление чата ----------
+let chatMenuFor = null;
+function openChatMenu(name, x, y) {
+  chatMenuFor = name;
+  const menu = $('chat-menu');
+  const isBlocked = client.isBlocked(name);
+  menu.querySelector('[data-act="block"]').hidden = isBlocked;
+  menu.querySelector('[data-act="unblock"]').hidden = !isBlocked;
+  menu.hidden = false;
+  menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
+  menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
+  menu.querySelector('button:not([hidden])').focus();
+}
+function closeChatMenu() {
+  $('chat-menu').hidden = true;
+  chatMenuFor = null;
+}
+document.addEventListener('click', (e) => {
+  if (!$('chat-menu').hidden && !e.target.closest('#chat-menu') && !e.target.closest('#chat-menu-btn')) closeChatMenu();
+});
+document.addEventListener('keydown', (e) => e.key === 'Escape' && closeChatMenu());
+$('chat-menu-btn').addEventListener('click', () => {
+  if (!current) return;
+  if (!$('chat-menu').hidden) return closeChatMenu();
+  const r = $('chat-menu-btn').getBoundingClientRect();
+  openChatMenu(current, r.right - 200, r.bottom + 4);
+});
+// Правый клик или долгое нажатие на чат в списке
+$('contacts').addEventListener('contextmenu', (e) => {
+  const b = e.target.closest('[data-chat]');
+  if (!b) return;
+  e.preventDefault();
+  openChatMenu(b.dataset.chat, e.clientX, e.clientY);
+});
+let chatPress = null;
+$('contacts').addEventListener('touchstart', (e) => {
+  const b = e.target.closest('[data-chat]');
+  if (!b) return;
+  const touch = e.touches[0];
+  chatPress = setTimeout(() => {
+    chatPress = 'fired';
+    openChatMenu(b.dataset.chat, touch.clientX, touch.clientY);
+  }, 500);
+}, { passive: true });
+for (const ev of ['touchend', 'touchmove', 'touchcancel']) {
+  $('contacts').addEventListener(ev, (e) => {
+    // Меню открылось — не открывать заодно и сам чат
+    if (chatPress === 'fired' && ev === 'touchend') e.preventDefault();
+    clearTimeout(chatPress);
+    chatPress = null;
+  });
+}
+
+$('chat-menu').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b || !chatMenuFor) return;
+  const name = chatMenuFor;
+  closeChatMenu();
+  if (b.dataset.act === 'unblock') return setBlocked(name, false);
+  if (b.dataset.act === 'block') {
+    $('block-peer').textContent = name;
+    $('block-delete').checked = false;
+    $('block-dialog').dataset.name = name;
+    $('block-dialog').returnValue = '';
+    return $('block-dialog').showModal();
+  }
+  if (b.dataset.act === 'delete-chat') {
+    $('delchat-peer').textContent = name;
+    $('delchat-peer2').textContent = name;
+    $('delchat-all').checked = false;
+    $('delchat-dialog').dataset.name = name;
+    $('delchat-dialog').returnValue = '';
+    $('delchat-dialog').showModal();
+  }
+});
+
+async function setBlocked(name, on) {
+  try {
+    await client.setBlocked(name, on);
+    toast(on ? t('{0} заблокирован', name) : t('{0} разблокирован', name));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function deleteChat(name, forAll) {
+  try {
+    await client.deleteChat(name, { forAll });
+    if (name === current) $('back-btn').click();
+    await renderContacts();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+$('block-dialog').addEventListener('close', async () => {
+  const dlg = $('block-dialog');
+  if (dlg.returnValue !== 'block') return;
+  const name = dlg.dataset.name;
+  if (calls.busy && calls.call?.peer === name) calls.hangup();
+  await setBlocked(name, true);
+  if ($('block-delete').checked) await deleteChat(name, false);
+});
+$('delchat-dialog').addEventListener('close', () => {
+  const dlg = $('delchat-dialog');
+  if (dlg.returnValue === 'delete') deleteChat(dlg.dataset.name, $('delchat-all').checked);
+});
+$('unblock-btn').addEventListener('click', () => current && setBlocked(current, false));
+
+function renderBlocked() {
+  const names = [...client.blocked].sort();
+  $('blocked-empty').hidden = names.length > 0;
+  $('blocked-list').replaceChildren(
+    ...names.map((name) => {
+      const li = el('li', 'blocked-item');
+      const av = el('span', 'avatar');
+      paintAvatar(av, name);
+      const b = el('button', 'ghost', t('Разблокировать'));
+      b.type = 'button';
+      b.addEventListener('click', () => setBlocked(name, false));
+      li.append(av, el('span', 'blocked-name', name), b);
+      return li;
+    })
+  );
+}
+function openBlocked() {
+  renderBlocked();
+  $('blocked-dialog').showModal();
+}
+
+client.on('blocks', () => {
+  renderContacts();
+  if (current) {
+    updateComposer();
+    renderPresence();
+  }
+  if ($('blocked-dialog').open) renderBlocked();
 });
 
 // ---------- Статус «в сети» ----------
@@ -2081,6 +2236,7 @@ $('presence-visible').addEventListener('change', async (e) => {
 // false — назад некуда, приложение уйдёт в фон (и продолжит работать).
 window.__tainikBack = () => {
   if (!$('msg-menu').hidden) return closeMenu(), true;
+  if (!$('chat-menu').hidden) return closeChatMenu(), true;
   if ($('viewer').open) return closeViewer(), true;
   const dlg = [...document.querySelectorAll('dialog[open]')].pop();
   if (dlg) return dlg.close(), true;
