@@ -14,6 +14,7 @@ import { createAdmin } from './admin.js';
 import { createWebclipHandler } from './webclip.js';
 import { createReleases } from './releases.js';
 import { createBlobs } from './blobs.js';
+import { createBilling, parsePlans } from './billing.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
@@ -29,7 +30,7 @@ const MAX_DEVICES = 5; // устройств на аккаунт
 const MAX_WATCH = 500; // за статусом скольких пользователей может следить одно соединение
 const PROVISION_TTL = 10 * 60 * 1000; // канал привязки живёт 10 минут
 const AUTH_CONTEXT = 'tainik/v3/auth';
-const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 30, ephemeralPerMin: 120 };
+const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 30, ephemeralPerMin: 120, billingPerMin: 6 };
 const PUSH_GAP = 4000; // не чаще одного пуша от одного отправителя на устройство за это время
 
 const MIME = {
@@ -142,6 +143,9 @@ export function startServer({
   releases = null,
   // Вложения: { maxMb = 100, maxTotalGb = 20 } — лимит файла и всего хранилища
   uploads = {},
+  // Подписка «Тайник Премиум» через xRocket Pay (см. server/billing.js). Без токена — выключена.
+  // { token, webhookSecret, testnet, apiUrl, plans, publicUrl, fetch }
+  billing: billingOpts = null,
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -237,9 +241,10 @@ export function startServer({
     const p = store.getPresence(name);
     if (!p) return { username: name, exists: false };
     // Галочку видно всегда, даже если статус «в сети» скрыт
-    if (p.hidden || (viewer && store.hasBlocked(name, viewer))) return { username: name, exists: true, verified: p.verified, hidden: true, online: false, lastSeen: null };
+    // Галочку и значок Премиум (а с ним и фото профиля) видно и при скрытом статусе
+    if (p.hidden || (viewer && store.hasBlocked(name, viewer))) return { username: name, exists: true, verified: p.verified, premium: p.premium, hidden: true, online: false, lastSeen: null };
     const on = isOnline(name);
-    return { username: name, exists: true, verified: p.verified, hidden: false, online: on, lastSeen: on ? Date.now() : p.lastSeen };
+    return { username: name, exists: true, verified: p.verified, premium: p.premium, hidden: false, online: on, lastSeen: on ? Date.now() : p.lastSeen };
   }
   function broadcastPresence(name) {
     const set = watchers.get(name);
@@ -256,6 +261,19 @@ export function startServer({
     }
     state.watching.clear();
   }
+
+  // ---------- Подписка «Тайник Премиум» ----------
+  const premiumOf = (name) => {
+    const until = store.premiumUntil(name);
+    return { active: until > Date.now(), until: until || null };
+  };
+  /** Подписка изменилась: сказать своим устройствам, а собеседникам — через статус. */
+  function premiumChanged(name) {
+    const p = premiumOf(name);
+    for (const c of onlineDevices(name)) send(c, { type: 'premium', ...p });
+    broadcastPresence(name);
+  }
+  const billingInfo = () => (billing ? { plans: billing.plans, testnet: billing.testnet } : null);
 
   function deliverQueue(username, device) {
     const conn = online.get(addr(username, device));
@@ -361,6 +379,8 @@ export function startServer({
           spkId: d.spk.id,
           presenceHidden: store.getPresence(p.username)?.hidden || false,
           verified: store.getPresence(p.username)?.verified || false,
+          premium: premiumOf(p.username),
+          billing: billingInfo(),
           blocks: store.blocksOf(p.username),
           vapidKey: vapid ? vapid.publicKey : null,
           pushEndpoint: store.getPushSub(p.username, deviceId)?.endpoint || null,
@@ -634,6 +654,25 @@ export function startServer({
         }
       }
 
+      // ----- подписка: счёт на оплату и проверка оплаты -----
+      case 'premium-buy': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!billing) return error(conn, 'billing_disabled', { reqId: msg.reqId });
+        if (!take(state.billing, RATE.billingPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        try {
+          const inv = await billing.createInvoice(state.user, String(msg.plan || ''));
+          return send(conn, { type: 'premium-invoice', reqId: msg.reqId, ...inv });
+        } catch (e) {
+          return error(conn, e.code === 'bad_plan' ? 'bad_plan' : e.code === 'billing_unavailable' ? 'billing_unavailable' : 'billing_failed', { reqId: msg.reqId });
+        }
+      }
+
+      case 'premium-check': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (billing && take(state.billing, RATE.billingPerMin, 60_000)) await billing.check(state.user).catch(() => {});
+        return send(conn, { type: 'premium', reqId: msg.reqId, ...premiumOf(state.user) });
+      }
+
       case 'ping':
         return send(conn, { type: 'pong' });
 
@@ -676,6 +715,7 @@ export function startServer({
       totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued, media: store.blobStats() },
       users,
       bans: store.listBans(),
+      billing: billing ? { plans: billing.plans, testnet: billing.testnet, webhook: billing.webhook, active: store.premiumActiveCount(), payments: store.recentPayments(30) } : null,
     };
   }
   // Действия администратора
@@ -700,6 +740,17 @@ export function startServer({
       broadcastPresence(name);
       for (const c of onlineDevices(name)) send(c, { type: 'verified', verified: !!on });
       say(on ? 'администратор поставил галочку' : 'администратор снял галочку');
+    },
+    // Подписка вручную: days > 0 — продлить на столько дней, 0 — отключить сразу
+    setPremium(name, days) {
+      name = String(name || '').toLowerCase();
+      if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
+      days = Number(days);
+      if (!Number.isInteger(days) || days < 0 || days > 3650) throw new Error('Дней: целое число от 0 до 3650');
+      if (days) store.extendPremium(name, days);
+      else store.revokePremium(name);
+      premiumChanged(name);
+      say(days ? 'администратор продлил подписку' : 'администратор отключил подписку');
     },
     ban(ip, note = '') {
       ip = normIp(ip);
@@ -735,8 +786,14 @@ export function startServer({
     say,
   });
 
+  const billing = billingOpts?.token
+    ? createBilling({ ...billingOpts, store, say, onPaid: (name) => premiumChanged(name) })
+    : null;
+  if (billing) say(`подписка включена (xRocket Pay${billing.testnet ? ', тестовая сеть' : ''}${billing.webhook ? '' : ', без вебхука — только опрос'})`);
+
   const server = http.createServer((req, res) => {
     if (adminHandler && adminHandler(req, res)) return; // панель доступна и с заблокированного IP
+    if (billing && billing.handleHttp(req, res)) return; // вебхук xRocket Pay — до проверки банов
     if (bans.has(ipOf(req))) {
       res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Доступ запрещён');
       return;
@@ -787,7 +844,7 @@ export function startServer({
       (conn) => {
         conn.meta = { ip, since: Date.now() }; // для панели администратора, на диск не пишется
         allConns.add(conn);
-        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], pids: [], watching: new Set() };
+        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
           if (!take(state.msgs, RATE.msgsPerSec, 1000)) return error(conn, 'rate_limited');
@@ -846,6 +903,14 @@ export function startServer({
   };
   const janitor = setInterval(purge, 3600_000);
   purge();
+  // Подписка: у кого закончилась — сообщить; неоплаченные счета — сверить (если вебхук потерялся)
+  let premiumTick = Date.now();
+  const premiumTimer = setInterval(() => {
+    const now = Date.now();
+    for (const name of store.premiumEndedBetween(premiumTick, now)) premiumChanged(name);
+    premiumTick = now;
+    billing?.reconcile().catch(() => {});
+  }, 5 * 60_000);
 
   return new Promise((resolve) => {
     server.listen(port, host, () => {
@@ -858,6 +923,7 @@ export function startServer({
         async close() {
           clearInterval(heartbeat);
           clearInterval(janitor);
+          clearInterval(premiumTimer);
           for (const s of sockets) s.destroy();
           server.closeAllConnections?.();
           await new Promise((r) => server.close(r));
@@ -900,6 +966,15 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     uploads: { maxMb: Number(env.MAX_UPLOAD_MB) || 100, maxTotalGb: Number(env.MAX_STORAGE_GB) || 20 },
     releases: env.RELEASES_REPO ? { repo: env.RELEASES_REPO.trim(), token: env.GITHUB_TOKEN || null } : null,
     admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,
+    billing: env.XROCKET_PAY_TOKEN
+      ? {
+          token: env.XROCKET_PAY_TOKEN.trim(),
+          webhookSecret: (env.XROCKET_WEBHOOK_SECRET || '').trim() || null,
+          testnet: env.XROCKET_TESTNET === '1',
+          plans: parsePlans(env.PREMIUM_PLANS || '30:3', env.PREMIUM_CURRENCY || 'USDT'),
+          publicUrl: env.DOMAIN ? `https://${env.DOMAIN}` : null,
+        }
+      : null,
   });
   let stopping = false;
   const stop = async () => {

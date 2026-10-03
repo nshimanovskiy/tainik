@@ -86,8 +86,50 @@ CREATE TABLE IF NOT EXISTS blocks (
   PRIMARY KEY (user, blocked)
 );
 CREATE INDEX IF NOT EXISTS blocks_blocked ON blocks(blocked);
+-- Платная подписка «Тайник Премиум»: до какого момента действует (мс). Удаляется вместе с аккаунтом.
+CREATE TABLE IF NOT EXISTS premium (
+  user   TEXT PRIMARY KEY REFERENCES users(name) ON DELETE CASCADE,
+  until  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS premium_until ON premium(until);
+-- Счета на оплату подписки (xRocket Pay). id — наш clientInvoiceId. Записи остаются и после
+-- удаления аккаунта: это бухгалтерия. Сумма — десятичная строка, как в API xRocket.
+CREATE TABLE IF NOT EXISTS payments (
+  id          TEXT PRIMARY KEY,
+  user        TEXT NOT NULL,
+  plan        TEXT NOT NULL,
+  days        INTEGER NOT NULL,
+  amount      TEXT NOT NULL,
+  currency    TEXT NOT NULL,
+  invoice_id  TEXT,
+  url         TEXT,
+  status      TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  paid_at     INTEGER
+);
+CREATE INDEX IF NOT EXISTS payments_user ON payments(user, created_at);
+CREATE INDEX IF NOT EXISTS payments_status ON payments(status, expires_at);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
+
+function paymentRow(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    user: r.user,
+    plan: r.plan,
+    days: r.days,
+    amount: r.amount,
+    currency: r.currency,
+    invoiceId: r.invoice_id || null,
+    url: r.url || null,
+    status: r.status,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+    paidAt: r.paid_at || null,
+  };
+}
 
 /** Аккаунты, которые получают официальную галочку при регистрации. */
 export const DEFAULT_VERIFIED = ['admin'];
@@ -150,7 +192,25 @@ export class Store {
       queueItem: q('SELECT qid, sender, env_id FROM queue WHERE qid = ? AND user = ? AND device = ?'),
       delQueue: q('DELETE FROM queue WHERE qid = ?'),
       purgeOld: q('DELETE FROM queue WHERE ts < ?'),
-      presence: q('SELECT u.presence_hidden AS hidden, u.verified AS verified, MAX(d.last_seen) AS last_seen FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'),
+      presence: q(
+        'SELECT u.presence_hidden AS hidden, u.verified AS verified, MAX(d.last_seen) AS last_seen, (SELECT until FROM premium p WHERE p.user = u.name) AS premium_until FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'
+      ),
+      premiumUntil: q('SELECT until FROM premium WHERE user = ?'),
+      setPremium: q('INSERT INTO premium(user, until) VALUES (?, ?) ON CONFLICT(user) DO UPDATE SET until = excluded.until'),
+      delPremium: q('DELETE FROM premium WHERE user = ?'),
+      premiumEnded: q('SELECT user FROM premium WHERE until > ? AND until <= ?'),
+      premiumActive: q('SELECT COUNT(*) AS n FROM premium WHERE until > ?'),
+      addPayment: q(
+        'INSERT INTO payments(id, user, plan, days, amount, currency, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ),
+      getPayment: q('SELECT * FROM payments WHERE id = ?'),
+      setPaymentInvoice: q('UPDATE payments SET invoice_id = ?, url = ?, expires_at = ? WHERE id = ?'),
+      setPaymentStatus: q('UPDATE payments SET status = ? WHERE id = ? AND status = ?'),
+      markPaid: q("UPDATE payments SET status = 'paid', paid_at = ? WHERE id = ? AND status <> 'paid'"),
+      openPaymentOf: q("SELECT * FROM payments WHERE user = ? AND plan = ? AND status = 'active' AND url IS NOT NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1"),
+      pendingOf: q("SELECT * FROM payments WHERE user = ? AND status = 'active' AND expires_at > ? ORDER BY created_at DESC LIMIT ?"),
+      pendingAll: q("SELECT * FROM payments WHERE status = 'active' AND expires_at > ? ORDER BY created_at LIMIT ?"),
+      recentPayments: q('SELECT * FROM payments ORDER BY created_at DESC LIMIT ?'),
       setVerified: q('UPDATE users SET verified = ? WHERE name = ?'),
       setPresenceHidden: q('UPDATE users SET presence_hidden = ? WHERE name = ?'),
       getMeta: q('SELECT value FROM meta WHERE key = ?'),
@@ -164,6 +224,7 @@ export class Store {
       delPushIf: q('DELETE FROM push_subs WHERE user = ? AND device = ? AND endpoint = ?'),
       adminUsers: q(
         `SELECT u.name, u.created_at, u.presence_hidden AS hidden, u.verified AS verified,
+           (SELECT until FROM premium p WHERE p.user = u.name) AS premium_until,
            (SELECT COUNT(*) FROM queue q WHERE q.user = u.name) AS queued,
            (SELECT COUNT(*) FROM push_subs p WHERE p.user = u.name) AS push
          FROM users u ORDER BY u.name`
@@ -355,16 +416,80 @@ export class Store {
     return this.s.purgeOld.run(Date.now() - maxAgeMs).changes;
   }
 
-  /** { hidden, lastSeen } или null, если пользователя нет */
+  /** { hidden, verified, premium, lastSeen } или null, если пользователя нет */
   getPresence(name) {
     const r = this.s.presence.get(name);
-    return r ? { hidden: !!r.hidden, verified: !!r.verified, lastSeen: r.last_seen || null } : null;
+    return r ? { hidden: !!r.hidden, verified: !!r.verified, premium: (r.premium_until || 0) > Date.now(), lastSeen: r.last_seen || null } : null;
   }
   setVerified(name, on) {
     return this.s.setVerified.run(on ? 1 : 0, name).changes > 0;
   }
   setPresenceHidden(name, hidden) {
     this.s.setPresenceHidden.run(hidden ? 1 : 0, name);
+  }
+
+  // ----- подписка «Тайник Премиум» -----
+  /** До какого момента (мс) действует подписка; 0 — не было или удалена. Может быть в прошлом. */
+  premiumUntil(name) {
+    return this.s.premiumUntil.get(name)?.until || 0;
+  }
+  /** Продлить на days дней: от конца текущей подписки или от сейчас, если она истекла. */
+  extendPremium(name, days, now = Date.now()) {
+    return this.tx(() => this._extend(name, days, now));
+  }
+  _extend(name, days, now) {
+    const until = Math.max(now, this.premiumUntil(name)) + days * 86400_000;
+    this.s.setPremium.run(name, until);
+    return until;
+  }
+  /** Отключить подписку сразу. */
+  revokePremium(name) {
+    return this.s.delPremium.run(name).changes > 0;
+  }
+  /** Чья подписка закончилась в промежутке (from, to] — им и собеседникам нужно сообщить. */
+  premiumEndedBetween(from, to) {
+    return this.s.premiumEnded.all(from, to).map((r) => r.user);
+  }
+  premiumActiveCount(now = Date.now()) {
+    return this.s.premiumActive.get(now).n;
+  }
+
+  // ----- счета на оплату -----
+  addPayment({ id, user, plan, days, amount, currency, expiresAt, now = Date.now() }) {
+    this.s.addPayment.run(id, user, plan, days, String(amount), currency, 'active', now, expiresAt);
+  }
+  getPayment(id) {
+    return paymentRow(this.s.getPayment.get(String(id)));
+  }
+  setPaymentInvoice(id, invoiceId, url, expiresAt) {
+    this.s.setPaymentInvoice.run(invoiceId, url, expiresAt, id);
+  }
+  /** Сменить статус неоплаченного счёта (active → expired/cancelled/failed). */
+  closePayment(id, status) {
+    return this.s.setPaymentStatus.run(status, id, 'active').changes > 0;
+  }
+  /**
+   * Счёт оплачен: отметить и продлить подписку — одной транзакцией и ровно один раз,
+   * сколько бы раз ни пришло уведомление. Возвращает { user, until } или null (уже учтён).
+   */
+  markPaymentPaid(id, now = Date.now()) {
+    return this.tx(() => {
+      const p = this.getPayment(id);
+      if (!p || !this.s.markPaid.run(now, p.id).changes) return null;
+      if (!this.s.user.get(p.user)) return { user: p.user, until: 0 }; // аккаунт удалён — платёж учтён, продлевать некого
+      return { user: p.user, until: this._extend(p.user, p.days, now) };
+    });
+  }
+  /** Неистёкший счёт этого пользователя на этот тариф (чтобы не плодить новые). */
+  openPayment(user, plan, validAfter) {
+    return paymentRow(this.s.openPaymentOf.get(user, plan, validAfter));
+  }
+  pendingPayments(user = null, now = Date.now(), limit = 10) {
+    const rows = user ? this.s.pendingOf.all(user, now, limit) : this.s.pendingAll.all(now, limit);
+    return rows.map(paymentRow);
+  }
+  recentPayments(limit = 50) {
+    return this.s.recentPayments.all(limit).map(paymentRow);
   }
 
   // ----- служебные значения (ключи VAPID) -----
@@ -403,6 +528,7 @@ export class Store {
       createdAt: u.created_at,
       presenceHidden: !!u.hidden,
       verified: !!u.verified,
+      premiumUntil: u.premium_until || null,
       queued: u.queued,
       push: u.push > 0,
       devices: devices.get(u.name) || [],

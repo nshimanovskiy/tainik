@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на 3 октября 2026, версия **0.19.0** (`main`, коммит после «Чистка…»). Выпуск приложений v0.19.0 опубликован на GitHub Releases. Сервер работает на `https://chat.sdsds.top`.
+Состояние на 3 октября 2026, версия **0.20.0** (`main`): добавлена платная подписка «Тайник Премиум» (xRocket Pay) с фото профиля. Выпуск приложений v0.20.0 ещё не опубликован (последний — v0.19.0). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано и что известно плохого. Подробности для пользователей — в `README.md` / `README.ru.md`, развёртывание — в `DEPLOY.md`, выпуски — в `RELEASING.md`, история — в `CHANGELOG.md`.
 
@@ -25,6 +25,7 @@
 - юзернейм и имя, «о себе», профиль собеседника как в Telegram;
 - блокировка пользователей, удаление чата;
 - официальные «галочки»;
+- платная подписка «Тайник Премиум» (оплата криптовалютой через xRocket Pay); пока даёт фото профиля и звезду ★;
 - панель администратора;
 - главная страница с загрузками;
 - самообновление приложений;
@@ -79,14 +80,14 @@
 | `outbox` | очередь отправки `{id, to, kind:'msg'|'sync'|'ctl', content, attempts}` |
 | `deleted:<chat>` | id удалённых (чтобы запоздавшая копия не воскресла) |
 | `seen`, `devices:<name>`, `session:<addr>`, `prekeys` | служебное |
-| `profile` | свой профиль `{name, bio, v}` |
+| `profile` | свой профиль `{name, bio, avatar?, v}`; `avatar` — data:-URL JPEG 160×160 до `AVATAR_MAX` (20 000 символов) |
 
 Типы содержимого внутри зашифрованного конверта (`content.t`):
 - `text`, `file` — сообщения. Вложение — `{t:'file', body: подпись, file:{id,key,size,name,mime,kind,w,h,dur,thumb}}`.
 - `call` — сигнализация звонков, отправляется **эфемерно**: только устройствам в сети, без очереди.
 - `delete` — удалить у всех.
 - `clear-chat` — удалить чат у собеседника.
-- `profile` — имя и «о себе».
+- `profile` — имя, «о себе» и фото (`avatar`, проверяет `validAvatar`).
 - Синхронизация своих устройств: `sync-sent`, `sync-read`, `sync-delete`, `sync-delete-chat`, `sync-profile`.
 - Локальные системные: `rejected`, `key-accepted`.
 
@@ -101,13 +102,15 @@
   - `send`, `send-ephemeral`, `ack`;
   - `list-devices`, `unlink-device`, `provision-open`, `provision-send`;
   - `presence-subscribe`, `set-presence-visibility`;
-  - `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`.
-  - Сервер шлёт: `ready` (там же `verified` и `blocks`), `message`, `sent`, `delivered`, `presence`, `blocks`, `verified`, `devices-changed`, `prekey-count`, `error`.
+  - `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`;
+  - `premium-buy` (счёт на тариф), `premium-check` (сверить оплату).
+  - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}` и `billing {plans, testnet}`), `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
 - `store.js` — SQLite (`node:sqlite`), файл `data/tainik.db`. Таблицы:
   - `users` (с колонками `presence_hidden`, `verified`);
   - `devices` (с `last_ip`);
   - `opks`, `queue`, `meta`, `push_subs`;
-  - `blobs`, `ip_bans`, `blocks`.
+  - `blobs`, `ip_bans`, `blocks`;
+  - `premium` (user → until, каскадно с аккаунтом), `payments` (счета xRocket: наш id = clientInvoiceId, тариф, сумма-строка, статус; не удаляются с аккаунтом).
   - Миграции — через `ALTER TABLE … ADD COLUMN` при старте.
 - `blobs.js` — вложения.
   - `blob-new` (WS) выдаёт `{id, token, chunk}`.
@@ -120,6 +123,11 @@
   - удалять аккаунты;
   - ставить «галочки»;
   - блокировать IP.
+- `billing.js` — подписка через xRocket Pay (`XROCKET_PAY_TOKEN` и др.).
+  - `premium-buy` → `POST /api/v1/invoices` (сумма, валюта, наш `clientInvoiceId`, `callback.callbackUrl = https://DOMAIN/api/pay/xrocket`; юзернейм не передаётся). Неоплаченный счёт на тот же тариф отдаётся повторно.
+  - Вебхук `POST /api/pay/xrocket` (обрабатывается до проверки банов): подпись `hex(HMAC-SHA256(webhook_secret, "{Signature-Timestamp}.{raw body}"))`, `Signature-Version: v1`, окно 5 минут; сверка суммы и валюты; `markPaymentPaid` в транзакции — один счёт продлевает ровно один раз.
+  - Запасной путь — опрос `GET /api/v1/invoice?clientInvoiceId=`: `premium-check` и фоновая сверка раз в 5 минут (лимит API — 20 запросов в минуту на метод). Там же оповещение об истёкших подписках.
+  - Админка: `setPremium(name, days)` (0 — отключить), блок «Подписка» со счетами.
 - `releases.js` — ретрансляция релизов GitHub (`RELEASES_REPO`) для страницы загрузок и самообновления; поддерживает докачку.
 - `webclip.js` — профиль iOS `.mobileconfig`; его подписывает `deploy/sign-profile.sh` сертификатом Let's Encrypt.
 - TURN для звонков: coturn, временные учётные данные (`TURN_SECRET`), `deploy/setup-calls.sh`.
@@ -190,6 +198,8 @@
 | Последний IP устройства хранится (не история) | Требование пользователя: видно в панели и в «Устройствах». |
 | Админка на `/adminadminadmin`, а не `/admin` | Требование пользователя. |
 | Свой QR-декодер (`shared/qr-scan.js`) + Web Worker; BarcodeDetector — где он есть | В Electron (Windows, Linux) и Android WebView BarcodeDetector нет. Внешнюю библиотеку не берём (принцип нуля зависимостей). |
+| Подписка: оплата через xRocket Pay, признак подписки — на сервере, фото — в E2E-профиле | Сервер не видит фото, но может «выключить» его: клиент показывает фото, только если `presence.premium` (или своя подписка) активна. Поставить новое фото без подписки не даёт клиент (`premium_required`). Цена — сервер и собеседники знают, кто подписчик. |
+| Фото профиля встроено в профиль (data:-URL), а не вложением | Вложения удаляются через 30 дней; встроенное фото живёт с профилем. Размер ограничен, чтобы профиль с копиями на 5 устройств влез в одно WS-сообщение (256 КБ). При привязке устройства фото собеседников передаются в пределах 30 000 символов. |
 | i18n: ключ — сама русская строка, `t('…', …args)` с `{0}`; EN-словарь в `shared/i18n-en.js` | Не нужно придумывать идентификаторы. Тест ловит любую строку без перевода. |
 
 ---
@@ -220,6 +230,7 @@ server/            Node-сервер (без npm-зависимостей)
   store.js         SQLite
   ws.js            WebSocket-сервер
   blobs.js         вложения
+  billing.js       подписка «Премиум»: счета и вебхук xRocket Pay
   webpush.js, admin.js (+admin-ui/), releases.js, webclip.js, backup.js
 desktop/           Electron: main.cjs, preload.cjs, lib.cjs (SecureStore, CSP), updater.cjs, i18n.cjs,
                    release-key.pem (открытый ключ выпусков), scripts/copy-web.mjs
@@ -238,7 +249,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test`. На 0.19.0 — **69 тестов**, все зелёные. Нужен Node 22.13+.
+- **Тесты:** `npm test`. На 0.20.0 — **73 теста**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
 - **Локально:** `npm start` → главная `http://localhost:8080`, мессенджер `/app`. Чтобы проверить вдвоём, откройте обычное окно и окно инкогнито.
 - **CI:** каждый push в `main` запускает `build.yml`: test, docker, desktop×3, android. Статус:
   `curl -s "https://api.github.com/repos/nshimanovskiy/tainik/actions/runs?branch=main&per_page=1"`
@@ -301,6 +312,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.17 | Настройки по разделам, как в Telegram |
 | 0.18 | Встроенный сканер QR во всех версиях |
 | 0.19 | Юзернейм и имя, «о себе», профиль собеседника, ссылка на главную в «О Тайнике» |
+| 0.20 | Подписка «Тайник Премиум» через xRocket Pay, фото профиля, звезда ★, подписка в админке |
 
 ---
 
@@ -320,7 +332,13 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 **Профиль**
 - Имя видят только те, кому вы писали. Новый собеседник до вашего первого сообщения видит юзернейм.
-- Фото профиля нет: аватар — буква и цвет по юзернейму.
+- Фото профиля — только с подпиской, маленькое (160×160). Без подписки аватар — буква и цвет по юзернейму.
+- Привязанное устройство может не получить фото части собеседников (лимит канала привязки) — они появятся при следующем изменении профиля собеседника.
+
+**Подписка**
+- Проверена с поддельным xRocket в тестах и в браузере; с настоящим xRocket (даже тестовой сетью) не проверялась. Схема тела `POST /api/v1/invoices` взята из Python-клиента pyXRocketAPI (страница документации её не отдаёт).
+- Звезда и фото пропадают у собеседников не мгновенно после окончания подписки, а в течение 5 минут (фоновая проверка).
+- Возвратов (refund) нет; отключение подписки администратором денег не возвращает.
 - Старые клиенты (до 0.19) имён не показывают.
 
 **QR-сканер**
@@ -347,7 +365,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 Высказаны или логично вытекают:
 - пересылка сообщений и медиа;
-- фото профиля (как вложение, ключ — в `profile`);
+- новые преимущества подписки (точки расширения: `client.isPremium()` / `hasPremium(name)` на клиенте, `store.premiumUntil()` на сервере);
 - группы (Sender Keys);
 - редактирование сообщений;
 - поиск;

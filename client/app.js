@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -78,11 +78,28 @@ function hue(name) {
 }
 /** Имя для показа: имя из профиля собеседника или юзернейм. */
 const nameOf = (username) => (username && client.account ? client.nameOf(username) : username || '');
-/** Аватар: первая буква имени, цвет — по юзернейму (не меняется вместе с именем). */
-function paintAvatar(node, username) {
+/**
+ * Аватар: фото профиля (если у владельца подписка Премиум), иначе первая буква имени,
+ * цвет — по юзернейму (не меняется вместе с именем).
+ */
+function paintAvatar(node, username, photo = username && client.account ? client.avatarOf(username) : null) {
+  node.classList.toggle('photo', !!photo);
+  if (photo) {
+    node.textContent = '';
+    node.style.background = '';
+    node.style.backgroundImage = `url("${photo}")`; // только проверенный data:-URL (validAvatar)
+    return;
+  }
   const shown = nameOf(username) || '?';
   node.textContent = [...shown][0].toUpperCase();
   node.style.background = `hsl(${hue(username || '')} 42% 42%)`;
+}
+// Звезда подписки Премиум рядом с именем
+function premiumStar() {
+  const s = el('span', 'premium-star', '★');
+  s.title = t('Подписка Премиум');
+  s.setAttribute('aria-label', t('Подписка Премиум'));
+  return s;
 }
 // Официальная галочка (её ставит администратор сервера), как в Telegram
 function verifiedBadge() {
@@ -107,6 +124,7 @@ function verifiedBadge() {
 function setName(node, username, verified) {
   node.replaceChildren(document.createTextNode(nameOf(username)));
   if (verified) node.append(verifiedBadge());
+  if (username && client.account && client.hasPremium(username)) node.append(premiumStar());
 }
 
 const timeFmt = new Intl.DateTimeFormat(LOCALE, { hour: '2-digit', minute: '2-digit' });
@@ -1131,6 +1149,7 @@ function showSetPage(name) {
   $('set-back').hidden = name === 'main';
   if (name === 'blocked') renderBlocked();
   if (name === 'profile') fillProfileEdit();
+  if (name === 'premium') fillPremium();
   page.scrollTop = 0;
   $('menu-dialog').querySelector('.settings-form').scrollTop = 0;
 }
@@ -1175,6 +1194,7 @@ async function fillSettings() {
   $('my-device').textContent = `${client.account.deviceName || t('Устройство')} (${t('№{0}', client.account.deviceId)})`;
   $('set-lang-value').textContent = LANGS.find(([c]) => c === LANG)?.[1] || '';
   $('set-blocked-value').textContent = client.blocked.size ? String(client.blocked.size) : '';
+  fillPremiumRow();
   await fillNotifSettings();
 }
 
@@ -1185,21 +1205,84 @@ async function openSettings(page = 'main') {
 }
 $('menu-btn').addEventListener('click', () => openSettings());
 
-// Свой профиль: имя и «о себе» (юзернейм не меняется)
+// Свой профиль: фото, имя и «о себе» (юзернейм не меняется)
+let pendingAvatar; // undefined — фото не меняли, null — убрать, строка — новое
 function fillProfileEdit() {
   $('prof-name').value = client.profile.name;
   $('prof-bio').value = client.profile.bio;
   $('prof-name').placeholder = client.account.username;
   $('prof-username').textContent = '@' + client.account.username;
+  pendingAvatar = undefined;
+  updateProfilePhoto();
   bioCount();
 }
+function updateProfilePhoto() {
+  const premium = client.isPremium();
+  const has = pendingAvatar === undefined ? !!client.profile.avatar : !!pendingAvatar;
+  // Без подписки фото не показывается, но убрать сохранённое можно
+  const shown = pendingAvatar === undefined ? client.avatarOf(client.account.username) : premium ? pendingAvatar : null;
+  paintAvatar($('prof-avatar'), client.account.username, shown);
+  $('prof-photo-pick').hidden = !premium;
+  $('prof-photo-pick').textContent = has ? t('📷 Сменить фото') : t('📷 Выбрать фото');
+  $('prof-photo-clear').hidden = !has;
+  $('prof-photo-actions').hidden = !premium && !has;
+  $('prof-photo-locked').hidden = premium || !client.billing;
+}
+/** Картинка → квадратное фото профиля (обрезка по центру, JPEG), не больше AVATAR_MAX. */
+async function makeAvatar(file) {
+  if (!file.type.startsWith('image/') || file.size > 40 * 1024 * 1024) throw new Error(t('Это не картинка или она слишком большая'));
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    throw new Error(t('Не удалось открыть картинку'));
+  }
+  try {
+    for (const size of [AVATAR_SIZE, 128, 96]) {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const g = canvas.getContext('2d');
+      const side = Math.min(bmp.width, bmp.height);
+      g.fillStyle = '#fff'; // прозрачный фон PNG → белый (JPEG без прозрачности)
+      g.fillRect(0, 0, size, size);
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
+      for (const q of [0.85, 0.75, 0.6, 0.45]) {
+        const url = canvas.toDataURL('image/jpeg', q);
+        if (validAvatar(url)) return url;
+      }
+    }
+  } finally {
+    bmp.close?.();
+  }
+  throw new Error(t('Не удалось уменьшить картинку'));
+}
+$('prof-photo-pick').addEventListener('click', () => $('prof-photo-input').click());
+$('prof-photo-input').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    pendingAvatar = await makeAvatar(file);
+    updateProfilePhoto();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+$('prof-photo-clear').addEventListener('click', () => {
+  pendingAvatar = null;
+  updateProfilePhoto();
+});
 function bioCount() {
   $('prof-bio-count').textContent = String(140 - $('prof-bio').value.length);
 }
 $('prof-bio').addEventListener('input', bioCount);
 $('prof-save').addEventListener('click', async () => {
   try {
-    await client.setProfile({ name: $('prof-name').value, bio: $('prof-bio').value });
+    const next = { name: $('prof-name').value, bio: $('prof-bio').value };
+    if (pendingAvatar !== undefined) next.avatar = pendingAvatar;
+    await client.setProfile(next);
+    pendingAvatar = undefined;
     toast(t('Профиль сохранён'));
     setBack();
   } catch (err) {
@@ -1214,6 +1297,107 @@ client.on('profile', () => {
     paintAvatar($('set-avatar'), client.account.username);
   }
 });
+// ---------- Подписка «Тайник Премиум» ----------
+// Оплата — криптовалютой через xRocket Pay: сервер выставляет счёт, пользователь платит
+// в Telegram (@xRocket), сервер узнаёт об оплате сам (вебхук) или по «Проверить оплату».
+const dateLong = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
+const dateShort = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short' });
+let invoice = null; // последний выставленный счёт { id, url, days, price, currency, expiresAt }
+let invoiceBase = 0; // до какого момента действовала подписка, когда счёт выставили
+let premPoll = null;
+function planName(days) {
+  if (days % 365 === 0) return days === 365 ? t('1 год') : t('{0} г.', days / 365);
+  if (days % 30 === 0) return days === 30 ? t('1 месяц') : t('{0} мес.', days / 30);
+  return t('{0} дн.', days);
+}
+function fillPremiumRow() {
+  $('row-premium-group').hidden = !client.billing && !client.isPremium();
+  $('set-premium-value').textContent = client.isPremium() && client.premium.until ? t('до {0}', dateShort.format(client.premium.until)) : '';
+}
+function fillPremium() {
+  const on = client.isPremium();
+  $('prem-status').textContent = on
+    ? client.premium.until
+      ? t('Подписка действует до {0}', dateLong.format(client.premium.until))
+      : t('Подписка действует')
+    : client.billing
+      ? t('Подписка не оформлена')
+      : t('На этом сервере подписка пока не продаётся');
+  const plans = client.billing?.plans || [];
+  $('prem-plans-title').textContent = on ? t('Продлить') : t('Оплатить');
+  $('prem-plans-title').hidden = $('prem-plans').hidden = $('prem-note').hidden = !plans.length;
+  $('prem-testnet').hidden = !client.billing?.testnet;
+  $('prem-plans').replaceChildren(
+    ...plans.map((p) => {
+      const b = el('button', 'set-row prem-plan');
+      b.type = 'button';
+      b.append(el('span', 'set-ico', '🗓'), el('span', 'set-label', planName(p.days)), el('span', 'set-value', `${p.price} ${p.currency}`));
+      b.addEventListener('click', () => buyPlan(p, b));
+      return b;
+    })
+  );
+  if (invoice && invoice.expiresAt < Date.now()) invoice = null;
+  showInvoice();
+}
+function showInvoice() {
+  $('prem-pay').hidden = !invoice;
+  if (!invoice) return;
+  $('prem-pay-text').textContent = t('Счёт: {0} — {1} {2}. Откройте его в Telegram и оплатите в боте @xRocket.', planName(invoice.days), invoice.price, invoice.currency);
+  $('prem-link').href = invoice.url;
+}
+async function buyPlan(plan, btn) {
+  btn.disabled = true;
+  try {
+    invoiceBase = client.premium.until || 0;
+    invoice = await client.buyPremium(plan.id);
+    showInvoice();
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+function stopPremPoll() {
+  clearInterval(premPoll);
+  premPoll = null;
+}
+// После перехода к оплате — сами спрашиваем сервер раз в 15 секунд (на случай, если вебхук задержится)
+$('prem-link').addEventListener('click', () => {
+  stopPremPoll();
+  const end = Date.now() + 15 * 60_000;
+  premPoll = setInterval(() => {
+    if (!invoice || Date.now() > end) return stopPremPoll();
+    if (client.status === 'online') client.checkPremium().catch(() => {});
+  }, 15_000);
+});
+$('prem-check').addEventListener('click', async () => {
+  $('prem-check').disabled = true;
+  try {
+    await client.checkPremium();
+    if (invoice) toast(t('Оплата пока не поступила. Если вы уже заплатили, подождите минуту и проверьте ещё раз.'), 6000);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    $('prem-check').disabled = false;
+  }
+});
+client.on('premium', (p) => {
+  if (invoice && p.active && (p.until || 0) > invoiceBase) {
+    invoice = null;
+    stopPremPoll();
+    toast(t('Подписка Премиум оформлена — спасибо! ⭐'), 6000);
+  }
+  if (!client.account) return;
+  setName($('me-name'), client.account.username, client.verified);
+  paintAvatar($('me-avatar'), client.account.username);
+  if (!$('menu-dialog').open) return;
+  setName($('set-name'), client.account.username, client.verified);
+  paintAvatar($('set-avatar'), client.account.username);
+  fillPremiumRow();
+  if (setPage === 'premium') fillPremium();
+  if (setPage === 'profile') updateProfilePhoto();
+});
+
 $('menu-dialog').addEventListener('close', async () => {
   const v = $('menu-dialog').returnValue;
   if (v === 'devices') return openDevices();
@@ -2603,8 +2787,9 @@ client.on('blocks', () => {
 client.on('presence', ({ username }) => {
   if (username === current) {
     renderPresence();
-    renderHeader(); // галочку могли поставить или снять
+    renderHeader(); // галочку или подписку (а с ней фото) могли поставить или снять
   }
+  if ($('profile-dialog').open && profileFor === username) renderProfile();
   renderContacts();
 });
 client.on('verified', (on) => client.account && setName($('me-name'), client.account.username, on));

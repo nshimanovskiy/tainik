@@ -49,6 +49,14 @@ const MAX_DELETE = 100;
 const REPLY_SNIPPET = 120;
 export const NAME_MAX = 64;
 export const BIO_MAX = 140;
+// Фото профиля (преимущество подписки): маленькая картинка data:-URL прямо в зашифрованном
+// профиле. Предел выбран так, чтобы профиль со всеми копиями для устройств собеседника
+// уместился в одно сообщение серверу.
+export const AVATAR_MAX = 20_000;
+export const AVATAR_SIZE = 160; // сторона квадрата в пикселях
+const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+export const validAvatar = (a) => typeof a === 'string' && a.length <= AVATAR_MAX && AVATAR_RE.test(a);
+const PROVISION_AVATARS = 30_000; // сколько места под фото собеседников при привязке устройства
 
 /** Имя или «о себе»: без управляющих и «переворачивающих» текст символов, обрезано. */
 export function cleanProfileText(s, max) {
@@ -59,10 +67,12 @@ export function cleanProfileText(s, max) {
     .trim()
     .slice(0, max);
 }
-/** Профиль { name, bio, v } из сообщения (только известные поля) или null. */
+/** Профиль { name, bio, avatar?, v } из сообщения (только известные поля) или null. */
 function cleanProfile(p) {
   if (!p || !Number.isFinite(p.v) || p.v <= 0) return null;
-  return { name: cleanProfileText(p.name, NAME_MAX).replace(/\n/g, ' '), bio: cleanProfileText(p.bio, BIO_MAX), v: p.v };
+  const out = { name: cleanProfileText(p.name, NAME_MAX).replace(/\n/g, ' '), bio: cleanProfileText(p.bio, BIO_MAX), v: p.v };
+  if (validAvatar(p.avatar)) out.avatar = p.avatar;
+  return out;
 }
 
 /** Цитата для ответа: кто написал и начало текста. */
@@ -128,6 +138,11 @@ export const ERROR_TEXT = {
   bad_link_code: t('Неверный код привязки'),
   provision_not_found: t('Код привязки устарел или уже использован — обновите его на новом устройстве'),
   provision_decrypt_failed: t('Не удалось расшифровать данные привязки'),
+  billing_disabled: t('Подписка на этом сервере не подключена'),
+  billing_failed: t('Не удалось выставить счёт, попробуйте позже'),
+  billing_unavailable: t('Платёжный сервис не отвечает, попробуйте позже'),
+  bad_plan: t('Такого тарифа нет'),
+  premium_required: t('Фото профиля доступно с подпиской Премиум'),
   bad_device: t('Нельзя отвязать это устройство'),
   bad_url: t('Неверный адрес сервера'),
   you_blocked: t('Вы заблокировали этого пользователя. Разблокируйте, чтобы написать'),
@@ -196,10 +211,14 @@ export class MessengerClient extends Emitter {
     this.presence = new Map();
     this.presenceHidden = false;
     this.verified = false; // у своего аккаунта официальная галочка
+    // Подписка «Премиум» своего аккаунта и тарифы сервера (null — сервер подписку не продаёт)
+    this.premium = { active: false, until: null };
+    this.billing = null;
     this.blocked = new Set(); // чёрный список (хранится на сервере, общий для своих устройств)
     // Свой профиль (имя, «о себе»). Сервер его не знает: он уходит собеседникам зашифрованным
     this.profile = { name: '', bio: '', v: 0 };
     this._names = new Map(); // имя собеседника по юзернейму — для интерфейса
+    this._avatars = new Map(); // фото профиля собеседника по юзернейму
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
 
@@ -398,13 +417,18 @@ export class MessengerClient extends Emitter {
     } catch {
       throw errorOf('bad_link_code');
     }
-    const contacts = Object.values(await this.contacts()).map((c) => ({
-      username: c.username,
-      keys: c.keys,
-      verified: !!c.verified,
-      profile: c.profile || undefined,
-      shareProfile: !!c.shareProfile,
-    }));
+    // Фото собеседников — сколько влезет в канал привязки, начиная с недавних чатов
+    let room = PROVISION_AVATARS;
+    const contacts = Object.values(await this.contacts())
+      .sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0))
+      .map((c) => {
+        let profile = c.profile || undefined;
+        if (profile?.avatar) {
+          if (profile.avatar.length <= room) room -= profile.avatar.length;
+          else profile = { ...profile, avatar: undefined };
+        }
+        return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile };
+      });
     const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, profile: this.profile };
     let sealed;
     try {
@@ -610,6 +634,8 @@ export class MessengerClient extends Emitter {
           this.emit('verified', this.verified);
         }
         this.push = { vapidKey: msg.vapidKey || null, endpoint: msg.pushEndpoint || null };
+        this.billing = msg.billing && Array.isArray(msg.billing.plans) ? msg.billing : null;
+        this._setPremium(msg.premium);
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._setStatus('online');
         this._subscribePresence().catch(() => {});
@@ -629,6 +655,9 @@ export class MessengerClient extends Emitter {
       case 'verified':
         this.verified = !!msg.verified;
         this.emit('verified', this.verified);
+        return;
+      case 'premium':
+        this._setPremium(msg);
         return;
       case 'prekey-count':
         this._maintainPrekeys(msg.count).catch((e) => console.error('prekeys', e));
@@ -768,10 +797,52 @@ export class MessengerClient extends Emitter {
     return !!this.presence.get(username)?.verified;
   }
 
+  // ---------- Подписка «Тайник Премиум» ----------
+  // Оплата — криптовалютой через xRocket Pay: сервер выставляет счёт и сам узнаёт об оплате.
+  // Сервер не видит фото профиля (оно в зашифрованном профиле), но знает, у кого подписка:
+  // фото показывается, только пока у его владельца она действует.
+
+  _setPremium(p) {
+    const next = { active: !!p?.active, until: Number.isFinite(p?.until) ? p.until : null };
+    if (next.active === this.premium.active && next.until === this.premium.until) return;
+    this.premium = next;
+    this.emit('premium', next);
+  }
+
+  /** Действует ли своя подписка. */
+  isPremium() {
+    return this.premium.active && (!this.premium.until || this.premium.until > Date.now());
+  }
+
+  /** Подписка у собеседника (или у себя). */
+  hasPremium(username) {
+    if (this.account && username === this.account.username) return this.isPremium();
+    return !!this.presence.get(username)?.premium;
+  }
+
+  /** Фото профиля для показа: только если у владельца действует подписка. */
+  avatarOf(username) {
+    if (!this.hasPremium(username)) return null;
+    if (this.account && username === this.account.username) return this.profile.avatar || null;
+    return this._avatars.get(username) || null;
+  }
+
+  /** Счёт на оплату тарифа: { id, url, days, price, currency, expiresAt }; url — оплата в @xRocket. */
+  async buyPremium(planId) {
+    const r = await this._request({ type: 'premium-buy', plan: String(planId) });
+    return { id: r.id, url: r.url, days: r.days, price: r.price, currency: r.currency, expiresAt: r.expiresAt };
+  }
+
+  /** Спросить сервер, не пришла ли оплата. Возвращает состояние подписки. */
+  async checkPremium() {
+    this._setPremium(await this._request({ type: 'premium-check' }));
+    return this.premium;
+  }
+
   _onPresence(list) {
     for (const p of Array.isArray(list) ? list : []) {
       if (!p || typeof p.username !== 'string') continue;
-      this.presence.set(p.username, { online: !!p.online, lastSeen: p.lastSeen || null, hidden: !!p.hidden, verified: !!p.verified });
+      this.presence.set(p.username, { online: !!p.online, lastSeen: p.lastSeen || null, hidden: !!p.hidden, verified: !!p.verified, premium: !!p.premium });
       this.emit('presence', { username: p.username, ...this.presence.get(p.username) });
     }
   }
@@ -817,7 +888,11 @@ export class MessengerClient extends Emitter {
 
   _indexNames(all) {
     this._names.clear();
-    for (const c of Object.values(all || {})) if (c.profile?.name) this._names.set(c.username, c.profile.name);
+    this._avatars.clear();
+    for (const c of Object.values(all || {})) {
+      if (c.profile?.name) this._names.set(c.username, c.profile.name);
+      if (c.profile?.avatar) this._avatars.set(c.username, c.profile.avatar);
+    }
   }
 
   /** Имя для показа: имя из профиля или юзернейм. */
@@ -831,9 +906,16 @@ export class MessengerClient extends Emitter {
     return (await this.contacts())[username]?.profile || null;
   }
 
-  /** Изменить свой профиль: уходит своим устройствам и собеседникам, которым вы писали. */
-  async setProfile({ name = this.profile.name, bio = this.profile.bio } = {}) {
-    const next = cleanProfile({ name, bio, v: Math.max(Date.now(), this.profile.v + 1) });
+  /**
+   * Изменить свой профиль: уходит своим устройствам и собеседникам, которым вы писали.
+   * avatar — data:-URL картинки (только с подпиской), null — убрать фото.
+   */
+  async setProfile({ name = this.profile.name, bio = this.profile.bio, avatar = this.profile.avatar ?? null } = {}) {
+    if (avatar != null && avatar !== this.profile.avatar) {
+      if (!this.isPremium()) throw errorOf('premium_required');
+      if (!validAvatar(avatar)) throw errorOf('too_large');
+    }
+    const next = cleanProfile({ name, bio, avatar, v: Math.max(Date.now(), this.profile.v + 1) });
     await this._serial(async () => {
       this.profile = next;
       await this.storage.set('profile', next);

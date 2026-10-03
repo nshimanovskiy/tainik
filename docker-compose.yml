@@ -38,6 +38,12 @@ services:
       # Вложения (фото, видео, файлы — зашифрованы на устройстве): лимит файла и всего хранилища
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-100}
       MAX_STORAGE_GB: ${MAX_STORAGE_GB:-20}
+      # Подписка «Тайник Премиум» с оплатой криптовалютой через xRocket Pay. Без токена — выключена.
+      XROCKET_PAY_TOKEN: ${XROCKET_PAY_TOKEN:-}
+      XROCKET_WEBHOOK_SECRET: ${XROCKET_WEBHOOK_SECRET:-}
+      XROCKET_TESTNET: ${XROCKET_TESTNET:-0}
+      PREMIUM_PLANS: ${PREMIUM_PLANS:-30:3}
+      PREMIUM_CURRENCY: ${PREMIUM_CURRENCY:-USDT}
     ports:
       - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
     volumes:

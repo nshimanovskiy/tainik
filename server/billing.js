@@ -1,0 +1,277 @@
+// Платная подписка «Тайник Премиум» с оплатой криптовалютой через xRocket Pay
+// (https://docs.xrocket.exchange/api/pay/pay-api-overview).
+//
+// Как это работает:
+//   1. Клиент просит счёт (WS premium-buy) → сервер создаёт инвойс POST /api/v1/invoices
+//      с нашим clientInvoiceId и отдаёт ссылку на оплату в @xRocket.
+//   2. Пользователь платит в Telegram → xRocket присылает подписанный вебхук на
+//      /api/pay/xrocket → сервер проверяет подпись и продлевает подписку.
+//   3. Если вебхук потерялся (сервер лежал, неверный адрес), подписку подтянет опрос:
+//      кнопка «Проверить оплату» и фоновая сверка неоплаченных счетов.
+//
+// В xRocket уходит только сумма, валюта, описание тарифа и наш случайный id счёта —
+// юзернейм пользователя туда не передаётся. Продление идемпотентно: один счёт продлевает
+// подписку ровно один раз, сколько бы уведомлений ни пришло.
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+
+export const XROCKET_API = 'https://pay.api.xrocket.exchange';
+export const XROCKET_TESTNET_API = 'https://pay.api.testnet.xrocket.exchange';
+export const WEBHOOK_PATH = '/api/pay/xrocket';
+const INVOICE_TTL = 60 * 60_000; // счёт действует час
+const REUSE_MIN = 10 * 60_000; // уже выставленный счёт отдаём повторно, если ему жить ещё 10+ минут
+const SIGNATURE_TOLERANCE = 5 * 60_000; // окно против повтора старых вебхуков
+const MAX_WEBHOOK_BODY = 64 * 1024;
+const DECIMAL_RE = /^\d{1,12}(\.\d{1,8})?$/;
+const CURRENCY_RE = /^[A-Z0-9]{2,12}$/;
+
+/**
+ * Тарифы из строки «дни:цена,…», например "30:3,90:8,365:30". Цена — десятичная строка
+ * в валюте currency (как в API xRocket: суммы — строки, без плавающей точки).
+ */
+export function parsePlans(spec, currency = 'USDT') {
+  currency = String(currency || 'USDT').trim().toUpperCase();
+  if (!CURRENCY_RE.test(currency)) throw new Error(`PREMIUM_CURRENCY: неверный код валюты «${currency}»`);
+  const plans = [];
+  for (const part of String(spec || '30:3').split(',').map((s) => s.trim()).filter(Boolean)) {
+    const m = /^(\d{1,4})\s*:\s*(\S+)$/.exec(part);
+    if (!m || !DECIMAL_RE.test(m[2]) || Number(m[1]) < 1 || Number(m[2]) <= 0) {
+      throw new Error(`PREMIUM_PLANS: «${part}» — нужно «дни:цена», например 30:3`);
+    }
+    const days = Number(m[1]);
+    if (plans.some((p) => p.days === days)) throw new Error(`PREMIUM_PLANS: тариф на ${days} дн. указан дважды`);
+    plans.push({ id: `${days}d`, days, price: m[2], currency });
+  }
+  if (!plans.length) throw new Error('PREMIUM_PLANS: нет ни одного тарифа');
+  return plans.sort((a, b) => a.days - b.days);
+}
+
+/** Одинаковые ли две десятичные суммы ("3" и "3.00" — да). */
+export function sameAmount(a, b) {
+  const norm = (x) => {
+    const s = String(x ?? '').trim();
+    if (!DECIMAL_RE.test(s)) return null;
+    const [i, f = ''] = s.split('.');
+    return `${BigInt(i)}.${f.replace(/0+$/, '')}`;
+  };
+  const x = norm(a);
+  return x !== null && x === norm(b);
+}
+
+/**
+ * Подпись вебхука xRocket Pay (схема v1): hex(HMAC-SHA256(secret, "{timestamp}.{raw body}")),
+ * timestamp — в миллисекундах. Проверяется по сырым байтам тела, до разбора JSON.
+ */
+export function verifyWebhookSignature({ secret, rawBody, signature, version, timestamp, now = Date.now(), tolerance = SIGNATURE_TOLERANCE }) {
+  if (!secret || !signature || !timestamp || version !== 'v1') return false;
+  if (!/^\d{10,16}$/.test(String(timestamp)) || Math.abs(now - Number(timestamp)) > tolerance) return false;
+  if (!/^[0-9a-f]{64}$/i.test(String(signature))) return false;
+  const body = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody), 'utf8');
+  const expected = createHmac('sha256', secret).update(`${timestamp}.`).update(body).digest();
+  const got = Buffer.from(String(signature), 'hex');
+  return got.length === expected.length && timingSafeEqual(got, expected);
+}
+
+/** Подписать тело так же, как xRocket (для тестов и ручной проверки). */
+export function signWebhook(secret, rawBody, timestamp = Date.now()) {
+  return createHmac('sha256', secret).update(`${timestamp}.${rawBody}`).digest('hex');
+}
+
+export class BillingError extends Error {
+  constructor(code, detail) {
+    super(code);
+    this.code = code;
+    this.detail = detail;
+  }
+}
+
+/**
+ * @param {object} o
+ * @param {import('./store.js').Store} o.store
+ * @param {string}   o.token          Bearer-токен приложения xRocket Pay (API Token)
+ * @param {string}  [o.webhookSecret] Webhook Token — без него вебхуки не принимаются, работает только опрос
+ * @param {boolean} [o.testnet]       тестовая сеть xRocket (бот @xrocket_testnet_bot)
+ * @param {string}  [o.apiUrl]        свой адрес API (для тестов)
+ * @param {Array}   [o.plans]         из parsePlans()
+ * @param {string}  [o.publicUrl]     https://домен — тогда адрес вебхука передаётся в каждом счёте
+ * @param {Function}[o.fetch]
+ * @param {Function}[o.onPaid]        (user, until) — подписка продлена
+ */
+export function createBilling({ store, token, webhookSecret = null, testnet = false, apiUrl = null, plans = parsePlans(), publicUrl = null, fetch: fetchImpl = globalThis.fetch, onPaid = () => {}, say = () => {} }) {
+  if (!token) return null;
+  const base = String(apiUrl || (testnet ? XROCKET_TESTNET_API : XROCKET_API)).replace(/\/+$/, '');
+  const callbackUrl = publicUrl && webhookSecret ? `${String(publicUrl).replace(/\/+$/, '')}${WEBHOOK_PATH}` : null;
+  const checking = new Set(); // счета, которые сейчас сверяются (чтобы не опрашивать дважды)
+
+  async function api(method, path, { query, body } = {}) {
+    const url = new URL(base + path);
+    for (const [k, v] of Object.entries(query || {})) url.searchParams.set(k, v);
+    let r;
+    try {
+      r = await fetchImpl(url, {
+        method,
+        headers: { Accept: 'application/json', Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      throw new BillingError('billing_unavailable', e?.cause?.code || e?.name || e?.message);
+    }
+    const text = await r.text();
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {}
+    if (!r.ok) {
+      // Ошибки — RFC 9457: ветвимся по type (/api/problems/<code>), detail — только для людей
+      const code = typeof data?.type === 'string' ? data.type.split('/').pop() : `http_${r.status}`;
+      throw new BillingError(code, data?.instance || r.status);
+    }
+    return data;
+  }
+
+  /** Счёт из ответа xRocket применить к нашей записи. Возвращает итог или null. */
+  function apply(pay, inv) {
+    if (!pay || !inv || typeof inv !== 'object') return null;
+    if (pay.invoiceId && inv.id && String(inv.id) !== pay.invoiceId) return null; // не тот счёт
+    if (inv.status === 'paid') {
+      // Защита от подмены: сумма и валюта должны совпасть с выставленными
+      if (inv.priceCurrency !== pay.currency || !sameAmount(inv.priceAmount, pay.amount)) {
+        say('оплата: сумма или валюта счёта не совпадает — не засчитана');
+        return null;
+      }
+      const res = store.markPaymentPaid(pay.id);
+      if (res) {
+        say('оплата: подписка продлена');
+        if (res.until) onPaid(res.user, res.until);
+      }
+      return res;
+    }
+    if (inv.status === 'expired' || inv.status === 'cancelled') store.closePayment(pay.id, inv.status);
+    return null;
+  }
+
+  /** Сверить один наш счёт с xRocket. */
+  async function checkPayment(pay) {
+    if (checking.has(pay.id)) return null;
+    checking.add(pay.id);
+    try {
+      const inv = await api('GET', '/api/v1/invoice', { query: { clientInvoiceId: pay.id } });
+      return apply(pay, inv);
+    } catch (e) {
+      // Счёта у xRocket нет (выставить не удалось): закрываем, но не тот, что выставляется прямо сейчас
+      if ((e.code === 'not_found' || e.code === 'invoice_not_found') && Date.now() - pay.createdAt > 2 * 60_000) store.closePayment(pay.id, 'failed');
+      else say('оплата: сверка не удалась', e.code);
+      return null;
+    } finally {
+      checking.delete(pay.id);
+    }
+  }
+
+  return {
+    plans,
+    testnet: !!testnet,
+    webhook: !!webhookSecret,
+
+    /** Счёт на оплату тарифа: { id, url, days, price, currency, expiresAt }. */
+    async createInvoice(user, planId) {
+      const plan = plans.find((p) => p.id === planId);
+      if (!plan) throw new BillingError('bad_plan');
+      const now = Date.now();
+      const open = store.openPayment(user, plan.id, now + REUSE_MIN);
+      if (open?.url) return { id: open.id, url: open.url, days: open.days, price: open.amount, currency: open.currency, expiresAt: open.expiresAt };
+
+      const id = 'tk' + randomBytes(12).toString('hex');
+      store.addPayment({ id, user, plan: plan.id, days: plan.days, amount: plan.price, currency: plan.currency, expiresAt: now + INVOICE_TTL, now });
+      const body = {
+        priceAmount: plan.price,
+        priceCurrency: plan.currency,
+        numPayments: 1,
+        clientInvoiceId: id,
+        description: `Тайник Премиум — ${plan.days} дн.`,
+        expiresIn: INVOICE_TTL,
+      };
+      if (callbackUrl) body.callback = { callbackUrl };
+      let inv;
+      try {
+        inv = await api('POST', '/api/v1/invoices', { body });
+      } catch (e) {
+        // Повтор с тем же clientInvoiceId: счёт уже создан — берём его
+        if (e.code === 'client_id_already_taken') inv = await api('GET', '/api/v1/invoice', { query: { clientInvoiceId: id } }).catch(() => null);
+        if (!inv) {
+          store.closePayment(id, 'failed');
+          say('оплата: не удалось выставить счёт', e.code);
+          throw e instanceof BillingError ? new BillingError('billing_failed', e.code) : e;
+        }
+      }
+      const url = inv?.links?.telegramBotLink;
+      if (typeof url !== 'string' || !/^https:\/\//.test(url)) {
+        store.closePayment(id, 'failed');
+        throw new BillingError('billing_failed', 'no_link');
+      }
+      const expiresAt = inv.expiresAt ? Date.parse(inv.expiresAt) || now + INVOICE_TTL : now + INVOICE_TTL;
+      store.setPaymentInvoice(id, inv.id != null ? String(inv.id) : null, url, expiresAt);
+      return { id, url, days: plan.days, price: plan.price, currency: plan.currency, expiresAt };
+    },
+
+    /** «Проверить оплату»: сверить неоплаченные счета пользователя. */
+    async check(user) {
+      for (const pay of store.pendingPayments(user, Date.now() - 10 * 60_000, 5)) await checkPayment(pay);
+    },
+
+    /** Фоновая сверка: несколько самых старых неоплаченных счетов (лимит API — 20 запросов в минуту). */
+    async reconcile(limit = 8) {
+      for (const pay of store.pendingPayments(null, Date.now() - 10 * 60_000, limit)) await checkPayment(pay);
+    },
+
+    /** Вебхук xRocket Pay. true — запрос обработан здесь. */
+    handleHttp(req, res) {
+      if (new URL(req.url, 'http://x').pathname !== WEBHOOK_PATH) return false;
+      const reply = (status, text = '') => res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }).end(text);
+      if (!webhookSecret) return reply(404), true;
+      if (req.method !== 'POST') return reply(405), true;
+      const chunks = [];
+      let size = 0;
+      req.on('data', (c) => {
+        size += c.length;
+        if (size > MAX_WEBHOOK_BODY) {
+          reply(413);
+          req.destroy();
+        } else chunks.push(c);
+      });
+      req.on('end', () => {
+        if (size > MAX_WEBHOOK_BODY) return;
+        const raw = Buffer.concat(chunks);
+        const ok = verifyWebhookSignature({
+          secret: webhookSecret,
+          rawBody: raw,
+          signature: req.headers['signature'],
+          version: req.headers['signature-version'],
+          timestamp: req.headers['signature-timestamp'],
+        });
+        if (!ok) {
+          say('оплата: вебхук с неверной подписью отклонён');
+          return reply(401, 'invalid signature');
+        }
+        let event;
+        try {
+          event = JSON.parse(raw.toString('utf8'));
+        } catch {
+          return reply(200); // подпись верна, но разобрать нельзя — повторять бессмысленно
+        }
+        // Неизвестные типы и события — просто подтверждаем
+        const inv = event?.type === 'invoice' ? event.data?.invoice : null;
+        if (inv && typeof inv.clientInvoiceId === 'string') {
+          const pay = store.getPayment(inv.clientInvoiceId);
+          if (pay && pay.status !== 'paid') {
+            // payment_status_changed несёт усечённый invoice — за полным счётом сходим сами
+            if (event.data.event === 'invoice_status_changed' && inv.priceAmount != null) apply(pay, inv);
+            else if (inv.status === 'paid') checkPayment(pay).catch(() => {});
+          }
+        }
+        reply(200);
+      });
+      req.on('error', () => {});
+      return true;
+    },
+  };
+}

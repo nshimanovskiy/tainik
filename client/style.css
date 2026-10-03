@@ -145,6 +145,16 @@ input, textarea {
   color: #fff;
   text-transform: uppercase;
 }
+/* Фото профиля (подписка Премиум) */
+.avatar.photo { background-size: cover; background-position: center; background-repeat: no-repeat; }
+.premium-star { color: #f5b942; margin-left: .25em; font-size: .9em; flex: none; }
+.prof-photo { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 4px 0 16px; }
+.prof-photo-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.prem-hero { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px; margin: 6px 0 16px; }
+.prem-hero b { font-size: 18px; }
+.prem-star { font-size: 40px; line-height: 1; }
+.prem-plan .set-value { color: var(--accent); font-weight: 600; }
+.prem-link { display: inline-block; text-decoration: none; padding: 8px 16px; border-radius: 10px; }
 
 .add-form { display: flex; gap: 8px; padding: 0 14px; }
 .add-form input { padding: 8px 12px; }

@@ -113,6 +113,7 @@ function render() {
         !q ||
         u.name.includes(q) ||
         (q === 'галочка' && u.verified) ||
+        (q === 'премиум' && u.premiumUntil > now) ||
         u.devices.some((d) => d.name.toLowerCase().includes(q) || (d.ip || '').includes(q) || (d.lastIp || '').includes(q))
     )
     .sort((a, b) => b.online - a.online || (b.lastSeen || 0) - (a.lastSeen || 0) || a.name.localeCompare(b.name));
@@ -125,6 +126,8 @@ function render() {
     name.append(b);
     if (u.push) name.append(el('span', 'tag', 'push'));
     if (u.presenceHidden) name.append(el('span', 'tag', 'статус скрыт'));
+    const prem = u.premiumUntil && u.premiumUntil > now;
+    if (prem) name.append(el('span', 'tag premium', `★ до ${dateFmt.format(u.premiumUntil)}`));
     const status = el('td', 'status');
     status.append(el('span', 'dot' + (u.online ? ' on' : '')), document.createTextNode(u.online ? 'в сети' : `был(а) ${ago(u.lastSeen, now)}`));
     const devs = el('td', 'devices');
@@ -169,7 +172,22 @@ function render() {
         alert(e.message);
       }
     });
-    actions.append(mark, del);
+    const pr = el('button', 'ghost', prem ? 'Премиум…' : 'Дать премиум');
+    pr.type = 'button';
+    pr.title = 'Продлить подписку вручную или отключить её';
+    pr.addEventListener('click', async () => {
+      const typed = prompt(
+        `${u.name}: ${prem ? `подписка до ${fullFmt.format(u.premiumUntil)}` : 'подписки нет'}.\n\nНа сколько дней продлить? 0 — отключить сразу.`,
+        prem ? '0' : '30'
+      );
+      if (typed === null || typed.trim() === '') return;
+      try {
+        await act('premium', { name: u.name, days: Number(typed.trim()) });
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+    actions.append(pr, mark, del);
     tr.append(name, status, devs, created, queued, actions);
     return tr;
   });
@@ -187,7 +205,34 @@ function render() {
     return li;
   });
   $('ban-list').replaceChildren(...bans);
+  renderBilling(data.billing, now);
   $('no-bans').hidden = bans.length > 0;
+}
+
+// Подписка: тарифы и последние счета xRocket Pay
+const PAY_STATUS = { active: 'ожидает оплаты', paid: 'оплачен', expired: 'истёк', cancelled: 'отменён', failed: 'не выставлен' };
+function renderBilling(b, now) {
+  $('billing').hidden = !b;
+  if (!b) return;
+  $('t-premium').textContent = b.active;
+  $('billing-info').textContent =
+    `Тарифы: ${b.plans.map((p) => `${p.days} дн. — ${p.price} ${p.currency}`).join(', ')}` +
+    (b.testnet ? ' · тестовая сеть xRocket' : '') +
+    (b.webhook ? '' : ' · вебхук не настроен (XROCKET_WEBHOOK_SECRET): оплаты подтверждаются только сверкой');
+  const rows = b.payments.map((p) => {
+    const tr = el('tr', p.status === 'paid' ? 'on' : '');
+    tr.append(
+      el('td', 'muted small', fullFmt.format(p.createdAt)),
+      el('td', 'name', p.user),
+      el('td', '', `${p.days} дн.`),
+      el('td', 'num', `${p.amount} ${p.currency}`),
+      el('td', 'small', PAY_STATUS[p.status] || p.status),
+      el('td', 'muted small', p.paidAt ? ago(p.paidAt, now) : '')
+    );
+    return tr;
+  });
+  $('pay-rows').replaceChildren(...rows);
+  $('no-pays').hidden = rows.length > 0;
 }
 
 function renderUpdated() {

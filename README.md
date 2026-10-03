@@ -92,6 +92,8 @@ The script runs the server on `127.0.0.1`, adds an nginx site with WebSocket sup
 
 **What the server stores:** usernames, public keys, **encrypted** attachments (deleted after 30 days by default), and **encrypted** messages waiting for offline devices. Those messages are deleted after delivery, or after 30 days. Logs contain no usernames, IPs or content. The server keeps the **last IP of each device** (shown to the user in their device list and to the admin). An optional **admin panel** (enabled by `ADMIN_PASSWORD`) lists users, online status and device IPs, and can grant Telegram-style official verification badges (the `admin` account has one by default), delete accounts and block IP addresses. The server **can** see metadata: who talks to whom, and when.
 
+**Tainik Premium (optional).** With xRocket Pay tokens set (`XROCKET_PAY_TOKEN`, `XROCKET_WEBHOOK_SECRET`), users can buy a subscription with cryptocurrency in Telegram (⋯ → “Tainik Premium”). For now it unlocks an end-to-end encrypted profile photo and a ★ next to the name. The server knows who is subscribed, but not the photo. See [DEPLOY.md](DEPLOY.md).
+
 ## How it works
 
 | Component | Design |
