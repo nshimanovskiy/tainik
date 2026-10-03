@@ -47,6 +47,23 @@ const SEEN_LIMIT = 5000;
 const DELETED_LIMIT = 2000;
 const MAX_DELETE = 100;
 const REPLY_SNIPPET = 120;
+export const NAME_MAX = 64;
+export const BIO_MAX = 140;
+
+/** Имя или «о себе»: без управляющих и «переворачивающих» текст символов, обрезано. */
+export function cleanProfileText(s, max) {
+  return String(s ?? '')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f\u202a-\u202e\u2066-\u2069\u200b-\u200f\ufeff]/g, '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, max);
+}
+/** Профиль { name, bio, v } из сообщения (только известные поля) или null. */
+function cleanProfile(p) {
+  if (!p || !Number.isFinite(p.v) || p.v <= 0) return null;
+  return { name: cleanProfileText(p.name, NAME_MAX).replace(/\n/g, ' '), bio: cleanProfileText(p.bio, BIO_MAX), v: p.v };
+}
 
 /** Цитата для ответа: кто написал и начало текста. */
 function makeReply(orig, me, peer) {
@@ -91,7 +108,7 @@ const AUTH_CONTEXT = 'tainik/v3/auth';
 export const ERROR_TEXT = {
   push_disabled: t('Уведомления на этом сервере выключены'),
   bad_subscription: t('Этот браузер не поддерживает уведомления Тайника'),
-  bad_username: t('Имя: 3–32 символа, латиница в нижнем регистре, цифры и _'),
+  bad_username: t('Юзернейм: 3–32 символа, латиница в нижнем регистре, цифры и _'),
   bad_keys: t('Сервер отклонил ключи'),
   username_taken: t('Это имя уже занято'),
   unknown_account: t('Такого аккаунта нет на сервере'),
@@ -180,6 +197,9 @@ export class MessengerClient extends Emitter {
     this.presenceHidden = false;
     this.verified = false; // у своего аккаунта официальная галочка
     this.blocked = new Set(); // чёрный список (хранится на сервере, общий для своих устройств)
+    // Свой профиль (имя, «о себе»). Сервер его не знает: он уходит собеседникам зашифрованным
+    this.profile = { name: '', bio: '', v: 0 };
+    this._names = new Map(); // имя собеседника по юзернейму — для интерфейса
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
 
@@ -210,6 +230,10 @@ export class MessengerClient extends Emitter {
   async load() {
     const acc = (await this.storage.get('account')) || null;
     this.account = acc && acc.v === 3 && Number.isInteger(acc.deviceId) ? acc : null; // данные старых версий не подходят
+    if (this.account) {
+      this.profile = cleanProfile(await this.storage.get('profile')) || { name: '', bio: '', v: 0 };
+      this._indexNames(await this.contacts());
+    }
     return this.account;
   }
 
@@ -354,8 +378,14 @@ export class MessengerClient extends Emitter {
     for (const c of Array.isArray(p.contacts) ? p.contacts : []) {
       if (typeof c?.username !== 'string' || !validIdentityPub(c.keys)) continue;
       contacts[c.username] = { username: c.username, keys: c.keys, verified: !!c.verified, unread: 0, lastTs: Date.now(), pending: [] };
+      const prof = cleanProfile(c.profile);
+      if (prof) contacts[c.username].profile = prof;
+      if (c.shareProfile) contacts[c.username].shareProfile = true;
     }
     await this.storage.set('contacts', contacts);
+    this._indexNames(contacts);
+    this.profile = cleanProfile(p.profile) || { name: '', bio: '', v: 0 };
+    if (this.profile.v) await this.storage.set('profile', this.profile);
     const keys = await this._newDeviceKeys(identity);
     return this._firstLogin({ newDevice: { ...keys, deviceName } }, timeout);
   }
@@ -368,8 +398,14 @@ export class MessengerClient extends Emitter {
     } catch {
       throw errorOf('bad_link_code');
     }
-    const contacts = Object.values(await this.contacts()).map((c) => ({ username: c.username, keys: c.keys, verified: !!c.verified }));
-    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts };
+    const contacts = Object.values(await this.contacts()).map((c) => ({
+      username: c.username,
+      keys: c.keys,
+      verified: !!c.verified,
+      profile: c.profile || undefined,
+      shareProfile: !!c.shareProfile,
+    }));
+    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, profile: this.profile };
     let sealed;
     try {
       sealed = await sealProvision(link, payload);
@@ -771,7 +807,59 @@ export class MessengerClient extends Emitter {
   }
   async _saveContacts(c) {
     await this.storage.set('contacts', c);
+    this._indexNames(c);
     this.emit('contacts', c);
+  }
+
+  // ---------- Профиль: юзернейм (уникальный, @name) и имя (любое, как в Telegram) ----------
+  // Имя и «о себе» не хранятся на сервере: они уходят зашифрованными тем, кому вы пишете
+  // (и вашим устройствам), как профили в Signal.
+
+  _indexNames(all) {
+    this._names.clear();
+    for (const c of Object.values(all || {})) if (c.profile?.name) this._names.set(c.username, c.profile.name);
+  }
+
+  /** Имя для показа: имя из профиля или юзернейм. */
+  nameOf(username) {
+    if (this.account && username === this.account.username) return this.profile.name || username;
+    return this._names.get(username) || username;
+  }
+
+  /** Профиль собеседника { name, bio, v } или null. */
+  async profileOf(username) {
+    return (await this.contacts())[username]?.profile || null;
+  }
+
+  /** Изменить свой профиль: уходит своим устройствам и собеседникам, которым вы писали. */
+  async setProfile({ name = this.profile.name, bio = this.profile.bio } = {}) {
+    const next = cleanProfile({ name, bio, v: Math.max(Date.now(), this.profile.v + 1) });
+    await this._serial(async () => {
+      this.profile = next;
+      await this.storage.set('profile', next);
+      const outbox = (await this.storage.get('outbox')) || [];
+      // Старые, ещё не отправленные версии профиля не нужны
+      const keep = outbox.filter((x) => !(x.kind === 'ctl' && (x.content?.t === 'profile' || x.content?.t === 'sync-profile')));
+      keep.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-profile', ...next }, attempts: 0 });
+      const all = await this.contacts();
+      for (const c of Object.values(all)) {
+        if (!c.shareProfile || c.keyChanged || this.isBlocked(c.username)) continue;
+        keep.push({ id: randomId(), to: c.username, kind: 'ctl', content: { t: 'profile', ...next }, attempts: 0 });
+        c.profileSentV = next.v;
+      }
+      await this.storage.set('outbox', keep);
+      await this._saveContacts(all);
+    });
+    this.emit('profile', this.profile);
+    this._pumpOutbox();
+  }
+
+  /** Собеседник, которому вы пишете или которого добавили, получает ваш профиль. */
+  _shareProfileTo(c, outbox) {
+    c.shareProfile = true;
+    if (!this.profile.v || c.profileSentV === this.profile.v) return;
+    outbox.push({ id: randomId(), to: c.username, kind: 'ctl', content: { t: 'profile', ...this.profile }, attempts: 0 });
+    c.profileSentV = this.profile.v;
   }
 
   async fetchIdentity(username) {
@@ -795,7 +883,11 @@ export class MessengerClient extends Emitter {
         this.emit('key-changed', c);
       }
       delete all[username].hidden; // удалённый чат снова в списке
+      const outbox = (await this.storage.get('outbox')) || [];
+      this._shareProfileTo(all[username], outbox);
+      await this.storage.set('outbox', outbox);
       await this._saveContacts(all);
+      if (outbox.length) this._pumpOutbox();
       return all[username];
     });
   }
@@ -938,6 +1030,7 @@ export class MessengerClient extends Emitter {
         if (orig) content.reply = makeReply(orig, this.account.username, username);
       }
       const outbox = (await this.storage.get('outbox')) || [];
+      this._shareProfileTo(c, outbox); // профиль — перед первым сообщением
       outbox.push({ id, to: username, kind: 'msg', content, attempts: 0 });
       const sync = { t: 'sync-sent', to: username, body: content.body, ts, reply: content.reply };
       if (content.file) sync.file = content.file;
@@ -1342,6 +1435,15 @@ export class MessengerClient extends Emitter {
         await this._applyReadSync(c.chat, c.upTo);
         return ack(false);
       }
+      if (c?.t === 'sync-profile') {
+        const prof = cleanProfile(c);
+        if (prof && prof.v > this.profile.v) {
+          this.profile = prof;
+          await this.storage.set('profile', prof);
+          this.emit('profile', prof);
+        }
+        return ack(false);
+      }
       if (c?.t === 'sync-delete-chat' && typeof c.chat === 'string') {
         await this._clearChat(c.chat, true);
         return ack(false);
@@ -1363,6 +1465,7 @@ export class MessengerClient extends Emitter {
         if (contact && content) {
           contact.lastTs = Date.now();
           delete contact.hidden;
+          contact.shareProfile = true; // вы пишете ему с другого устройства — профиль ему тоже положен
           await this._saveContacts(all);
           const list = await this.messages(c.to);
           if (!list.some((m) => m.id === res.id)) {
@@ -1380,6 +1483,7 @@ export class MessengerClient extends Emitter {
     }
 
     const all = await this.contacts();
+    const known = !!all[from];
     let c;
     try {
       c = await this._ensureContact(all, from);
@@ -1431,6 +1535,16 @@ export class MessengerClient extends Emitter {
     // Заблокирован: сервер такое уже не доставляет, а пришедшее до блокировки — отбрасываем
     // (расшифровали, чтобы не сбить храповик на случай разблокировки)
     if (this.isBlocked(from)) return ack(false);
+    if (res.content?.t === 'profile') {
+      const prof = cleanProfile(res.content);
+      if (prof && prof.v > (c.profile?.v || 0)) {
+        c.profile = prof;
+        if (!known) c.hidden = true; // только профиль, без сообщений — в списке чатов не показываем
+        await this._saveContacts(all);
+        this.emit('profile-changed', { username: from, profile: prof });
+      }
+      return ack(false);
+    }
     if (res.content?.t === 'clear-chat') {
       await this._clearChat(from, false);
       return ack(false);

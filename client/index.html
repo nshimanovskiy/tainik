@@ -57,10 +57,10 @@
       </div>
 
       <form id="auth-form" autocomplete="off">
-        <label for="username">Имя пользователя</label>
+        <label for="username">Юзернейм</label>
         <input id="username" name="username" required minlength="3" maxlength="32"
                pattern="[a-zA-Z0-9_]{3,32}" placeholder="например, alice" spellcheck="false" autocapitalize="none">
-        <p class="hint">3–32 символа: латиница, цифры, «_».</p>
+        <p class="hint">3–32 символа: латиница, цифры, «_». По нему вас найдут; изменить его нельзя. Имя для показа можно задать потом в настройках.</p>
         <button type="submit" class="primary wide" id="auth-btn">Создать ключи и войти</button>
         <a id="ios-install" class="ios-install" href="/ios" hidden>📲 Установить Тайник на iPhone — как приложение, с уведомлениями</a>
         <p id="auth-error" class="error" role="alert"></p>
@@ -100,7 +100,7 @@
         <button id="menu-btn" class="icon-btn" title="Меню" aria-label="Меню">⋯</button>
       </header>
       <form id="add-form" class="add-form" autocomplete="off">
-        <input id="add-input" placeholder="Добавить собеседника по имени" spellcheck="false" autocapitalize="none" aria-label="Имя собеседника">
+        <input id="add-input" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм собеседника">
         <button class="icon-btn accent" title="Добавить" aria-label="Добавить">+</button>
       </form>
       <p id="add-error" class="error small" role="alert"></p>
@@ -119,7 +119,7 @@
         </span>
       </div>
       <ul id="contacts" class="contacts"></ul>
-      <p id="no-contacts" class="muted empty-side">Пока никого. Добавьте собеседника по имени — он должен быть зарегистрирован.</p>
+      <p id="no-contacts" class="muted empty-side">Пока никого. Добавьте собеседника по юзернейму — он должен быть зарегистрирован.</p>
     </aside>
 
     <main id="chat">
@@ -132,8 +132,8 @@
       <div id="chat-view" hidden>
         <header class="chat-head">
           <button id="back-btn" class="icon-btn back" aria-label="Назад">←</button>
-          <span class="avatar" id="peer-avatar"></span>
-          <div class="peer">
+          <span class="avatar" id="peer-avatar" role="button" tabindex="0" title="Профиль"></span>
+          <div class="peer" id="peer-open" role="button" tabindex="0" title="Профиль">
             <div id="peer-name" class="peer-name"></div>
             <div class="peer-sub"><span id="peer-presence" class="peer-presence"></span><span id="peer-verify" class="peer-verify"></span></div>
           </div>
@@ -206,13 +206,15 @@
       </header>
 
       <div class="set-page" data-page="main">
-        <div class="set-profile">
+        <button type="button" class="set-profile" data-go="profile">
           <span class="avatar big" id="set-avatar"></span>
-          <div>
-            <div id="set-name" class="set-name"></div>
-            <div class="small muted">Это устройство: <b id="my-device"></b></div>
-          </div>
-        </div>
+          <span class="set-profile-text">
+            <span id="set-name" class="set-name"></span>
+            <span id="set-username" class="set-username"></span>
+            <span class="small muted">Это устройство: <b id="my-device"></b></span>
+          </span>
+          <span class="set-chev" aria-hidden="true">›</span>
+        </button>
         <div class="set-group">
         <button type="submit" value="accounts" class="set-row"><span class="set-ico" aria-hidden="true">👥</span><span class="set-label">Аккаунты</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="submit" value="devices" class="set-row"><span class="set-ico" aria-hidden="true">💻</span><span class="set-label">Устройства</span><span class="set-chev" aria-hidden="true">›</span></button>
@@ -231,6 +233,19 @@
         <div class="set-group">
           <button id="reset-btn" type="submit" value="reset" class="set-row danger"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Выйти на этом устройстве</span></button>
         </div>
+      </div>
+
+      <div class="set-page" data-page="profile" data-title="Мой профиль" hidden>
+        <div class="set-group set-pad">
+          <label class="set-field"><span>Имя</span><input id="prof-name" maxlength="64" autocomplete="off" placeholder="Как вас называть"></label>
+          <label class="set-field"><span>О себе <i id="prof-bio-count" class="set-count"></i></span><textarea id="prof-bio" rows="3" maxlength="140" placeholder="Пара слов о себе"></textarea></label>
+        </div>
+        <p class="set-note">Имя видно тем, кому вы пишете, вместо юзернейма. Оно не уникально и не хранится на сервере: уходит собеседникам в зашифрованном виде.</p>
+        <div class="set-group">
+          <div class="set-row set-static"><span class="set-ico" aria-hidden="true">@</span><span class="set-label">Юзернейм</span><span class="set-value" id="prof-username"></span></div>
+        </div>
+        <p class="set-note">По юзернейму вас находят и добавляют. Он уникален на сервере, и изменить его нельзя.</p>
+        <button type="button" id="prof-save" class="primary wide">Сохранить</button>
       </div>
 
       <div class="set-page" data-page="privacy" data-title="Конфиденциальность" hidden>
@@ -292,6 +307,9 @@
           <p class="small">Сервер: <code id="my-server" class="inline-code"></code></p>
           <p class="small" id="my-version-row" hidden>Версия приложения: <b id="my-version"></b></p>
           <p class="small">Протокол: X3DH + Double Ratchet, несколько устройств (v3).</p>
+        </div>
+        <div class="set-group">
+          <a class="set-row" id="home-link" href="/?home" target="_blank" rel="noopener"><span class="set-ico" aria-hidden="true">🏠</span><span class="set-label">Главная страница Тайника</span><span class="set-chev" aria-hidden="true">›</span></a>
         </div>
         <p class="set-note">«Выйти на этом устройстве» стирает ключи и переписку только здесь; лучше сначала отвязать устройство с другого.</p>
       </div>
@@ -382,10 +400,49 @@
 
   <!-- Действия с чатом (шапка чата или правый клик по чату в списке) -->
   <div id="chat-menu" class="msg-menu" role="menu" hidden>
+    <button type="button" data-act="profile" role="menuitem">👤 Профиль</button>
     <button type="button" data-act="block" role="menuitem" class="danger">🚫 Заблокировать</button>
     <button type="button" data-act="unblock" role="menuitem">✓ Разблокировать</button>
     <button type="button" data-act="delete-chat" role="menuitem" class="danger">🗑 Удалить чат</button>
   </div>
+
+  <!-- Профиль собеседника, как в Telegram -->
+  <dialog id="profile-dialog" class="settings profile">
+    <div class="settings-form">
+      <header class="set-head">
+        <h2>Профиль</h2>
+        <button type="button" id="pf-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+      </header>
+      <div class="set-page">
+        <div class="pf-top">
+          <span class="avatar huge" id="pf-avatar"></span>
+          <div id="pf-name" class="pf-name"></div>
+          <div id="pf-status" class="pf-status"></div>
+        </div>
+        <div class="pf-actions">
+          <button type="button" id="pf-chat"><span aria-hidden="true">💬</span>Написать</button>
+          <button type="button" id="pf-call"><span aria-hidden="true">📞</span>Звонок</button>
+          <button type="button" id="pf-video"><span aria-hidden="true">🎥</span>Видео</button>
+        </div>
+        <div class="set-group">
+          <button type="button" class="set-row pf-info" id="pf-username-row" title="Скопировать"><span class="set-ico" aria-hidden="true">@</span><span class="pf-info-text"><b id="pf-username"></b><span class="small muted">Юзернейм</span></span></button>
+          <div class="set-row set-static pf-info" id="pf-bio-row" hidden><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="pf-bio" class="pf-bio"></span><span class="small muted">О себе</span></span></div>
+          <button type="button" class="set-row pf-info" id="pf-key-row"><span class="set-ico" aria-hidden="true">🔑</span><span class="pf-info-text"><span id="pf-key"></span><span class="small muted">Код безопасности</span></span><span class="set-chev" aria-hidden="true">›</span></button>
+        </div>
+        <div class="pf-tabs" role="tablist">
+          <button type="button" class="pf-tab active" data-tab="media" role="tab">Медиа</button>
+          <button type="button" class="pf-tab" data-tab="files" role="tab">Файлы</button>
+        </div>
+        <div id="pf-media" class="pf-media"></div>
+        <ul id="pf-files" class="set-group pf-files" hidden></ul>
+        <p id="pf-empty" class="set-note" hidden></p>
+        <div class="set-group">
+          <button type="button" class="set-row" id="pf-block"></button>
+          <button type="button" class="set-row danger" id="pf-delete"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить чат</span></button>
+        </div>
+      </div>
+    </div>
+  </dialog>
 
   <!-- Удаление чата -->
   <dialog id="delchat-dialog">

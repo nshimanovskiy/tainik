@@ -692,3 +692,44 @@ dialog.scanner[open] { display: flex; flex-direction: column; }
   .scanner-view { flex: 1; aspect-ratio: auto; }
   .scanner-actions { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
 }
+
+/* Свой профиль в настройках */
+.set-profile { display: flex; align-items: center; gap: 14px; width: 100%; padding: 8px 10px 16px; margin: 0; background: none; border: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; border-radius: 14px; }
+.set-profile:hover { background: var(--accent-soft); }
+.set-profile-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.set-username { color: var(--accent); font-size: 14px; }
+.set-field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 13px; color: var(--muted); }
+.set-field input, .set-field textarea { font: inherit; font-size: 15px; color: var(--text); resize: vertical; }
+.set-count { float: right; font-style: normal; }
+.set-static { cursor: default; }
+.set-static:hover { background: none; }
+#prof-save { margin: 0 0 14px; }
+
+/* Профиль собеседника */
+#peer-open, #peer-avatar { cursor: pointer; }
+.avatar.huge { width: 96px; height: 96px; font-size: 38px; }
+.pf-top { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0 16px; text-align: center; }
+.pf-name { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.pf-status { color: var(--muted); font-size: 14px; }
+.pf-status.online { color: var(--accent); }
+.pf-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.pf-actions button {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--accent); font-size: 13px; font-weight: 600;
+}
+.pf-actions button span { font-size: 20px; }
+.pf-actions button:hover:not(:disabled) { background: var(--accent-soft); }
+.pf-actions button:disabled { opacity: .45; }
+.pf-info { align-items: center; }
+.pf-info-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pf-bio { white-space: pre-wrap; overflow-wrap: anywhere; }
+.pf-tabs { display: flex; gap: 4px; margin: 0 0 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+.pf-tab { flex: 1; padding: 7px; border-radius: 9px; color: var(--muted); font-weight: 600; font-size: 14px; }
+.pf-tab.active { background: var(--accent-soft); color: var(--accent); }
+.pf-media { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-bottom: 14px; border-radius: 12px; overflow: hidden; }
+.pf-media:empty { display: none; }
+.pf-thumb { position: relative; aspect-ratio: 1; padding: 0; border-radius: 0; background: var(--line); overflow: hidden; }
+.pf-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pf-thumb img.blur { filter: blur(3px); transform: scale(1.1); }
+.pf-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 22px; text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
+.pf-files .set-row { gap: 10px; }

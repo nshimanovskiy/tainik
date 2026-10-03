@@ -76,9 +76,13 @@ function hue(name) {
   for (const ch of name) h = (h * 31 + ch.codePointAt(0)) % 360;
   return h;
 }
-function paintAvatar(node, name) {
-  node.textContent = (name || '?').slice(0, 1);
-  node.style.background = `hsl(${hue(name || '')} 42% 42%)`;
+/** Имя для показа: имя из профиля собеседника или юзернейм. */
+const nameOf = (username) => (username && client.account ? client.nameOf(username) : username || '');
+/** Аватар: первая буква имени, цвет — по юзернейму (не меняется вместе с именем). */
+function paintAvatar(node, username) {
+  const shown = nameOf(username) || '?';
+  node.textContent = [...shown][0].toUpperCase();
+  node.style.background = `hsl(${hue(username || '')} 42% 42%)`;
 }
 // Официальная галочка (её ставит администратор сервера), как в Telegram
 function verifiedBadge() {
@@ -99,9 +103,9 @@ function verifiedBadge() {
   svg.append(titleEl, bg, ck);
   return svg;
 }
-/** Имя с галочкой, если аккаунт официальный. */
-function setName(node, name, verified) {
-  node.replaceChildren(document.createTextNode(name));
+/** Имя (из профиля, иначе юзернейм) с галочкой, если аккаунт официальный. */
+function setName(node, username, verified) {
+  node.replaceChildren(document.createTextNode(nameOf(username)));
   if (verified) node.append(verifiedBadge());
 }
 
@@ -392,7 +396,7 @@ async function renderContacts() {
 
 $('add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const name = $('add-input').value.trim().toLowerCase();
+  const name = $('add-input').value.trim().replace(/^@/, '').toLowerCase();
   $('add-error').textContent = '';
   if (!name) return;
   try {
@@ -554,7 +558,7 @@ function messageNode(m) {
     q.type = 'button';
     q.dataset.target = r.id;
     const label = r.kind ? [KIND_LABEL[r.kind], r.body].filter(Boolean).join(' · ') : r.body || t('Сообщение');
-    q.append(el('b', '', r.from === client.account.username ? t('Вы') : r.from), el('span', '', label));
+    q.append(el('b', '', r.from === client.account.username ? t('Вы') : nameOf(r.from)), el('span', '', label));
     bubble.append(q);
   }
   if (m.content?.t === 'file' && m.content.file) {
@@ -1094,7 +1098,7 @@ window.addEventListener('drop', (e) => hasFiles(e) && e.preventDefault());
 // ---------- Код безопасности ----------
 async function openSafety() {
   const code = await client.safetyNumber(current);
-  $('sd-peer').textContent = current;
+  $('sd-peer').textContent = nameOf(current);
   const box = $('sd-code');
   box.replaceChildren(...code.map((g) => el('span', '', g)));
   const c = (await client.contacts())[current];
@@ -1126,6 +1130,7 @@ function showSetPage(name) {
   $('set-title').textContent = name === 'main' ? t('Настройки') : t(page.dataset.title);
   $('set-back').hidden = name === 'main';
   if (name === 'blocked') renderBlocked();
+  if (name === 'profile') fillProfileEdit();
   page.scrollTop = 0;
   $('menu-dialog').querySelector('.settings-form').scrollTop = 0;
 }
@@ -1164,6 +1169,9 @@ async function fillSettings() {
   }
   paintAvatar($('set-avatar'), client.account.username);
   setName($('set-name'), client.account.username, client.verified);
+  $('set-username').textContent = '@' + client.account.username;
+  // Ссылка на главную: в вебе — этот сайт, в приложениях — сайт вашего сервера
+  $('home-link').href = desktop ? client._httpBase() + '/?home' : '/?home';
   $('my-device').textContent = `${client.account.deviceName || t('Устройство')} (${t('№{0}', client.account.deviceId)})`;
   $('set-lang-value').textContent = LANGS.find(([c]) => c === LANG)?.[1] || '';
   $('set-blocked-value').textContent = client.blocked.size ? String(client.blocked.size) : '';
@@ -1176,6 +1184,36 @@ async function openSettings(page = 'main') {
   if (!$('menu-dialog').open) $('menu-dialog').showModal();
 }
 $('menu-btn').addEventListener('click', () => openSettings());
+
+// Свой профиль: имя и «о себе» (юзернейм не меняется)
+function fillProfileEdit() {
+  $('prof-name').value = client.profile.name;
+  $('prof-bio').value = client.profile.bio;
+  $('prof-name').placeholder = client.account.username;
+  $('prof-username').textContent = '@' + client.account.username;
+  bioCount();
+}
+function bioCount() {
+  $('prof-bio-count').textContent = String(140 - $('prof-bio').value.length);
+}
+$('prof-bio').addEventListener('input', bioCount);
+$('prof-save').addEventListener('click', async () => {
+  try {
+    await client.setProfile({ name: $('prof-name').value, bio: $('prof-bio').value });
+    toast(t('Профиль сохранён'));
+    setBack();
+  } catch (err) {
+    toast(err.message);
+  }
+});
+client.on('profile', () => {
+  setName($('me-name'), client.account.username, client.verified);
+  paintAvatar($('me-avatar'), client.account.username);
+  if ($('menu-dialog').open) {
+    setName($('set-name'), client.account.username, client.verified);
+    paintAvatar($('set-avatar'), client.account.username);
+  }
+});
 $('menu-dialog').addEventListener('close', async () => {
   const v = $('menu-dialog').returnValue;
   if (v === 'devices') return openDevices();
@@ -1573,7 +1611,7 @@ async function showNotice({ title, body, chat, tag, call = false, force = false 
 async function notifyMessage(contact, message) {
   const { preview } = await notifPrefs();
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
-  await showNotice({ title: contact, body: text || t('Новое сообщение'), chat: contact, tag: 'msg:' + contact });
+  await showNotice({ title: nameOf(contact), body: text || t('Новое сообщение'), chat: contact, tag: 'msg:' + contact });
 }
 
 let pendingNoticeChat = null;
@@ -2001,7 +2039,7 @@ function renderCall(c) {
     if (!document.hasFocus() && notifiedCall !== c.id) {
       notifiedCall = c.id;
       callNoticeUp = true;
-      showNotice({ title: c.peer, body: c.video ? t('Входящий видеозвонок') : t('Входящий звонок'), chat: c.peer, tag: 'call:' + c.peer, call: true });
+      showNotice({ title: nameOf(c.peer), body: c.video ? t('Входящий видеозвонок') : t('Входящий звонок'), chat: c.peer, tag: 'call:' + c.peer, call: true });
     }
   } else {
     document.title = baseTitle();
@@ -2147,7 +2185,7 @@ async function findMsg(id) {
 async function replyTo(id) {
   const m = await findMsg(id);
   if (!m || m.dir === 'sys') return;
-  setReply({ id, name: m.dir === 'out' ? t('Вы') : current, text: textOf(m.content).replace(/\s+/g, ' ').slice(0, 120) });
+  setReply({ id, name: m.dir === 'out' ? t('Вы') : nameOf(current), text: textOf(m.content).replace(/\s+/g, ' ').slice(0, 120) });
 }
 
 // Меню сообщения
@@ -2239,7 +2277,7 @@ $('msg-menu').addEventListener('click', async (e) => {
     return;
   }
   if (b.dataset.act === 'delete') {
-    $('del-peer').textContent = current;
+    $('del-peer').textContent = nameOf(current);
     $('del-all').checked = false;
     $('delete-dialog').dataset.id = id;
     $('delete-dialog').showModal();
@@ -2268,6 +2306,158 @@ client.on('deleted', async ({ contact, ids, chat }) => {
   if (contact === current) await renderChat();
   renderContacts();
 });
+
+// ---------- Профиль собеседника, как в Telegram ----------
+let profileFor = null;
+let profileTab = 'media';
+async function openProfile(name) {
+  profileFor = name;
+  profileTab = 'media';
+  await renderProfile();
+  if (!$('profile-dialog').open) $('profile-dialog').showModal();
+  $('profile-dialog').querySelector('.settings-form').scrollTop = 0;
+}
+
+async function renderProfile() {
+  const name = profileFor;
+  if (!name) return;
+  const c = (await client.contacts())[name];
+  const prof = c?.profile;
+  paintAvatar($('pf-avatar'), name);
+  setName($('pf-name'), name, client.isVerified(name));
+  $('pf-status').textContent = client.isBlocked(name) ? t('🚫 заблокирован') : presenceText(client.presenceOf(name)) || '';
+  $('pf-status').classList.toggle('online', !!client.presenceOf(name)?.online && !client.isBlocked(name));
+  $('pf-username').textContent = '@' + name;
+  $('pf-bio-row').hidden = !prof?.bio;
+  $('pf-bio').textContent = prof?.bio || '';
+  $('pf-key').textContent = c?.keyChanged ? t('⚠ ключ изменился — сверьте код') : c?.verified ? t('✔ ключ проверен') : t('🔒 ключ не проверен');
+  const noCall = !c || !!c.keyChanged || client.isBlocked(name) || client.status !== 'online' || !window.RTCPeerConnection;
+  $('pf-call').disabled = noCall;
+  $('pf-video').disabled = noCall;
+  const blocked = client.isBlocked(name);
+  $('pf-block').classList.toggle('danger', !blocked);
+  $('pf-block').replaceChildren(el('span', 'set-ico', blocked ? '✓' : '🚫'), el('span', 'set-label', blocked ? t('Разблокировать') : t('Заблокировать')));
+  for (const b of document.querySelectorAll('#profile-dialog .pf-tab')) b.classList.toggle('active', b.dataset.tab === profileTab);
+  // Медиа и файлы из переписки (новые сверху)
+  const files = (await client.messages(name)).filter((m) => m.content?.t === 'file' && m.content.file).reverse();
+  if (profileFor !== name) return;
+  const pics = files.filter((m) => m.content.file.kind === 'image' || m.content.file.kind === 'video');
+  const docs = files.filter((m) => m.content.file.kind === 'file' || m.content.file.kind === 'audio');
+  $('pf-media').hidden = profileTab !== 'media';
+  $('pf-files').hidden = profileTab !== 'files' || !docs.length;
+  const list = profileTab === 'media' ? pics : docs;
+  $('pf-empty').hidden = list.length > 0;
+  $('pf-empty').textContent = profileTab === 'media' ? t('Здесь будут фото и видео из переписки') : t('Здесь будут файлы из переписки');
+  if (profileTab === 'media') {
+    $('pf-media').replaceChildren(
+      ...pics.slice(0, 90).map((m) => {
+        const f = m.content.file;
+        const b = el('button', 'pf-thumb');
+        b.type = 'button';
+        b.dataset.msg = m.id;
+        b.setAttribute('aria-label', `${KIND_LABEL[f.kind]}: ${f.name}`);
+        const cached = media_cached(f);
+        if (cached || f.thumb) {
+          const img = el('img');
+          img.alt = '';
+          img.src = cached || f.thumb;
+          if (!cached) img.className = 'blur';
+          b.append(img);
+        }
+        if (f.kind === 'video') b.append(el('span', 'pf-play', '▶'));
+        return b;
+      })
+    );
+  } else {
+    $('pf-files').replaceChildren(
+      ...docs.slice(0, 200).map((m) => {
+        const f = m.content.file;
+        const li = el('li');
+        const b = el('button', 'set-row');
+        b.type = 'button';
+        b.dataset.msg = m.id;
+        const info = el('span', 'file-info');
+        info.append(el('span', 'file-name', f.name), el('span', 'file-size', `${sizeText(f.size)} · ${dayLabel(m.ts)}`));
+        b.append(el('span', 'file-icon', f.kind === 'audio' ? '🎵' : '📄'), info);
+        li.append(b);
+        return li;
+      })
+    );
+  }
+}
+/** Уже расшифрованное фото из памяти (без скачивания). */
+function media_cached(f) {
+  const e = media.get(f.id);
+  return f.kind === 'image' && e?.url ? e.url : null;
+}
+
+$('pf-close').addEventListener('click', () => $('profile-dialog').close());
+$('profile-dialog').addEventListener('close', () => (profileFor = null));
+$('profile-dialog').addEventListener('click', async (e) => {
+  const tab = e.target.closest('.pf-tab');
+  if (tab) {
+    profileTab = tab.dataset.tab;
+    return renderProfile();
+  }
+  const item = e.target.closest('[data-msg]');
+  if (item && profileFor) {
+    const name = profileFor;
+    if (current !== name) await openChat(name);
+    openMedia(item.dataset.msg);
+  }
+});
+$('pf-chat').addEventListener('click', async () => {
+  const name = profileFor;
+  $('profile-dialog').close();
+  if (name) await openChat(name);
+});
+for (const [id, video] of [['pf-call', false], ['pf-video', true]]) {
+  $(id).addEventListener('click', async () => {
+    const name = profileFor;
+    $('profile-dialog').close();
+    if (!name) return;
+    if (current !== name) await openChat(name);
+    startCall(video);
+  });
+}
+$('pf-username-row').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText('@' + profileFor);
+    toast(t('Юзернейм скопирован'));
+  } catch {}
+});
+$('pf-key-row').addEventListener('click', async () => {
+  const name = profileFor;
+  $('profile-dialog').close();
+  if (current !== name) await openChat(name);
+  openSafety();
+});
+$('pf-block').addEventListener('click', () => {
+  const name = profileFor;
+  if (client.isBlocked(name)) return setBlocked(name, false);
+  $('profile-dialog').close();
+  $('block-peer').textContent = nameOf(name);
+  $('block-delete').checked = false;
+  $('block-dialog').dataset.name = name;
+  $('block-dialog').returnValue = '';
+  $('block-dialog').showModal();
+});
+$('pf-delete').addEventListener('click', () => {
+  const name = profileFor;
+  $('profile-dialog').close();
+  $('delchat-peer').textContent = nameOf(name);
+  $('delchat-peer2').textContent = nameOf(name);
+  $('delchat-all').checked = false;
+  $('delchat-dialog').dataset.name = name;
+  $('delchat-dialog').returnValue = '';
+  $('delchat-dialog').showModal();
+});
+// Нажатие на имя или аватар в шапке чата
+for (const id of ['peer-open', 'peer-avatar']) {
+  $(id).addEventListener('click', () => current && openProfile(current));
+  $(id).addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && current && (e.preventDefault(), openProfile(current)));
+}
+for (const ev of ['contacts', 'presence', 'blocks']) client.on(ev, () => $('profile-dialog').open && renderProfile());
 
 // ---------- Блокировка и удаление чата ----------
 let chatMenuFor = null;
@@ -2328,16 +2518,17 @@ $('chat-menu').addEventListener('click', (e) => {
   const name = chatMenuFor;
   closeChatMenu();
   if (b.dataset.act === 'unblock') return setBlocked(name, false);
+  if (b.dataset.act === 'profile') return openProfile(name);
   if (b.dataset.act === 'block') {
-    $('block-peer').textContent = name;
+    $('block-peer').textContent = nameOf(name);
     $('block-delete').checked = false;
     $('block-dialog').dataset.name = name;
     $('block-dialog').returnValue = '';
     return $('block-dialog').showModal();
   }
   if (b.dataset.act === 'delete-chat') {
-    $('delchat-peer').textContent = name;
-    $('delchat-peer2').textContent = name;
+    $('delchat-peer').textContent = nameOf(name);
+    $('delchat-peer2').textContent = nameOf(name);
     $('delchat-all').checked = false;
     $('delchat-dialog').dataset.name = name;
     $('delchat-dialog').returnValue = '';
@@ -2348,7 +2539,7 @@ $('chat-menu').addEventListener('click', (e) => {
 async function setBlocked(name, on) {
   try {
     await client.setBlocked(name, on);
-    toast(on ? t('{0} заблокирован', name) : t('{0} разблокирован', name));
+    toast(on ? t('{0} заблокирован', nameOf(name)) : t('{0} разблокирован', nameOf(name)));
   } catch (err) {
     toast(err.message);
   }
@@ -2571,7 +2762,7 @@ async function notifyOther(acc, contact, message) {
   const { preview } = await notifPrefs();
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
   await showNotice({
-    title: `${contact} → ${acc.username}`,
+    title: `${others.get(acc.id)?.client.nameOf(contact) || contact} → ${acc.username}`,
     body: text || t('Новое сообщение'),
     chat: `${contact}@${acc.id}`,
     tag: `msg:${acc.id}:${contact}`,
@@ -2608,7 +2799,7 @@ async function startOthers() {
     c.on('call-signal', ({ from, data }) => {
       if (data?.kind !== 'offer') return;
       showNotice({
-        title: `${from} → ${acc.username}`,
+        title: `${c.nameOf(from)} → ${acc.username}`,
         body: t('Звонит. Откройте этот аккаунт, чтобы ответить'),
         chat: `${from}@${acc.id}`,
         tag: `msg:${acc.id}:${from}`,
