@@ -177,7 +177,7 @@ sudo ./deploy/sign-profile.sh
    PREMIUM_PLANS=30:3,90:8,365:30
    PREMIUM_CURRENCY=USDT
    ```
-   `PREMIUM_PLANS` — тарифы «дни:цена» через запятую.
+   `PREMIUM_PLANS` — тарифы «дни:цена» через запятую, цены — в `PREMIUM_CURRENCY`. Кроме неё можно платить валютами из `PREMIUM_PAY_CURRENCIES` (по умолчанию `GRAM,TRX`): сумма в них считается по курсу xRocket (`GET /api/v1/rates`) в момент выставления счёта и округляется вверх. Пользователь выбирает валюту в «Тайник Премиум». Коды, которых нет в списке валют xRocket, сервер при запуске убирает и пишет об этом в журнал.
 3. `docker compose up -d`. В журнале появится «подписка включена (xRocket Pay)».
 
 Адрес вебхука `https://DOMAIN/api/pay/xrocket` сервер сам передаёт в каждом счёте (нужен `DOMAIN` в `.env`); можно указать его и в настройках приложения xRocket. Если вебхук не дошёл, оплату всё равно найдёт сверка: кнопка «Проверить оплату» у пользователя и фоновая проверка неоплаченных счетов раз в 5 минут. Проверить всё без настоящих денег: токены из тестового бота [@xrocket_testnet_bot](https://t.me/xrocket_testnet_bot) и `XROCKET_TESTNET=1`.
@@ -230,6 +230,7 @@ sudo ./deploy/sign-profile.sh
 | `XROCKET_TESTNET` | 0 | 1 — тестовая сеть xRocket (без настоящих денег) |
 | `PREMIUM_PLANS` | `30:3` | Тарифы «дни:цена» через запятую |
 | `PREMIUM_CURRENCY` | `USDT` | Валюта цен (код xRocket: USDT, TON, …) |
+| `PREMIUM_PAY_CURRENCIES` | `GRAM,TRX` | Чем ещё можно заплатить — по курсу xRocket; пусто — только `PREMIUM_CURRENCY` |
 
 После изменения `.env` выполните `docker compose up -d`.
 

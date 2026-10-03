@@ -14,7 +14,7 @@ import { createAdmin } from './admin.js';
 import { createWebclipHandler } from './webclip.js';
 import { createReleases } from './releases.js';
 import { createBlobs } from './blobs.js';
-import { createBilling, parsePlans } from './billing.js';
+import { createBilling, parsePlans, parseCurrencies } from './billing.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
@@ -275,7 +275,7 @@ export function startServer({
     for (const c of onlineDevices(name)) send(c, { type: 'premium', ...p });
     broadcastPresence(name);
   }
-  const billingInfo = () => (billing ? { plans: billing.plans, testnet: billing.testnet } : null);
+  const billingInfo = () => (billing ? { plans: billing.plans, currencies: billing.currencies, testnet: billing.testnet } : null);
 
   function deliverQueue(username, device) {
     const conn = online.get(addr(username, device));
@@ -663,10 +663,11 @@ export function startServer({
         if (!billing) return error(conn, 'billing_disabled', { reqId: msg.reqId });
         if (!take(state.billing, RATE.billingPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
         try {
-          const inv = await billing.createInvoice(state.user, String(msg.plan || ''));
+          const inv = await billing.createInvoice(state.user, String(msg.plan || ''), msg.currency == null ? undefined : String(msg.currency));
           return send(conn, { type: 'premium-invoice', reqId: msg.reqId, ...inv });
         } catch (e) {
-          return error(conn, e.code === 'bad_plan' ? 'bad_plan' : e.code === 'billing_unavailable' ? 'billing_unavailable' : 'billing_failed', { reqId: msg.reqId });
+          const known = ['bad_plan', 'bad_currency', 'no_rate', 'billing_unavailable'];
+          return error(conn, known.includes(e.code) ? e.code : 'billing_failed', { reqId: msg.reqId });
         }
       }
 
@@ -719,7 +720,7 @@ export function startServer({
       totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued, media: store.blobStats() },
       users,
       bans: store.listBans(),
-      billing: billing ? { plans: billing.plans, testnet: billing.testnet, webhook: billing.webhook, active: store.premiumActiveCount(), payments: store.recentPayments(30) } : null,
+      billing: billing ? { plans: billing.plans, currencies: billing.currencies, testnet: billing.testnet, webhook: billing.webhook, active: store.premiumActiveCount(), payments: store.recentPayments(30) } : null,
     };
   }
   // Действия администратора
@@ -976,6 +977,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
           webhookSecret: (env.XROCKET_WEBHOOK_SECRET || '').trim() || null,
           testnet: env.XROCKET_TESTNET === '1',
           plans: parsePlans(env.PREMIUM_PLANS || '30:3', env.PREMIUM_CURRENCY || 'USDT'),
+          currencies: parseCurrencies(env.PREMIUM_PAY_CURRENCIES ?? 'GRAM,TRX', (env.PREMIUM_CURRENCY || 'USDT').trim().toUpperCase()),
           publicUrl: env.DOMAIN ? `https://${env.DOMAIN}` : null,
         }
       : null,

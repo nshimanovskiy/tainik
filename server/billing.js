@@ -45,6 +45,29 @@ export function parsePlans(spec, currency = 'USDT') {
   return plans.sort((a, b) => a.days - b.days);
 }
 
+/**
+ * Валюты, которыми можно оплатить: «USDT,GRAM,TRX». Первая — основная, в ней заданы цены
+ * тарифов; в остальных сумма считается по курсу xRocket в момент выставления счёта.
+ */
+export function parseCurrencies(spec, base) {
+  const list = [base];
+  for (const c of String(spec || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean)) {
+    if (!CURRENCY_RE.test(c)) throw new Error(`PREMIUM_PAY_CURRENCIES: неверный код валюты «${c}»`);
+    if (!list.includes(c)) list.push(c);
+  }
+  return list;
+}
+
+/** price / rate, округлено ВВЕРХ до 4 значащих цифр (но не меньше 2 и не больше 8 знаков после точки). */
+export function convertPrice(price, rate) {
+  const x = Number(price) / Number(rate);
+  if (!Number.isFinite(x) || x <= 0) return null;
+  const decimals = Math.max(2, Math.min(8, 3 - Math.floor(Math.log10(x))));
+  const k = 10 ** decimals;
+  const up = Math.ceil(Number((x * k).toPrecision(12))) / k;
+  return up.toFixed(decimals).replace(/\.?0+$/, '');
+}
+
 /** Одинаковые ли две десятичные суммы ("3" и "3.00" — да). */
 export function sameAmount(a, b) {
   const norm = (x) => {
@@ -92,18 +115,50 @@ export class BillingError extends Error {
  * @param {boolean} [o.testnet]       тестовая сеть xRocket (бот @xrocket_testnet_bot)
  * @param {string}  [o.apiUrl]        свой адрес API (для тестов)
  * @param {Array}   [o.plans]         из parsePlans()
+ * @param {string[]}[o.currencies]    из parseCurrencies(): первая — валюта цен тарифов
  * @param {string}  [o.publicUrl]     https://домен — тогда адрес вебхука передаётся в каждом счёте
  * @param {Function}[o.fetch]
  * @param {Function}[o.onPaid]        (user, until) — подписка продлена
  */
-export function createBilling({ store, token, webhookSecret = null, testnet = false, apiUrl = null, plans = parsePlans(), publicUrl = null, fetch: fetchImpl = globalThis.fetch, onPaid = () => {}, say = () => {} }) {
+export function createBilling({ store, token, webhookSecret = null, testnet = false, apiUrl = null, plans = parsePlans(), currencies = null, publicUrl = null, fetch: fetchImpl = globalThis.fetch, onPaid = () => {}, say = () => {} }) {
   if (!token) return null;
-  const base = String(apiUrl || (testnet ? XROCKET_TESTNET_API : XROCKET_API)).replace(/\/+$/, '');
+  const apiBase = String(apiUrl || (testnet ? XROCKET_TESTNET_API : XROCKET_API)).replace(/\/+$/, '');
   const callbackUrl = publicUrl && webhookSecret ? `${String(publicUrl).replace(/\/+$/, '')}${WEBHOOK_PATH}` : null;
   const checking = new Set(); // счета, которые сейчас сверяются (чтобы не опрашивать дважды)
+  const base = plans[0].currency;
+  let payWith = currencies?.length ? currencies : [base];
+  const rates = new Map(); // валюта → { rate, at }: сколько основной валюты стоит единица валюты
+
+  /** Курс: сколько основной валюты (base) стоит 1 единица currency. Кэш на 2 минуты. */
+  async function rateOf(currency) {
+    const c = rates.get(currency);
+    if (c && Date.now() - c.at < 120_000) return c.rate;
+    const list = await api('GET', '/api/v1/rates', { query: { base, assets: currency } });
+    const r = (Array.isArray(list) ? list : []).find((x) => String(x?.currency).toUpperCase() === currency);
+    const rate = Number(r?.rate);
+    if (!(rate > 0)) throw new BillingError('no_rate', currency);
+    rates.set(currency, { rate, at: Date.now() });
+    return rate;
+  }
+
+  // Каких валют из списка нет в xRocket — убираем (с записью в журнал), чтобы не показывать их людям
+  async function checkCurrencies() {
+    if (payWith.length < 2) return;
+    try {
+      const list = await api('GET', '/api/v1/currencies');
+      const known = new Set((Array.isArray(list) ? list : []).map((c) => String(c?.code || '').toUpperCase()));
+      if (!known.size) return;
+      const missing = payWith.filter((c) => c !== base && !known.has(c));
+      if (missing.length) {
+        say(`оплата: валют ${missing.join(', ')} нет в xRocket — они не предлагаются`);
+        payWith = payWith.filter((c) => !missing.includes(c));
+      }
+    } catch {}
+  }
+  checkCurrencies();
 
   async function api(method, path, { query, body } = {}) {
-    const url = new URL(base + path);
+    const url = new URL(apiBase + path);
     for (const [k, v] of Object.entries(query || {})) url.searchParams.set(k, v);
     let r;
     try {
@@ -169,22 +224,30 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
 
   return {
     plans,
+    get currencies() {
+      return payWith;
+    },
     testnet: !!testnet,
     webhook: !!webhookSecret,
 
-    /** Счёт на оплату тарифа: { id, url, days, price, currency, expiresAt }. */
-    async createInvoice(user, planId) {
+    /** Счёт на оплату тарифа в выбранной валюте: { id, url, days, price, currency, expiresAt }. */
+    async createInvoice(user, planId, currency = base) {
       const plan = plans.find((p) => p.id === planId);
       if (!plan) throw new BillingError('bad_plan');
+      currency = String(currency || base).toUpperCase();
+      if (!payWith.includes(currency)) throw new BillingError('bad_currency');
       const now = Date.now();
-      const open = store.openPayment(user, plan.id, now + REUSE_MIN);
+      const open = store.openPayment(user, plan.id, currency, now + REUSE_MIN);
       if (open?.url) return { id: open.id, url: open.url, days: open.days, price: open.amount, currency: open.currency, expiresAt: open.expiresAt };
 
+      // Цена в другой валюте — по текущему курсу xRocket, с округлением вверх
+      const amount = currency === base ? plan.price : convertPrice(plan.price, await rateOf(currency));
+      if (!amount) throw new BillingError('no_rate', currency);
       const id = 'tk' + randomBytes(12).toString('hex');
-      store.addPayment({ id, user, plan: plan.id, days: plan.days, amount: plan.price, currency: plan.currency, expiresAt: now + INVOICE_TTL, now });
+      store.addPayment({ id, user, plan: plan.id, days: plan.days, amount, currency, expiresAt: now + INVOICE_TTL, now });
       const body = {
-        priceAmount: plan.price,
-        priceCurrency: plan.currency,
+        priceAmount: amount,
+        priceCurrency: currency,
         numPayments: 1,
         clientInvoiceId: id,
         description: `Тайник Премиум — ${plan.days} дн.`,
@@ -210,7 +273,7 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
       }
       const expiresAt = inv.expiresAt ? Date.parse(inv.expiresAt) || now + INVOICE_TTL : now + INVOICE_TTL;
       store.setPaymentInvoice(id, inv.id != null ? String(inv.id) : null, url, expiresAt);
-      return { id, url, days: plan.days, price: plan.price, currency: plan.currency, expiresAt };
+      return { id, url, days: plan.days, price: amount, currency, expiresAt };
     },
 
     /** «Проверить оплату»: сверить неоплаченные счета пользователя. */

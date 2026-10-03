@@ -218,6 +218,7 @@ function renderBilling(b, now) {
   $('t-premium').textContent = b.active;
   $('billing-info').textContent =
     `Тарифы: ${b.plans.map((p) => `${p.days} дн. — ${p.price} ${p.currency}`).join(', ')}` +
+    (b.currencies?.length > 1 ? ` · оплата: ${b.currencies.join(', ')} (не ${b.plans[0].currency} — по курсу xRocket)` : '') +
     (b.testnet ? ' · тестовая сеть xRocket' : '') +
     (b.webhook ? '' : ' · вебхук не настроен (XROCKET_WEBHOOK_SECRET): оплаты подтверждаются только сверкой');
   const rows = b.payments.map((p) => {

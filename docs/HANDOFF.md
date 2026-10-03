@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на 3 октября 2026, версия **0.21.0** (`main`): подписка «Тайник Премиум» (xRocket Pay) с фото профиля, версия приложения у каждого устройства. Выпуск приложений v0.20.0 опубликован; v0.21.0 — нужно выпустить. Сервер работает на `https://chat.sdsds.top`.
+Состояние на 3 октября 2026, версия **0.22.0** (`main`): подписка «Тайник Премиум» (xRocket Pay) с фото профиля, версия приложения у каждого устройства. Выпуск приложений v0.20.0 опубликован; v0.21/0.22 — выпустить. Оплата: USDT + Gram/TRX по курсу xRocket (`PREMIUM_PAY_CURRENCIES`). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано и что известно плохого. Подробности для пользователей — в `README.md` / `README.ru.md`, развёртывание — в `DEPLOY.md`, выпуски — в `RELEASING.md`, история — в `CHANGELOG.md`.
 
@@ -125,7 +125,7 @@
   - ставить «галочки»;
   - блокировать IP.
 - `billing.js` — подписка через xRocket Pay (`XROCKET_PAY_TOKEN` и др.).
-  - `premium-buy` → `POST /api/v1/invoices` (сумма, валюта, наш `clientInvoiceId`, `callback.callbackUrl = https://DOMAIN/api/pay/xrocket`; юзернейм не передаётся). Неоплаченный счёт на тот же тариф отдаётся повторно.
+  - `premium-buy {plan, currency}` → для не основной валюты курс `GET /api/v1/rates?base=<PREMIUM_CURRENCY>&assets=<валюта>` (rate — сколько base стоит 1 единица; кэш 2 мин), сумма `convertPrice` с округлением вверх; затем `POST /api/v1/invoices` (сумма, валюта, наш `clientInvoiceId`, `callback.callbackUrl = https://DOMAIN/api/pay/xrocket`; юзернейм не передаётся). Неоплаченный счёт на тот же тариф отдаётся повторно.
   - Вебхук `POST /api/pay/xrocket` (обрабатывается до проверки банов): подпись `hex(HMAC-SHA256(webhook_secret, "{Signature-Timestamp}.{raw body}"))`, `Signature-Version: v1`, окно 5 минут; сверка суммы и валюты; `markPaymentPaid` в транзакции — один счёт продлевает ровно один раз.
   - Запасной путь — опрос `GET /api/v1/invoice?clientInvoiceId=`: `premium-check` и фоновая сверка раз в 5 минут (лимит API — 20 запросов в минуту на метод). Там же оповещение об истёкших подписках.
   - Админка: `setPremium(name, days)` (0 — отключить), блок «Подписка» со счетами.
@@ -250,7 +250,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test`. На 0.21.0 — **76 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
+- **Тесты:** `npm test`. На 0.22.0 — **77 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
 - **Локально:** `npm start` → главная `http://localhost:8080`, мессенджер `/app`. Чтобы проверить вдвоём, откройте обычное окно и окно инкогнито.
 - **CI:** каждый push в `main` запускает `build.yml`: test, docker, desktop×3, android. Статус:
   `curl -s "https://api.github.com/repos/nshimanovskiy/tainik/actions/runs?branch=main&per_page=1"`
@@ -315,6 +315,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.19 | Юзернейм и имя, «о себе», профиль собеседника, ссылка на главную в «О Тайнике» |
 | 0.20 | Подписка «Тайник Премиум» через xRocket Pay, фото профиля, звезда ★, подписка в админке |
 | 0.21 | Версия приложения у устройств (список устройств, админка); повторный запрос профиля, если фото потерялось |
+| 0.22 | Оплата подписки в Gram и TRX (по курсу xRocket); пометка «настоящая покупка» вместо «тестовая сеть» |
 
 ---
 

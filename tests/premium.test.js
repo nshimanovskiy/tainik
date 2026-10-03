@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer } from '../server/server.js';
-import { parsePlans, sameAmount, verifyWebhookSignature, signWebhook, WEBHOOK_PATH } from '../server/billing.js';
+import { parsePlans, parseCurrencies, convertPrice, sameAmount, verifyWebhookSignature, signWebhook, WEBHOOK_PATH } from '../server/billing.js';
 import { MessengerClient, MemoryStorage, AVATAR_MAX, validAvatar } from '../shared/client-core.js';
 
 const SECRET = 'webhook-secret-for-tests';
@@ -58,6 +58,15 @@ function fakeXRocket() {
       invoices.set(b.clientInvoiceId, inv);
       return json(201, inv);
     }
+    if (opts.method === 'GET' && u.pathname === '/api/v1/currencies') {
+      return json(200, ['USDT', 'TRX', 'GRAM', 'TON'].map((code) => ({ code, title: code, kind: 'crypto', networks: [] })));
+    }
+    if (opts.method === 'GET' && u.pathname === '/api/v1/rates') {
+      // Сколько base стоит единица актива
+      const table = { TRX: '0.3', GRAM: '0.0021' };
+      const assets = u.searchParams.getAll('assets');
+      return json(200, assets.filter((a) => table[a]).map((a) => ({ currency: a, rate: table[a] })));
+    }
     if (opts.method === 'GET' && u.pathname === '/api/v1/invoice') {
       const inv = invoices.get(u.searchParams.get('clientInvoiceId'));
       return inv ? json(200, inv) : problem(404, 'not_found');
@@ -76,7 +85,14 @@ async function setup(t) {
     dataDir,
     log: false,
     admin: { password: ADMIN_PASSWORD },
-    billing: { token: TOKEN, webhookSecret: SECRET, plans: parsePlans('30:3, 365:30.5', 'usdt'), publicUrl: 'https://chat.example', fetch: x.fetch },
+    billing: {
+      token: TOKEN,
+      webhookSecret: SECRET,
+      plans: parsePlans('30:3, 365:30.5', 'usdt'),
+      currencies: parseCurrencies('gram, TRX, NOPE', 'USDT'),
+      publicUrl: 'https://chat.example',
+      fetch: x.fetch,
+    },
   });
   const base = `http://127.0.0.1:${srv.port}`;
   const clients = [];
@@ -146,6 +162,13 @@ test('тарифы, суммы и подпись вебхука', () => {
   assert.ok(!verifyWebhookSignature({ secret: SECRET, rawBody: raw, signature: sig, version: 'v2', timestamp: ts }), 'незнакомая схема');
   const old = ts - 10 * 60_000;
   assert.ok(!verifyWebhookSignature({ secret: SECRET, rawBody: raw, signature: signWebhook(SECRET, raw, old), version: 'v1', timestamp: old }), 'старый вебхук');
+
+  assert.deepEqual(parseCurrencies('gram, TRX,usdt', 'USDT'), ['USDT', 'GRAM', 'TRX']);
+  assert.throws(() => parseCurrencies('не валюта', 'USDT'));
+  assert.equal(convertPrice('3', '0.3'), '10');
+  assert.equal(convertPrice('3', '0.0021'), '1428.58', 'округление вверх');
+  assert.equal(convertPrice('8', '2.5'), '3.2');
+  assert.equal(convertPrice('3', '0'), null);
 
   assert.ok(validAvatar(avatar()));
   assert.ok(!validAvatar('data:image/svg+xml;base64,PHN2Zz4='), 'SVG нельзя');
@@ -326,4 +349,35 @@ test('версия приложения видна в списке устрой�
   assert.equal((await a.listDevices())[0].appVersion, '0.21.0');
   assert.equal((await b.listDevices())[0].appVersion, null, 'мусор вместо версии не сохраняется');
   void mk;
+});
+
+test('подписка: оплата в TRX и Gram по курсу xRocket', async (t) => {
+  const { srv, x, mk, webhook, paidEvent } = await setup(t);
+  const alice = mk();
+  await alice.register('alice');
+  await sleep(100); // список валют xRocket сверяется при запуске
+  await alice.disconnect();
+  await alice.connect();
+  assert.deepEqual(alice.billing.currencies, ['USDT', 'GRAM', 'TRX'], 'валюты, которой нет в xRocket, не предлагается');
+
+  await assert.rejects(alice.buyPremium('30d', 'NOPE'), (e) => e.code === 'bad_currency');
+  const trx = await alice.buyPremium('30d', 'trx');
+  assert.equal(trx.currency, 'TRX');
+  assert.equal(trx.price, '10'); // 3 USDT / 0.3
+  const body = x.calls.filter((c) => c.method === 'POST').pop().body;
+  assert.equal(body.priceCurrency, 'TRX');
+  assert.equal(body.priceAmount, '10');
+  const gram = await alice.buyPremium('30d', 'GRAM');
+  assert.equal(gram.price, '1428.58');
+  assert.notEqual(gram.id, trx.id, 'счёт в другой валюте — отдельный');
+  assert.equal((await alice.buyPremium('30d', 'TRX')).id, trx.id);
+
+  // Оплачен счёт в TRX: сумма сверяется в TRX, в USDT не засчитывается
+  const inv = x.invoices.get(trx.id);
+  await webhook(paidEvent({ ...inv, priceCurrency: 'USDT', priceAmount: '3' }));
+  await sleep(100);
+  assert.equal(srv.store.premiumUntil('alice'), 0);
+  const on = waitFor(alice, 'premium', (p) => p.active);
+  await webhook(paidEvent(inv));
+  await on;
 });

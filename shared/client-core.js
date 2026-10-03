@@ -142,6 +142,8 @@ export const ERROR_TEXT = {
   billing_failed: t('Не удалось выставить счёт, попробуйте позже'),
   billing_unavailable: t('Платёжный сервис не отвечает, попробуйте позже'),
   bad_plan: t('Такого тарифа нет'),
+  bad_currency: t('Этой валютой оплатить нельзя'),
+  no_rate: t('Не удалось узнать курс валюты, попробуйте позже или выберите другую'),
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
   bad_device: t('Нельзя отвязать это устройство'),
   bad_url: t('Неверный адрес сервера'),
@@ -830,9 +832,12 @@ export class MessengerClient extends Emitter {
     return this._avatars.get(username) || null;
   }
 
-  /** Счёт на оплату тарифа: { id, url, days, price, currency, expiresAt }; url — оплата в @xRocket. */
-  async buyPremium(planId) {
-    const r = await this._request({ type: 'premium-buy', plan: String(planId) });
+  /**
+   * Счёт на оплату тарифа: { id, url, days, price, currency, expiresAt }; url — оплата в @xRocket.
+   * currency — одна из billing.currencies (по умолчанию основная); не в основной валюте сумма — по курсу.
+   */
+  async buyPremium(planId, currency) {
+    const r = await this._request({ type: 'premium-buy', plan: String(planId), ...(currency ? { currency: String(currency) } : {}) });
     return { id: r.id, url: r.url, days: r.days, price: r.price, currency: r.currency, expiresAt: r.expiresAt };
   }
 

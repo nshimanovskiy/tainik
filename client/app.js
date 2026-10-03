@@ -1308,6 +1308,9 @@ const dateShort = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'shor
 let invoice = null; // последний выставленный счёт { id, url, days, price, currency, expiresAt }
 let invoiceBase = 0; // до какого момента действовала подписка, когда счёт выставили
 let premPoll = null;
+let premCurrency = null; // выбранная валюта оплаты
+// Как показывать коды валют xRocket
+const CURRENCY_NAME = { TRX: 'TRON (TRX)', GRAM: 'Gram', TONCOIN: 'TON', TON: 'TON' };
 function planName(days) {
   if (days % 365 === 0) return days === 365 ? t('1 год') : t('{0} г.', days / 365);
   if (days % 30 === 0) return days === 30 ? t('1 месяц') : t('{0} мес.', days / 30);
@@ -1329,12 +1332,32 @@ function fillPremium() {
   const plans = client.billing?.plans || [];
   $('prem-plans-title').textContent = on ? t('Продлить') : t('Оплатить');
   $('prem-plans-title').hidden = $('prem-plans').hidden = $('prem-note').hidden = !plans.length;
-  $('prem-testnet').hidden = !client.billing?.testnet;
+  // На основной сети xRocket — напоминание, что оплата настоящая
+  $('prem-real').hidden = !plans.length || !!client.billing?.testnet;
+  // Валюта оплаты: цены тарифов — в основной (первой), в остальных — по курсу на момент счёта
+  const curs = client.billing?.currencies?.length ? client.billing.currencies : plans.length ? [plans[0].currency] : [];
+  if (!curs.includes(premCurrency)) premCurrency = curs[0] || null;
+  $('prem-curs').hidden = curs.length < 2;
+  $('prem-curs').replaceChildren(
+    ...curs.map((c) => {
+      const b = el('button', 'prem-cur' + (c === premCurrency ? ' active' : ''), CURRENCY_NAME[c] || c);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(c === premCurrency));
+      b.addEventListener('click', () => {
+        premCurrency = c;
+        fillPremium();
+      });
+      return b;
+    })
+  );
+  const base = plans[0]?.currency;
   $('prem-plans').replaceChildren(
     ...plans.map((p) => {
       const b = el('button', 'set-row prem-plan');
       b.type = 'button';
-      b.append(el('span', 'set-ico', '🗓'), el('span', 'set-label', planName(p.days)), el('span', 'set-value', `${p.price} ${p.currency}`));
+      const price = premCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[premCurrency] || premCurrency);
+      b.append(el('span', 'set-ico', '🗓'), el('span', 'set-label', planName(p.days)), el('span', 'set-value', price));
       b.addEventListener('click', () => buyPlan(p, b));
       return b;
     })
@@ -1352,7 +1375,7 @@ async function buyPlan(plan, btn) {
   btn.disabled = true;
   try {
     invoiceBase = client.premium.until || 0;
-    invoice = await client.buyPremium(plan.id);
+    invoice = await client.buyPremium(plan.id, premCurrency);
     showInvoice();
   } catch (err) {
     toast(err.message);

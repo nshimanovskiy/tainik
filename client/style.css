@@ -154,6 +154,10 @@ input, textarea {
 .prem-hero b { font-size: 18px; }
 .prem-star { font-size: 40px; line-height: 1; }
 .prem-plan .set-value { color: var(--accent); font-weight: 600; }
+.prem-curs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 2px 10px; }
+.prem-cur { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: inherit; font-weight: 600; font-size: 13px; }
+.prem-cur.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.prem-real { color: inherit; }
 .prem-link { display: inline-block; text-decoration: none; padding: 8px 16px; border-radius: 10px; }
 
 .add-form { display: flex; gap: 8px; padding: 0 14px; }

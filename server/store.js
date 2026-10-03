@@ -209,7 +209,7 @@ export class Store {
       setPaymentInvoice: q('UPDATE payments SET invoice_id = ?, url = ?, expires_at = ? WHERE id = ?'),
       setPaymentStatus: q('UPDATE payments SET status = ? WHERE id = ? AND status = ?'),
       markPaid: q("UPDATE payments SET status = 'paid', paid_at = ? WHERE id = ? AND status <> 'paid'"),
-      openPaymentOf: q("SELECT * FROM payments WHERE user = ? AND plan = ? AND status = 'active' AND url IS NOT NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1"),
+      openPaymentOf: q("SELECT * FROM payments WHERE user = ? AND plan = ? AND currency = ? AND status = 'active' AND url IS NOT NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1"),
       pendingOf: q("SELECT * FROM payments WHERE user = ? AND status = 'active' AND expires_at > ? ORDER BY created_at DESC LIMIT ?"),
       pendingAll: q("SELECT * FROM payments WHERE status = 'active' AND expires_at > ? ORDER BY created_at LIMIT ?"),
       recentPayments: q('SELECT * FROM payments ORDER BY created_at DESC LIMIT ?'),
@@ -487,8 +487,8 @@ export class Store {
     });
   }
   /** Неистёкший счёт этого пользователя на этот тариф (чтобы не плодить новые). */
-  openPayment(user, plan, validAfter) {
-    return paymentRow(this.s.openPaymentOf.get(user, plan, validAfter));
+  openPayment(user, plan, currency, validAfter) {
+    return paymentRow(this.s.openPaymentOf.get(user, plan, currency, validAfter));
   }
   pendingPayments(user = null, now = Date.now(), limit = 10) {
     const rows = user ? this.s.pendingOf.all(user, now, limit) : this.s.pendingAll.all(now, limit);
