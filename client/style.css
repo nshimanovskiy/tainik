@@ -492,7 +492,6 @@ body.call-min #app { height: calc(100% - 44px); margin-top: 44px; }
 @media (hover: none) { .msg-actions { display: none; } }
 
 /* Уведомления */
-.menu-sub { font-size: 14px; margin: 18px 0 0; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .notif-offer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 12px 8px; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft, rgba(31, 111, 92, .1)); font-size: 13.5px; }
 .notif-offer-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .notif-offer-actions .primary { padding: 6px 12px; font-size: 13px; }
@@ -502,10 +501,6 @@ body.call-min #app { height: calc(100% - 44px); margin-top: 44px; }
 .upd-actions button { padding: 7px 14px; font-size: 14px; }
 .ghost-link { font-size: 14px; color: var(--accent); }
 .upd-banner { background: var(--accent-soft); }
-
-/* Язык */
-.lang-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 14px; }
-.lang-row select { padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }
 
 /* ---------- Вложения ---------- */
 .composer .attach { flex: none; height: 42px; width: 40px; color: var(--muted); }
@@ -604,7 +599,7 @@ dialog.viewer[open] { display: flex; }
 }
 .blocked-bar .ghost { padding: 7px 14px; font-size: 14px; color: var(--accent); font-weight: 600; }
 #chat-menu-btn { font-size: 22px; }
-.blocked-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
+.blocked-list { list-style: none; padding: 0; }
 .blocked-item { display: flex; align-items: center; gap: 10px; }
 .blocked-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 .blocked-item .ghost { padding: 6px 12px; font-size: 13.5px; }
@@ -658,7 +653,6 @@ dialog.settings[open] { display: flex; }
 .set-sub { color: var(--muted); font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin: 6px 6px 6px; }
 .set-group .fp { display: block; margin: 8px 0; }
 .set-group .upd-actions { margin: 4px 0 10px; }
-.set-group.blocked-list { gap: 0; max-height: none; }
 .set-group .blocked-item { padding: 8px 14px; }
 @media (max-width: 600px) {
   dialog.settings { width: 100vw; height: 100dvh; max-width: none; margin: 0; border: 0; border-radius: 0; }

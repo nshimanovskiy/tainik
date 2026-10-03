@@ -41,7 +41,7 @@ import {
   SPK_ROTATE_MS,
   SPK_KEEP_MS,
 } from './protocol/index.js';
-import { SEG, CAPTION_MAX, newFileKey, encryptSegment, decryptFile, encryptedSize, segments, cleanFile, safeName, kindOf } from './media.js';
+import { SEG, CAPTION_MAX, KINDS, newFileKey, encryptSegment, decryptFile, encryptedSize, segments, cleanFile, safeName, kindOf } from './media.js';
 
 const SEEN_LIMIT = 5000;
 const DELETED_LIMIT = 2000;
@@ -90,7 +90,7 @@ function cleanText(c, tsFallback = Date.now()) {
   const r = c?.reply;
   if (r && typeof r.id === 'string' && typeof r.from === 'string') {
     out.reply = { id: r.id.slice(0, 64), from: r.from.slice(0, 32), body: String(r.body ?? '').slice(0, REPLY_SNIPPET) };
-    if (['image', 'video', 'audio', 'file'].includes(r.kind)) out.reply.kind = r.kind;
+    if (KINDS.includes(r.kind)) out.reply.kind = r.kind;
   }
   return out;
 }

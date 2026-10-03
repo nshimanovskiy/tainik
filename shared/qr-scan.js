@@ -40,7 +40,7 @@ const div = (a, b) => (a ? EXP[(LOG[a] + 255 - LOG[b]) % 255] : 0);
  * Исправить ошибки в блоке (данные + nsym слов коррекции, старший коэффициент первым).
  * Возвращает исправленный блок или null, если ошибок больше, чем можно исправить.
  */
-export function rsCorrect(block, nsym) {
+function rsCorrect(block, nsym) {
   const n = block.length;
   // Синдромы S_i = r(α^i), i = 0..nsym-1 (корни порождающего многочлена — α^0…α^(nsym-1))
   const synd = new Array(nsym).fill(0);
@@ -596,5 +596,3 @@ export function scanQR(imageData, { budgetMs = 400 } = {}) {
   return decodeImage(img, deadline);
 }
 
-// Для тестов
-export const _internals = { binarize, findFinders, finderTriples };

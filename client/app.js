@@ -2356,7 +2356,7 @@ async function renderProfile() {
         b.type = 'button';
         b.dataset.msg = m.id;
         b.setAttribute('aria-label', `${KIND_LABEL[f.kind]}: ${f.name}`);
-        const cached = media_cached(f);
+        const cached = cachedImage(f);
         if (cached || f.thumb) {
           const img = el('img');
           img.alt = '';
@@ -2386,7 +2386,7 @@ async function renderProfile() {
   }
 }
 /** Уже расшифрованное фото из памяти (без скачивания). */
-function media_cached(f) {
+function cachedImage(f) {
   const e = media.get(f.id);
   return f.kind === 'image' && e?.url ? e.url : null;
 }

@@ -17,7 +17,6 @@ export default {
   'Включить': 'Turn on',
   'Не сейчас': 'Not now',
   'Позже': 'Later',
-  'Открыть': 'Open',
   'Проверить': 'Check',
   'Установить': 'Install',
   'Скачать': 'Download',
@@ -47,9 +46,7 @@ export default {
   'Новый аккаунт на этом устройстве. Остальные аккаунты продолжат работать.': 'A new account on this device. Your other accounts keep working.',
   'Новый аккаунт': 'New account',
   'Привязать устройство': 'Link device',
-  'Имя пользователя': 'Username',
   'например, alice': 'e.g. alice',
-  '3–32 символа: латиница, цифры, «_».': '3–32 characters: Latin letters, digits, “_”.',
   '📲 Установить Тайник на iPhone — как приложение, с уведомлениями': '📲 Install Tainik on iPhone — as an app, with notifications',
   'Подключите это устройство к аккаунту, который уже открыт на другом устройстве. На нём:':
     'Connect this device to an account that’s already open on another device. On that device:',
@@ -71,10 +68,7 @@ export default {
 
   // ---------- Список чатов ----------
   'Аккаунты: переключиться или добавить': 'Accounts: switch or add',
-  'Добавить собеседника по имени': 'Add a contact by username',
-  'Имя собеседника': 'Contact’s username',
   '🔔 Включить уведомления о новых сообщениях и звонках?': '🔔 Turn on notifications for new messages and calls?',
-  'Пока никого. Добавьте собеседника по имени — он должен быть зарегистрирован.': 'No one here yet. Add a contact by username — they need to be registered.',
   'Нет сообщений': 'No messages',
   'Служебное сообщение': 'Service message',
   '⚠ ключ изменён': '⚠ key changed',
@@ -130,27 +124,18 @@ export default {
   'Сообщение пропадёт на всех ваших устройствах. С отметкой — и у собеседника.': 'The message will disappear on all your devices. If checked — for your contact too.',
 
   // ---------- Меню ----------
-  'Аккаунт': 'Account',
   'Это устройство:': 'This device:',
-  'Аккаунты: переключиться или добавить…': 'Accounts: switch or add…',
-  'Устройства и привязка…': 'Devices and linking…',
-  'Показывать другим, что я в сети и когда был(а)': 'Show others when I’m online and when I was last seen',
   'Уведомления': 'Notifications',
   'Уведомлять о сообщениях и звонках': 'Notify me about messages and calls',
-  'Показывать текст сообщения в уведомлении': 'Show message text in notifications',
   'Работа в фоне': 'Background',
   'При закрытии окна оставаться в фоне (значок в трее)': 'Keep running when the window is closed (tray icon)',
   'Запускать при входе в систему': 'Start at login',
   'Обновления': 'Updates',
   'Скачать вручную': 'Download manually',
   'Скачивать обновления автоматически': 'Download updates automatically',
-  'Отпечаток ключа личности:': 'Identity key fingerprint:',
   'Сервер:': 'Server:',
   'Версия приложения:': 'App version:',
   'Скачать приложения': 'Download the apps',
-  'для компьютера, Android и iPhone': 'for desktop, Android and iPhone',
-  'Протокол: X3DH + Double Ratchet, несколько устройств (v3). «Выйти на этом устройстве» стирает ключи и переписку только здесь; лучше сначала отвязать устройство с другого.':
-    'Protocol: X3DH + Double Ratchet, multiple devices (v3). “Sign out on this device” erases keys and messages only here; it’s better to unlink the device from another one first.',
   'Выйти на этом устройстве': 'Sign out on this device',
   'Язык': 'Language',
   'Стереть ключи и переписку этого аккаунта на этом устройстве? Другие устройства аккаунта и другие аккаунты здесь продолжат работать.':
@@ -189,7 +174,6 @@ export default {
   'Код с нового устройства': 'Code from the new device',
   'Код привязки': 'Link code',
   'Привязать': 'Link',
-  '📷 Сканировать QR камерой': '📷 Scan QR with camera',
   'Новое устройство получит ключ вашей личности и список контактов. История переписки не переносится. Не вводите код, который прислал кто-то другой.':
     'The new device will receive your identity key and contact list. Message history isn’t transferred. Never enter a code someone else sent you.',
   'это устройство': 'this device',
@@ -200,7 +184,6 @@ export default {
   'Передать ключ вашей личности устройству с этим кодом? Делайте это, только если код с вашего собственного экрана.':
     'Send your identity key to the device with this code? Only do this if the code is from your own screen.',
   'Найден код привязки. Передать ключи этому устройству?': 'Link code found. Send your keys to this device?',
-  'Камера недоступна — введите код вручную': 'Camera unavailable — enter the code manually',
   'Аккаунт {0} удалён администратором сервера. Ключи и переписка на этом устройстве стёрты.': 'Account {0} was deleted by the server administrator. Keys and messages on this device have been erased.',
   'Это устройство отвязано от аккаунта {0}. Ключи и переписка удалены.': 'This device was unlinked from account {0}. Keys and messages have been deleted.',
 
@@ -295,7 +278,6 @@ export default {
   // ---------- Ошибки (клиентское ядро) ----------
   'Уведомления на этом сервере выключены': 'Notifications are disabled on this server',
   'Этот браузер не поддерживает уведомления Тайника': 'This browser doesn’t support Tainik notifications',
-  'Имя: 3–32 символа, латиница в нижнем регистре, цифры и _': 'Username: 3–32 characters, lowercase Latin letters, digits and _',
   'Сервер отклонил ключи': 'The server rejected the keys',
   'Это имя уже занято': 'This username is taken',
   'Такого аккаунта нет на сервере': 'No such account on this server',
@@ -500,7 +482,6 @@ export default {
   'Вы заблокировали этого пользователя. Разблокируйте, чтобы написать': 'You blocked this user. Unblock them to send a message',
   'Заблокировано слишком много пользователей': 'Too many blocked users',
   '🚫 Вы заблокировали этого пользователя': '🚫 You blocked this user',
-  'Заблокированные…': 'Blocked users…',
   '🚫 Заблокировать': '🚫 Block',
   '✓ Разблокировать': '✓ Unblock',
   '🗑 Удалить чат': '🗑 Delete chat',
@@ -510,7 +491,6 @@ export default {
   'Заблокировать': 'Block',
   'Он не сможет писать и звонить вам и не будет видеть, когда вы в сети. Об этом он не узнает: его сообщения будут выглядеть отправленными, но не доставленными.': 'They won\'t be able to message or call you or see when you\'re online. They won\'t be told: their messages will look sent but not delivered.',
   'Также удалить чат': 'Also delete the chat',
-  'Блокировка действует на всех ваших устройствах. Снять её можно в ⋯ → «Заблокированные».': 'The block applies on all your devices. You can lift it in ⋯ → “Blocked users”.',
   'Заблокированные': 'Blocked users',
   'Вы никого не заблокировали. Заблокировать можно в чате: ⋮ → «Заблокировать».': 'You haven\'t blocked anyone. To block someone, open the chat: ⋮ → “Block”.',
   'Действия с чатом': 'Chat actions',
