@@ -621,7 +621,6 @@ export default {
   '🔊 Проверить звук': '🔊 Test sound',
   'Устройство вывода звука на этом устройстве выбирается в настройках системы.': 'On this device, the audio output is chosen in the system settings.',
   'Разрешить доступ к микрофону, чтобы увидеть названия устройств': 'Allow microphone access to see device names',
-  'Выбор действует для звонков на этом устройстве; во время звонка устройство можно сменить кнопкой «Звук». Если выбранное устройство отключить, звук пойдёт через системное.': 'The choice applies to calls on this device; during a call you can switch with the “Sound” button. If the chosen device is disconnected, the system default is used.',
   'Звук': 'Sound',
   'Выбрать микрофон и динамик': 'Choose microphone and speaker',
   'Системный (по умолчанию)': 'System default',
@@ -629,4 +628,8 @@ export default {
   'Динамик {0}': 'Speaker {0}',
   'Не удалось включить этот микрофон': 'Couldn\'t switch to this microphone',
   'Не удалось воспроизвести звук': 'Couldn\'t play the sound',
+  // ---------- Громкость в звонке ----------
+  'Громкость моего голоса': 'My voice volume',
+  'Громкость собеседника': 'Contact\'s volume',
+  'Выбор действует для звонков на этом устройстве; во время звонка всё это можно поменять кнопкой «Звук». Если выбранное устройство отключить, звук пойдёт через системное. «Громкость моего голоса» — насколько громко вас слышит собеседник; больше 100% — усиление для тихого микрофона.': 'These settings apply to calls on this device; during a call you can change them with the “Sound” button. If the chosen device is disconnected, the system default is used. “My voice volume” is how loud your contact hears you; above 100% boosts a quiet microphone.',
 };

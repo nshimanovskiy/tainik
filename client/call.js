@@ -132,6 +132,7 @@ export class CallManager {
     this.onChange = onChange;
     this.call = null;
     this.micId = ''; // выбранный микрофон ('' — системный по умолчанию)
+    this.micGain = 1; // громкость своего голоса для собеседника: 0…2 (1 — как есть)
     this.tones = new Tones();
     client.on('call-signal', (s) => this._onSignal(s).catch((e) => console.error('call', e)));
   }
@@ -206,7 +207,7 @@ export class CallManager {
       await c.pc.setRemoteDescription({ type: 'offer', sdp: c.offerSdp });
       const trs = c.pc.getTransceivers();
       for (const tr of trs) tr.direction = 'sendrecv';
-      await trs[T_AUDIO]?.sender.replaceTrack(c.local.mic || null);
+      await trs[T_AUDIO]?.sender.replaceTrack(this._sendTrack(c));
       await trs[T_CAM]?.sender.replaceTrack(c.local.cam || null);
       const answer = await c.pc.createAnswer();
       await c.pc.setLocalDescription(answer);
@@ -262,10 +263,60 @@ export class CallManager {
     if (this.call !== c || !track) return s.getTracks().forEach((tr) => tr.stop());
     const old = c.local.mic;
     track.enabled = old.enabled;
-    await c.pc?.getTransceivers()[T_AUDIO]?.sender.replaceTrack(track);
+    if (c.micFx) {
+      // Громкость уже регулируется: меняем только источник, отправляемая дорожка та же
+      c.micFx.src.disconnect();
+      c.micFx.src = c.micFx.ctx.createMediaStreamSource(new MediaStream([track]));
+      c.micFx.src.connect(c.micFx.gain);
+    } else {
+      await c.pc?.getTransceivers()[T_AUDIO]?.sender.replaceTrack(track);
+    }
     c.local.mic = track;
     old.stop();
     this._emit();
+  }
+
+  /**
+   * Громкость своего голоса для собеседника (0…2). Микрофон проходит через WebAudio:
+   * усиление и ограничитель, чтобы громкий голос не хрипел. Пока громкость 100%,
+   * обработки нет — отправляется сам микрофон.
+   */
+  async setMicGain(v) {
+    this.micGain = Math.min(2, Math.max(0, Number(v) || 0));
+    const c = this.call;
+    if (!c?.local.mic || c.phase === 'ended') return;
+    if (c.micFx) {
+      c.micFx.gain.gain.value = this.micGain;
+      return;
+    }
+    if (this.micGain === 1) return;
+    const track = this._buildMicFx(c);
+    if (track) await c.pc?.getTransceivers()[T_AUDIO]?.sender.replaceTrack(track);
+  }
+
+  _buildMicFx(c) {
+    const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!AC || !c.local.mic) return null;
+    const ctx = new AC();
+    const src = ctx.createMediaStreamSource(new MediaStream([c.local.mic]));
+    const gain = ctx.createGain();
+    gain.gain.value = this.micGain;
+    const limit = ctx.createDynamicsCompressor();
+    limit.threshold.value = -6;
+    limit.knee.value = 6;
+    limit.ratio.value = 12;
+    limit.attack.value = 0.003;
+    limit.release.value = 0.25;
+    const dest = ctx.createMediaStreamDestination();
+    src.connect(gain).connect(limit).connect(dest);
+    ctx.resume().catch(() => {});
+    c.micFx = { ctx, src, gain, track: dest.stream.getAudioTracks()[0] };
+    return c.micFx.track;
+  }
+
+  /** Что отправляется собеседнику: обработанный звук или сам микрофон. */
+  _sendTrack(c) {
+    return c.micFx?.track || c.local.mic || null;
   }
 
   /** Микрофон: выбранный (если он ещё подключён) или системный. */
@@ -378,6 +429,7 @@ export class CallManager {
     }
     c.local.mic = s.getAudioTracks()[0] || null;
     c.local.cam = s.getVideoTracks()[0] || null;
+    if (this.micGain !== 1) this._buildMicFx(c);
   }
 
   async _createPeer() {
@@ -392,7 +444,7 @@ export class CallManager {
     c.dc.onmessage = (e) => this._onCtl(e.data);
 
     if (c.role === 'caller') {
-      pc.addTransceiver(c.local.mic || 'audio', { direction: 'sendrecv' });
+      pc.addTransceiver(this._sendTrack(c) || 'audio', { direction: 'sendrecv' });
       pc.addTransceiver(c.local.cam || 'video', { direction: 'sendrecv' });
       pc.addTransceiver('video', { direction: 'sendrecv' }); // экран
     }
@@ -533,6 +585,11 @@ export class CallManager {
     this.tones.stop();
     if (result !== 'elsewhere' && result !== 'missed') this.tones.end();
     for (const tr of Object.values(c.local)) tr?.stop();
+    if (c.micFx) {
+      c.micFx.track.stop();
+      c.micFx.ctx.close().catch(() => {});
+      c.micFx = null;
+    }
     try {
       c.dc?.close();
     } catch {}

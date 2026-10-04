@@ -2046,12 +2046,17 @@ function acquireInstanceLock() {
 // браузер выдаёт свои для каждого сайта/приложения; пропавшее устройство — значит системное.
 // Объявлено до CallManager: звонок может прийти, пока настройки ещё читаются.
 const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
-const audioPrefs = { mic: '', speaker: '' };
+const audioPrefs = { mic: '', speaker: '', micGain: 100, peerVol: 100 }; // громкость — в процентах
+let remoteFx = null; // усиление звука собеседника больше 100%: { ctx, src, gain, stream }
 let micMeter = null; // { stream, ctx, raf }
 const calls = new CallManager({ client, onChange: renderCall });
 audioPrefs.mic = (await settings.get('audio-in')) || '';
 audioPrefs.speaker = (await settings.get('audio-out')) || '';
 calls.micId = audioPrefs.mic;
+const pct = (v, def = 100) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Math.min(200, Math.max(0, Math.round(Number(v)))) : def);
+audioPrefs.micGain = pct(await settings.get('mic-gain'));
+audioPrefs.peerVol = pct(await settings.get('peer-volume'));
+calls.micGain = audioPrefs.micGain / 100;
 
 async function listAudioDevices() {
   let list = [];
@@ -2088,6 +2093,7 @@ async function renderAudioDevices() {
 /** Звук собеседника и гудки — в выбранное устройство вывода. */
 async function applySpeaker() {
   calls.tones.setSink(audioPrefs.speaker);
+  remoteFx?.ctx.setSinkId?.(audioPrefs.speaker).catch(() => remoteFx?.ctx.setSinkId?.('').catch(() => {}));
   if (!canPickSpeaker) return;
   for (const node of [$('remote-audio')]) {
     try {
@@ -2114,6 +2120,70 @@ async function chooseSpeaker(id) {
   await applySpeaker();
   renderAudioDevices();
 }
+// ---------- Громкость: свой голос для собеседника и голос собеседника ----------
+function dropRemoteFx() {
+  if (!remoteFx) return;
+  remoteFx.ctx.close().catch(() => {});
+  remoteFx = null;
+}
+/**
+ * Громкость собеседника. До 100% — громкость самого <audio>; больше — через WebAudio
+ * (элемент при этом продолжает играть без звука: иначе Chrome не отдаёт звук WebRTC в WebAudio).
+ * Элемент глушится, только когда WebAudio действительно заиграл, — иначе собеседника не было бы слышно.
+ */
+function applyPeerVolume() {
+  const node = $('remote-audio');
+  const vol = audioPrefs.peerVol / 100;
+  const stream = node.srcObject;
+  const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+  if (vol <= 1 || !stream || !AC) {
+    dropRemoteFx();
+    node.muted = false;
+    node.volume = Math.min(1, vol);
+    return;
+  }
+  if (!remoteFx || remoteFx.stream !== stream) {
+    dropRemoteFx();
+    const ctx = new AC();
+    const src = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    src.connect(gain).connect(ctx.destination);
+    remoteFx = { ctx, src, gain, stream };
+    if (audioPrefs.speaker) ctx.setSinkId?.(audioPrefs.speaker).catch(() => {});
+  }
+  const fx = remoteFx;
+  fx.gain.gain.value = vol;
+  node.volume = 1;
+  fx.ctx
+    .resume()
+    .catch(() => {})
+    .then(() => {
+      if (remoteFx === fx) node.muted = fx.ctx.state === 'running';
+    });
+}
+function showVolumes() {
+  for (const [id, v] of [['vol-mic', audioPrefs.micGain], ['call-vol-mic', audioPrefs.micGain], ['vol-peer', audioPrefs.peerVol], ['call-vol-peer', audioPrefs.peerVol]]) {
+    if (document.activeElement !== $(id)) $(id).value = String(v);
+    $(id + '-val').textContent = `${v}%`;
+  }
+}
+async function setMicGain(v) {
+  audioPrefs.micGain = pct(v);
+  showVolumes();
+  if (micMeter?.gain) micMeter.gain.gain.value = audioPrefs.micGain / 100;
+  await calls.setMicGain(audioPrefs.micGain / 100).catch(() => {});
+  await settings.set('mic-gain', String(audioPrefs.micGain));
+}
+async function setPeerVolume(v) {
+  audioPrefs.peerVol = pct(v);
+  showVolumes();
+  applyPeerVolume();
+  await settings.set('peer-volume', String(audioPrefs.peerVol));
+}
+for (const id of ['vol-mic', 'call-vol-mic']) $(id).addEventListener('input', (e) => setMicGain(e.target.value));
+for (const id of ['vol-peer', 'call-vol-peer']) $(id).addEventListener('input', (e) => setPeerVolume(e.target.value));
+showVolumes();
+
 for (const id of ['dev-mic', 'call-dev-mic']) $(id).addEventListener('change', (e) => chooseMic(e.target.value));
 for (const id of ['dev-speaker', 'call-dev-speaker']) $(id).addEventListener('change', (e) => chooseSpeaker(e.target.value));
 navigator.mediaDevices?.addEventListener?.('devicechange', () => {
@@ -2147,7 +2217,9 @@ async function startMicMeter() {
   m.ctx = new AC();
   const an = m.ctx.createAnalyser();
   an.fftSize = 512;
-  m.ctx.createMediaStreamSource(m.stream).connect(an);
+  m.gain = m.ctx.createGain(); // индикатор показывает громкость с учётом «Громкости моего голоса»
+  m.gain.gain.value = audioPrefs.micGain / 100;
+  m.ctx.createMediaStreamSource(m.stream).connect(m.gain).connect(an);
   const buf = new Uint8Array(an.fftSize);
   const tick = () => {
     an.getByteTimeDomainData(buf);
@@ -2209,7 +2281,10 @@ function toggleCallDevMenu(open = $('call-dev-menu').hidden) {
   $('call-dev-menu').hidden = !open;
   $('call-devices').classList.toggle('on', open);
   $('call-devices').setAttribute('aria-expanded', String(open));
-  if (open) renderAudioDevices();
+  if (open) {
+    renderAudioDevices();
+    showVolumes();
+  }
 }
 $('call-devices').addEventListener('click', () => toggleCallDevMenu());
 let callTicker = null;
@@ -2347,6 +2422,7 @@ function renderCall(c) {
     callTicker = null;
     for (const id of ['remote-main', 'remote-pip', 'local-pip', 'local-screen']) setVideo($(id), null, false);
     $('remote-audio').srcObject = null;
+    dropRemoteFx();
     toggleCallDevMenu(false);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     document.title = baseTitle();
@@ -2368,7 +2444,10 @@ function renderCall(c) {
   // Звук собеседника
   if (c.remote.audio.getTracks().length && $('remote-audio').srcObject !== c.remote.audio) {
     $('remote-audio').srcObject = c.remote.audio;
-    applySpeaker().finally(() => $('remote-audio').play().catch(() => {}));
+    applySpeaker().finally(() => {
+      $('remote-audio').play().catch(() => {});
+      applyPeerVolume();
+    });
   }
 
   // Видео: экран собеседника — главный, камера — в окошке (нажатие меняет их местами)

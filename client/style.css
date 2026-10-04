@@ -404,12 +404,16 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
 .mic-meter i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s linear; }
 .call-dev-menu {
   position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 5;
-  width: min(360px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 10px;
+  width: min(360px, calc(100% - 32px)); max-height: calc(100% - 140px); overflow-y: auto; display: flex; flex-direction: column; gap: 10px;
   background: #1a2421; color: #eef5f2; padding: 14px; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.4);
 }
 .call-dev-menu label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #b9c9c3; }
 .call-dev-menu .dev-select { background: #24302c; border-color: #34443f; color: #eef5f2; }
 #call-devices.on svg { background: var(--accent); }
+.vol-range { width: 100%; accent-color: var(--accent); margin: 2px 0; }
+.vol-val { float: right; font-weight: 600; font-variant-numeric: tabular-nums; color: inherit; }
+.call-dev-menu .vol-val { color: #eef5f2; }
+.vol-field { margin-bottom: 4px; }
 
 .msg.sys.call .bubble { color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 12px; }
 .msg.sys.call.missed .bubble { color: var(--danger); }
