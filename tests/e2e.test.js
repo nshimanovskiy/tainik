@@ -266,10 +266,17 @@ test('сервер: лимит подключений с одного IP (за �
           ...(realIp ? { 'X-Real-IP': realIp } : {}),
         },
       });
-      req.on('upgrade', (res, socket) => resolve({ status: 101, socket }));
+      let upgraded = false;
+      req.on('upgrade', (res, socket, head) => {
+        upgraded = true;
+        // Сверх лимита сервер открывает соединение, присылает причину и закрывает его
+        let text = head ? head.toString('latin1') : '';
+        socket.on('data', (d) => (text += d.toString('latin1')));
+        setTimeout(() => resolve({ status: 101, socket, refused: text.includes('too_many_connections') }), 300);
+      });
       req.on('response', (res) => resolve({ status: res.statusCode }));
       req.on('error', () => resolve({ status: 'error' }));
-      req.on('close', () => resolve({ status: 'closed' }));
+      req.on('close', () => !upgraded && resolve({ status: 'closed' }));
       setTimeout(() => resolve({ status: 'timeout' }), 3000);
       req.end();
     });
@@ -280,8 +287,8 @@ test('сервер: лимит подключений с одного IP (за �
     const other = await upgrade('198.51.100.7');
     // nginx: X-Real-IP важнее поддельного X-Forwarded-For от клиента
     const viaNginx = await upgrade('198.51.100.99', '203.0.113.5');
-    assert.deepEqual([a.status, b.status, c.status, other.status, viaNginx.status], [101, 101, 429, 101, 429]);
-    for (const x of [a, b, other]) x.socket?.destroy();
+    assert.deepEqual([a, b, c, other, viaNginx].map((x) => x.refused), [false, false, true, false, true]);
+    for (const x of [a, b, c, other, viaNginx]) x.socket?.destroy();
   } finally {
     await srv.close();
     fs.rmSync(dataDir, { recursive: true, force: true });

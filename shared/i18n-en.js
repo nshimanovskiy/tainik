@@ -632,4 +632,5 @@ export default {
   'Громкость моего голоса': 'My voice volume',
   'Громкость собеседника': 'Contact\'s volume',
   'Выбор действует для звонков на этом устройстве; во время звонка всё это можно поменять кнопкой «Звук». Если выбранное устройство отключить, звук пойдёт через системное. «Громкость моего голоса» — насколько громко вас слышит собеседник; больше 100% — усиление для тихого микрофона.': 'These settings apply to calls on this device; during a call you can change them with the “Sound” button. If the chosen device is disconnected, the system default is used. “My voice volume” is how loud your contact hears you; above 100% boosts a quiet microphone.',
+  'С вашего адреса уже слишком много подключений к серверу — попробуем ещё раз через несколько секунд': 'Too many connections to the server from your address — retrying in a few seconds',
 };

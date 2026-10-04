@@ -131,6 +131,7 @@ export const ERROR_TEXT = {
   unknown_recipient: t('Такого пользователя нет'),
   too_large: t('Сообщение слишком большое'),
   rate_limited: t('Слишком много запросов, подождите'),
+  too_many_connections: t('С вашего адреса уже слишком много подключений к серверу — попробуем ещё раз через несколько секунд'),
   timeout: t('Сервер не ответил'),
   offline: t('Нет соединения с сервером'),
   key_changed: t('Ключ собеседника изменился — сначала проверьте его'),
@@ -686,7 +687,9 @@ export class MessengerClient extends Emitter {
           this._setStatus('replaced');
           return this._fatal(msg.code);
         }
-        if (this._firstReady && ['username_taken', 'auth_failed', 'bad_username', 'bad_keys', 'unknown_account', 'too_many_devices'].includes(msg.code)) {
+        const busy = msg.code === 'too_many_connections' || msg.code === 'rate_limited';
+        // Перегрузка при регистрации/привязке — отказ с причиной; у вошедшего — повтор позже (соединение закроет сервер)
+        if (this._firstReady && (['username_taken', 'auth_failed', 'bad_username', 'bad_keys', 'unknown_account', 'too_many_devices'].includes(msg.code) || (busy && this._authExtra))) {
           return this._fatal(msg.code);
         }
         if (msg.cid) return this._serial(() => this._failOutbox(msg.cid));

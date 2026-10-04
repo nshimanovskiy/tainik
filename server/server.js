@@ -30,7 +30,9 @@ const MAX_DEVICES = 5; // устройств на аккаунт
 const MAX_WATCH = 500; // за статусом скольких пользователей может следить одно соединение
 const PROVISION_TTL = 10 * 60 * 1000; // канал привязки живёт 10 минут
 const AUTH_CONTEXT = 'tainik/v3/auth';
-const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 30, ephemeralPerMin: 120, billingPerMin: 6 };
+// authPerMin — на IP: за одним адресом (дом, офис) бывает много устройств и аккаунтов,
+// и после перезапуска сервера они входят разом
+const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 120, billingPerMin: 6 };
 const PUSH_GAP = 4000; // не чаще одного пуша от одного отправителя на устройство за это время
 
 const MIME = {
@@ -130,7 +132,7 @@ export function startServer({
   dataDir = path.join(ROOT, 'data'),
   log = true,
   trustProxy = false,
-  maxConnPerIp = 20,
+  maxConnPerIp = 100,
   queueTtlDays = 30,
   turn = null, // { secret, host, port = 3478, tlsPort = 5349, ttlHours = 12 }
   stunFallback = 'stun:stun.l.google.com:19302',
@@ -158,6 +160,7 @@ export function startServer({
   const allConns = new Set(); // принятые WebSocket-соединения (для блокировки IP)
   const bans = new Set(store.listBans().map((b) => b.ip)); // заблокированные IP
   const ipBuckets = new Map(); // ip -> { provisions: [], auth: [] }
+  let lastLimitLog = 0; // когда последний раз писали в журнал об отказе по лимиту подключений
   // В журнал не пишем имена и IP: метаданные — тоже чувствительные данные.
   const say = (...a) => log && console.log(new Date().toISOString(), ...a);
 
@@ -304,7 +307,11 @@ export function startServer({
     switch (msg.type) {
       // ----- вход: новый аккаунт, новое устройство или существующее устройство -----
       case 'auth': {
-        if (!take(bucketsFor(state.ip).auth, RATE.authPerMin, 60_000)) return error(conn, 'rate_limited');
+        if (!take(bucketsFor(state.ip).auth, RATE.authPerMin, 60_000)) {
+          say('отказ: слишком много входов с одного IP за минуту');
+          error(conn, 'rate_limited');
+          return conn.close(4006, 'rate limited'); // клиент переподключится позже, а не зависнет
+        }
         const username = String(msg.username || '').toLowerCase();
         if (!USERNAME_RE.test(username)) return error(conn, 'bad_username');
         if (!validIdentityPub(msg.identity)) return error(conn, 'bad_keys');
@@ -873,7 +880,17 @@ export function startServer({
     }
     const n = connsPerIp.get(ip) || 0;
     if (n >= maxConnPerIp) {
-      socket.end('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+      // Отказ не молча (браузер не показывает код ответа на WebSocket): открываем соединение,
+      // сообщаем причину и закрываем — приложение покажет её и попробует позже
+      const now = Date.now();
+      if (now - lastLimitLog > 60_000) {
+        lastLimitLog = now;
+        say(`отказ: больше ${maxConnPerIp} подключений с одного IP (MAX_CONN_PER_IP)`);
+      }
+      acceptUpgrade(req, socket, (conn) => {
+        send(conn, { type: 'error', code: 'too_many_connections', limit: maxConnPerIp });
+        conn.close(4005, 'too many connections');
+      });
       return;
     }
     connsPerIp.set(ip, n + 1);
@@ -990,7 +1007,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     host: env.HOST || '0.0.0.0',
     dataDir: env.DATA_DIR || undefined,
     trustProxy: env.TRUST_PROXY === '1',
-    maxConnPerIp: Number(env.MAX_CONN_PER_IP) || 20,
+    maxConnPerIp: Number(env.MAX_CONN_PER_IP) || 100,
     queueTtlDays: Number(env.QUEUE_TTL_DAYS) || 30,
     turn: env.TURN_SECRET
       ? {

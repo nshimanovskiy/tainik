@@ -17,7 +17,7 @@ services:
     environment:
       TRUST_PROXY: "1"
       QUEUE_TTL_DAYS: ${QUEUE_TTL_DAYS:-30}
-      MAX_CONN_PER_IP: ${MAX_CONN_PER_IP:-20}
+      MAX_CONN_PER_IP: ${MAX_CONN_PER_IP:-100}
       DOMAIN: ${DOMAIN:-}
       # Web Push (уведомления в браузер при закрытой вкладке): контакт для push-сервисов
       ACME_EMAIL: ${ACME_EMAIL:-}
