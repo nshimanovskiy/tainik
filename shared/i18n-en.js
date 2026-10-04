@@ -615,4 +615,18 @@ export default {
   'Этой валютой оплатить нельзя': 'This currency can\'t be used for payment',
   'Не удалось узнать курс валюты, попробуйте позже или выберите другую': 'Couldn\'t get the exchange rate, try again later or choose another currency',
   'Это настоящая покупка: оплата списывается с вашего кошелька в @xRocket реальной криптовалютой.': 'This is a real purchase: the payment is charged from your @xRocket wallet in real cryptocurrency.',
+  // ---------- Выбор микрофона и динамика ----------
+  'Звук и микрофон': 'Sound and microphone',
+  'Динамик или наушники': 'Speaker or headphones',
+  '🔊 Проверить звук': '🔊 Test sound',
+  'Устройство вывода звука на этом устройстве выбирается в настройках системы.': 'On this device, the audio output is chosen in the system settings.',
+  'Разрешить доступ к микрофону, чтобы увидеть названия устройств': 'Allow microphone access to see device names',
+  'Выбор действует для звонков на этом устройстве; во время звонка устройство можно сменить кнопкой «Звук». Если выбранное устройство отключить, звук пойдёт через системное.': 'The choice applies to calls on this device; during a call you can switch with the “Sound” button. If the chosen device is disconnected, the system default is used.',
+  'Звук': 'Sound',
+  'Выбрать микрофон и динамик': 'Choose microphone and speaker',
+  'Системный (по умолчанию)': 'System default',
+  'Микрофон {0}': 'Microphone {0}',
+  'Динамик {0}': 'Speaker {0}',
+  'Не удалось включить этот микрофон': 'Couldn\'t switch to this microphone',
+  'Не удалось воспроизвести звук': 'Couldn\'t play the sound',
 };

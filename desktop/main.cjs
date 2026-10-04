@@ -567,9 +567,9 @@ app.whenReady().then(() => {
   loadSettings();
   store = openStore();
   if (!store) return;
-  // Разрешены только уведомления, микрофон/камера (звонки, QR) и захват экрана —
-  // и только для страницы самого приложения
-  const allowed = new Set(['notifications', 'media', 'display-capture']);
+  // Разрешены только уведомления, микрофон/камера (звонки, QR), захват экрана и выбор
+  // устройства вывода звука — и только для страницы самого приложения
+  const allowed = new Set(['notifications', 'media', 'display-capture', 'speaker-selection']);
   const ours = (wc, origin) => {
     const u = origin || wc?.getURL?.() || '';
     return u.startsWith(APP_ORIGIN);

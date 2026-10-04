@@ -47,12 +47,19 @@ class Tones {
   constructor() {
     this.ctx = null;
     this.timer = null;
+    this.sink = ''; // устройство вывода ('' — системное по умолчанию)
+  }
+  /** Гудки — в выбранное устройство вывода (где браузер это умеет). */
+  setSink(id) {
+    this.sink = id || '';
+    this.ctx?.setSinkId?.(this.sink).catch(() => this.ctx?.setSinkId?.('').catch(() => {}));
   }
   _ctx() {
     if (!this.ctx) {
       const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
       if (!AC) return null;
       this.ctx = new AC();
+      if (this.sink) this.ctx.setSinkId?.(this.sink).catch(() => {});
     }
     if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
     return this.ctx;
@@ -124,6 +131,7 @@ export class CallManager {
     this.client = client;
     this.onChange = onChange;
     this.call = null;
+    this.micId = ''; // выбранный микрофон ('' — системный по умолчанию)
     this.tones = new Tones();
     client.on('call-signal', (s) => this._onSignal(s).catch((e) => console.error('call', e)));
   }
@@ -241,6 +249,32 @@ export class CallManager {
     this._emit();
   }
 
+  /**
+   * Выбрать микрофон. Во время звонка — переключает на лету (replaceTrack, без
+   * повторного согласования), сохраняя «выключен/включён».
+   */
+  async setMicrophone(id) {
+    this.micId = id || '';
+    const c = this.call;
+    if (!c?.local.mic || c.phase === 'ended') return;
+    const s = await navigator.mediaDevices.getUserMedia({ audio: this._audioConstraints() });
+    const track = s.getAudioTracks()[0];
+    if (this.call !== c || !track) return s.getTracks().forEach((tr) => tr.stop());
+    const old = c.local.mic;
+    track.enabled = old.enabled;
+    await c.pc?.getTransceivers()[T_AUDIO]?.sender.replaceTrack(track);
+    c.local.mic = track;
+    old.stop();
+    this._emit();
+  }
+
+  /** Микрофон: выбранный (если он ещё подключён) или системный. */
+  _audioConstraints() {
+    const a = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+    if (this.micId) a.deviceId = { ideal: this.micId };
+    return a;
+  }
+
   async toggleCamera() {
     const c = this.call;
     if (!c?.pc) return;
@@ -327,13 +361,13 @@ export class CallManager {
     let s;
     try {
       s = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: this._audioConstraints(),
         video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
       });
     } catch (e) {
       if (video) {
         // Камеры нет или нет разрешения — звоним без видео
-        s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        s = await navigator.mediaDevices.getUserMedia({ audio: this._audioConstraints() });
       } else {
         throw new Error(e?.name === 'NotAllowedError' ? t('Нет доступа к микрофону') : t('Микрофон недоступен'));
       }

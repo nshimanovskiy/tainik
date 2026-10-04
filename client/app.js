@@ -1153,6 +1153,8 @@ function showSetPage(name) {
   if (name === 'blocked') renderBlocked();
   if (name === 'profile') fillProfileEdit();
   if (name === 'premium') fillPremium();
+  if (name === 'media') openMediaPage();
+  else stopMicMeter();
   page.scrollTop = 0;
   $('menu-dialog').querySelector('.settings-form').scrollTop = 0;
 }
@@ -2039,7 +2041,177 @@ function acquireInstanceLock() {
 
 
 // ---------- Звонки ----------
+// ---------- Выбор микрофона и динамика ----------
+// Выбор хранится в настройках этого устройства (общий для аккаунтов). Идентификаторы устройств
+// браузер выдаёт свои для каждого сайта/приложения; пропавшее устройство — значит системное.
+// Объявлено до CallManager: звонок может прийти, пока настройки ещё читаются.
+const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype;
+const audioPrefs = { mic: '', speaker: '' };
+let micMeter = null; // { stream, ctx, raf }
 const calls = new CallManager({ client, onChange: renderCall });
+audioPrefs.mic = (await settings.get('audio-in')) || '';
+audioPrefs.speaker = (await settings.get('audio-out')) || '';
+calls.micId = audioPrefs.mic;
+
+async function listAudioDevices() {
+  let list = [];
+  try {
+    list = await navigator.mediaDevices.enumerateDevices();
+  } catch {}
+  // «default» и «communications» (Chrome/Windows) — это то же, что «Системный»
+  const pick = (kind) => list.filter((d) => d.kind === kind && d.deviceId && d.deviceId !== 'default' && d.deviceId !== 'communications');
+  return { mics: pick('audioinput'), speakers: pick('audiooutput'), labeled: list.some((d) => d.label) };
+}
+function fillDeviceSelect(sel, devices, current, fallbackName) {
+  const opts = [el('option', '', t('Системный (по умолчанию)'))];
+  opts[0].value = '';
+  devices.forEach((d, i) => {
+    const o = el('option', '', d.label || fallbackName(i + 1));
+    o.value = d.deviceId;
+    opts.push(o);
+  });
+  sel.replaceChildren(...opts);
+  sel.value = devices.some((d) => d.deviceId === current) ? current : '';
+}
+async function renderAudioDevices() {
+  const { mics, speakers, labeled } = await listAudioDevices();
+  const micName = (n) => t('Микрофон {0}', n);
+  const spkName = (n) => t('Динамик {0}', n);
+  for (const id of ['dev-mic', 'call-dev-mic']) fillDeviceSelect($(id), mics, audioPrefs.mic, micName);
+  for (const id of ['dev-speaker', 'call-dev-speaker']) fillDeviceSelect($(id), speakers, audioPrefs.speaker, spkName);
+  const speakerOk = canPickSpeaker && speakers.length > 0;
+  $('dev-speaker-row').hidden = $('call-dev-speaker-row').hidden = !speakerOk;
+  $('dev-speaker-note').hidden = speakerOk;
+  // Без разрешения на микрофон браузер не называет устройства
+  $('dev-allow').hidden = labeled || !(mics.length || speakers.length);
+}
+/** Звук собеседника и гудки — в выбранное устройство вывода. */
+async function applySpeaker() {
+  calls.tones.setSink(audioPrefs.speaker);
+  if (!canPickSpeaker) return;
+  for (const node of [$('remote-audio')]) {
+    try {
+      await node.setSinkId(audioPrefs.speaker);
+    } catch {
+      await node.setSinkId('').catch(() => {}); // устройство отключено — системное
+    }
+  }
+}
+async function chooseMic(id) {
+  audioPrefs.mic = id;
+  await settings.set('audio-in', id);
+  try {
+    await calls.setMicrophone(id);
+  } catch (err) {
+    toast(err?.name === 'NotAllowedError' ? t('Нет доступа к микрофону') : t('Не удалось включить этот микрофон'));
+  }
+  if (micMeter) startMicMeter();
+  renderAudioDevices();
+}
+async function chooseSpeaker(id) {
+  audioPrefs.speaker = id;
+  await settings.set('audio-out', id);
+  await applySpeaker();
+  renderAudioDevices();
+}
+for (const id of ['dev-mic', 'call-dev-mic']) $(id).addEventListener('change', (e) => chooseMic(e.target.value));
+for (const id of ['dev-speaker', 'call-dev-speaker']) $(id).addEventListener('change', (e) => chooseSpeaker(e.target.value));
+navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+  renderAudioDevices();
+  applySpeaker();
+});
+applySpeaker();
+
+// Индикатор громкости микрофона на странице настроек — чтобы проверить, что выбран нужный
+function stopMicMeter() {
+  if (!micMeter) return;
+  cancelAnimationFrame(micMeter.raf);
+  micMeter.stream?.getTracks().forEach((tr) => tr.stop());
+  micMeter.ctx?.close().catch(() => {});
+  micMeter = null;
+  $('dev-mic-level').style.width = '0';
+}
+async function startMicMeter() {
+  stopMicMeter();
+  if (calls.busy) return; // во время звонка микрофон занят звонком
+  const m = (micMeter = {});
+  try {
+    const audio = audioPrefs.mic ? { deviceId: { ideal: audioPrefs.mic } } : true;
+    m.stream = await navigator.mediaDevices.getUserMedia({ audio });
+  } catch {
+    if (micMeter === m) micMeter = null;
+    return;
+  }
+  if (micMeter !== m) return m.stream.getTracks().forEach((tr) => tr.stop());
+  const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+  m.ctx = new AC();
+  const an = m.ctx.createAnalyser();
+  an.fftSize = 512;
+  m.ctx.createMediaStreamSource(m.stream).connect(an);
+  const buf = new Uint8Array(an.fftSize);
+  const tick = () => {
+    an.getByteTimeDomainData(buf);
+    let peak = 0;
+    for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+    $('dev-mic-level').style.width = `${Math.min(100, (peak / 128) * 160)}%`;
+    m.raf = requestAnimationFrame(tick);
+  };
+  tick();
+  renderAudioDevices(); // после разрешения появились названия устройств
+}
+async function openMediaPage() {
+  await renderAudioDevices();
+  startMicMeter();
+}
+$('menu-dialog').addEventListener('close', stopMicMeter);
+$('dev-allow').addEventListener('click', () => startMicMeter());
+
+// Проверка динамика: короткий сигнал через выбранное устройство (WAV в памяти — без файлов)
+function testTone() {
+  const rate = 24000;
+  const n = Math.floor(rate * 0.7);
+  const view = new DataView(new ArrayBuffer(44 + n * 2));
+  const str = (o, x) => [...x].forEach((ch, i) => view.setUint8(o + i, ch.charCodeAt(0)));
+  str(0, 'RIFF');
+  view.setUint32(4, 36 + n * 2, true);
+  str(8, 'WAVEfmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  str(36, 'data');
+  view.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const tt = i / rate;
+    const f = tt < 0.35 ? 660 : 880;
+    const env = Math.min(1, (tt % 0.35) * 40, (0.35 - (tt % 0.35)) * 40);
+    view.setInt16(44 + i * 2, Math.sin(2 * Math.PI * f * tt) * env * 9000, true);
+  }
+  return new Blob([view.buffer], { type: 'audio/wav' });
+}
+$('dev-speaker-test').addEventListener('click', async () => {
+  const url = URL.createObjectURL(testTone());
+  const a = new Audio(url);
+  try {
+    if (canPickSpeaker && audioPrefs.speaker) await a.setSinkId(audioPrefs.speaker).catch(() => {});
+    await a.play();
+  } catch {
+    toast(t('Не удалось воспроизвести звук'));
+  }
+  a.onended = () => URL.revokeObjectURL(url);
+});
+
+// Во время звонка: кнопка «Звук» открывает выбор микрофона и динамика
+function toggleCallDevMenu(open = $('call-dev-menu').hidden) {
+  $('call-dev-menu').hidden = !open;
+  $('call-devices').classList.toggle('on', open);
+  $('call-devices').setAttribute('aria-expanded', String(open));
+  if (open) renderAudioDevices();
+}
+$('call-devices').addEventListener('click', () => toggleCallDevMenu());
 let callTicker = null;
 
 function fmtDur(ms) {
@@ -2175,6 +2347,7 @@ function renderCall(c) {
     callTicker = null;
     for (const id of ['remote-main', 'remote-pip', 'local-pip', 'local-screen']) setVideo($(id), null, false);
     $('remote-audio').srcObject = null;
+    toggleCallDevMenu(false);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     document.title = baseTitle();
     return;
@@ -2195,7 +2368,7 @@ function renderCall(c) {
   // Звук собеседника
   if (c.remote.audio.getTracks().length && $('remote-audio').srcObject !== c.remote.audio) {
     $('remote-audio').srcObject = c.remote.audio;
-    $('remote-audio').play().catch(() => {});
+    applySpeaker().finally(() => $('remote-audio').play().catch(() => {}));
   }
 
   // Видео: экран собеседника — главный, камера — в окошке (нажатие меняет их местами)
@@ -2223,6 +2396,7 @@ function renderCall(c) {
 
   // Кнопки
   $('call-incoming').hidden = c.phase !== 'incoming';
+  if (c.phase === 'incoming' || c.phase === 'ended') toggleCallDevMenu(false);
   $('call-active').hidden = c.phase === 'incoming' || c.phase === 'ended';
   const mic = $('call-mic');
   const micOff = !c.local.mic || !c.local.mic.enabled;

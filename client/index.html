@@ -224,6 +224,7 @@
         </div>
         <div class="set-group">
         <button type="button" data-go="privacy" class="set-row"><span class="set-ico" aria-hidden="true">🔒</span><span class="set-label">Конфиденциальность</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="media" class="set-row"><span class="set-ico" aria-hidden="true">🎧</span><span class="set-label">Звук и микрофон</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="notif" class="set-row"><span class="set-ico" aria-hidden="true">🔔</span><span class="set-label">Уведомления</span><span class="set-value" id="set-notif-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="bg" class="set-row" id="row-bg" hidden><span class="set-ico" aria-hidden="true">🔋</span><span class="set-label">Работа в фоне</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="lang" class="set-row"><span class="set-ico" aria-hidden="true">🌐</span><span class="set-label">Язык</span><span class="set-value" id="set-lang-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
@@ -304,6 +305,18 @@
         <ul id="blocked-list" class="blocked-list set-group"></ul>
         <p id="blocked-empty" class="set-note">Вы никого не заблокировали. Заблокировать можно в чате: ⋮ → «Заблокировать».</p>
         <p class="set-note">Заблокированные не могут писать и звонить вам и не видят, когда вы в сети. Блокировка действует на всех ваших устройствах.</p>
+      </div>
+
+      <div class="set-page" data-page="media" data-title="Звук и микрофон" hidden>
+        <div class="set-group set-pad">
+          <label class="set-field"><span>Микрофон</span><select id="dev-mic" class="dev-select"></select></label>
+          <div class="mic-meter" aria-hidden="true"><i id="dev-mic-level"></i></div>
+          <label class="set-field" id="dev-speaker-row"><span>Динамик или наушники</span><select id="dev-speaker" class="dev-select"></select></label>
+          <button type="button" id="dev-speaker-test" class="ghost">🔊 Проверить звук</button>
+        </div>
+        <p class="set-note" id="dev-speaker-note" hidden>Устройство вывода звука на этом устройстве выбирается в настройках системы.</p>
+        <button type="button" id="dev-allow" class="ghost-link" hidden>Разрешить доступ к микрофону, чтобы увидеть названия устройств</button>
+        <p class="set-note">Выбор действует для звонков на этом устройстве; во время звонка устройство можно сменить кнопкой «Звук». Если выбранное устройство отключить, звук пойдёт через системное.</p>
       </div>
 
       <div class="set-page" data-page="notif" data-title="Уведомления" hidden>
@@ -583,10 +596,19 @@
       </button>
     </div>
 
+    <div id="call-dev-menu" class="call-dev-menu" role="dialog" aria-label="Звук" hidden>
+      <label><span>Микрофон</span><select id="call-dev-mic" class="dev-select"></select></label>
+      <label id="call-dev-speaker-row"><span>Динамик или наушники</span><select id="call-dev-speaker" class="dev-select"></select></label>
+    </div>
+
     <div id="call-active" class="call-controls" hidden>
       <button id="call-mic" class="call-ctl" aria-label="Микрофон" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg>
         <span>Микрофон</span>
+      </button>
+      <button id="call-devices" class="call-ctl" aria-label="Звук" aria-expanded="false" title="Выбрать микрофон и динамик">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg>
+        <span>Звук</span>
       </button>
       <button id="call-cam" class="call-ctl" aria-label="Камера" aria-pressed="false">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11a2 2 0 0 1 2 2v1.6l3.4-2.3A1 1 0 0 1 22 8.1v7.8a1 1 0 0 1-1.6.8L17 14.4V16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>

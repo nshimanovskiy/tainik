@@ -109,7 +109,7 @@ function serveStatic(req, res) {
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'DENY',
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
+      'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self), speaker-selection=(self), geolocation=()',
       'Content-Security-Policy':
         "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     });

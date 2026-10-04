@@ -398,6 +398,18 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
 .call-ctl.ok svg { background: #2a9d6a; }
 .call-ctl.ok:hover svg { background: #31b179; }
 #call-decline svg, #call-hangup svg { transform: rotate(0deg); }
+/* Выбор микрофона и динамика */
+.dev-select { width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: inherit; font: inherit; }
+.mic-meter { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: -2px 0 12px; }
+.mic-meter i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .08s linear; }
+.call-dev-menu {
+  position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); z-index: 5;
+  width: min(360px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 10px;
+  background: #1a2421; color: #eef5f2; padding: 14px; border-radius: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.4);
+}
+.call-dev-menu label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #b9c9c3; }
+.call-dev-menu .dev-select { background: #24302c; border-color: #34443f; color: #eef5f2; }
+#call-devices.on svg { background: var(--accent); }
 
 .msg.sys.call .bubble { color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 12px; }
 .msg.sys.call.missed .bubble { color: var(--danger); }
