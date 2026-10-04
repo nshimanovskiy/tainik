@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Тайник — проверка сети</title>
+  <meta name="robots" content="noindex">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="diag.css">
+  <script type="module" src="diag.js"></script>
+</head>
+<body>
+  <main>
+    <h1>Проверка сети</h1>
+    <p class="muted">Страница по шагам проверяет, как ваша сеть пропускает трафик к серверу Тайника: обычные запросы и постоянное соединение, в обе стороны и разного размера. Сообщения и ключи не используются.</p>
+    <button id="run" type="button">Начать проверку</button>
+    <table>
+      <tbody id="rows"></tbody>
+    </table>
+    <p id="summary"></p>
+    <button id="copy" type="button" class="ghost" hidden>Скопировать результаты</button>
+  </main>
+</body>
+</html>

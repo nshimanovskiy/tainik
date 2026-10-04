@@ -682,6 +682,15 @@ export function startServer({
       case 'ping':
         return send(conn, { type: 'pong' });
 
+      // Диагностика сети (/diag.html): эхо и «скачать N КБ» по WebSocket, без входа.
+      // Ограничено частотой и размером — нагрузку не создаст.
+      case 'diag-echo': {
+        if (!take(state.diag, 20, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        const data = typeof msg.data === 'string' ? msg.data.slice(0, 200_000) : '';
+        const down = Math.min(Math.max(0, Number(msg.down) || 0), 200) * 1024;
+        return send(conn, { type: 'diag-echo', reqId: msg.reqId, got: data.length, data: down ? randomBytes(Math.ceil(down * 0.75)).toString('base64').slice(0, down) : '' });
+      }
+
       default:
         return error(conn, 'unknown_type');
     }
@@ -798,6 +807,35 @@ export function startServer({
     : null;
   if (billing) say(`подписка включена (xRocket Pay${billing.testnet ? ', тестовая сеть' : ''}${billing.webhook ? '' : ', без вебхука — только опрос'})`);
 
+  // Диагностика сети: скачать N КБ и отправить до 1 МБ (для /diag.html)
+  const diagHits = new Map(); // ip → [время запросов]
+  function handleDiag(req, res) {
+    const url = new URL(req.url, 'http://x');
+    if (!url.pathname.startsWith('/api/diag/')) return false;
+    const reply = (status, obj) => res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(obj));
+    const ip = ipOf(req);
+    if (!diagHits.has(ip)) diagHits.set(ip, []);
+    if (!take(diagHits.get(ip), 30, 60_000)) return reply(429, { error: 'rate_limited' }), true;
+    if (url.pathname === '/api/diag/down' && req.method === 'GET') {
+      const kb = Math.min(Math.max(1, Number(url.searchParams.get('kb')) || 64), 1024);
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': kb * 1024, 'Cache-Control': 'no-store' });
+      res.end(randomBytes(kb * 1024));
+      return true;
+    }
+    if (url.pathname === '/api/diag/up' && req.method === 'POST') {
+      let n = 0;
+      req.on('data', (c) => {
+        n += c.length;
+        if (n > 1024 * 1024) req.destroy();
+      });
+      req.on('end', () => reply(200, { got: n }));
+      req.on('error', () => {});
+      return true;
+    }
+    reply(404, { error: 'not_found' });
+    return true;
+  }
+
   const server = http.createServer((req, res) => {
     if (adminHandler && adminHandler(req, res)) return; // панель доступна и с заблокированного IP
     if (billing && billing.handleHttp(req, res)) return; // вебхук xRocket Pay — до проверки банов
@@ -808,6 +846,7 @@ export function startServer({
     if (webclip(req, res)) return; // профиль iPhone; /ios → страница установки
     if (releasesHandler && releasesHandler(req, res)) return; // /api/releases, /download/…
     if (blobs.handleHttp(req, res)) return; // /api/blob/… — зашифрованные вложения
+    if (handleDiag(req, res)) return; // /api/diag/… — проверка сети
     if (req.url === '/healthz') {
       let ok = false;
       try {
@@ -851,7 +890,7 @@ export function startServer({
       (conn) => {
         conn.meta = { ip, since: Date.now() }; // для панели администратора, на диск не пишется
         allConns.add(conn);
-        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], pids: [], watching: new Set() };
+        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], diag: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
           if (!take(state.msgs, RATE.msgsPerSec, 1000)) return error(conn, 'rate_limited');
@@ -894,6 +933,7 @@ export function startServer({
     const now = Date.now();
     for (const [pid, p] of provisions) if (p.expires < now) provisions.delete(pid);
     for (const [k, t] of pushLast) if (now - t > PUSH_GAP) pushLast.delete(k);
+    for (const [ip, b] of diagHits) if (!b.length || now - b[b.length - 1] > 60_000) diagHits.delete(ip);
     for (const [ip, b] of ipBuckets) {
       take(b.provisions, Infinity, 60_000);
       take(b.auth, Infinity, 60_000);
