@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, isGroupChat, GROUP_MAX } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -179,9 +179,38 @@ const textOf = (content) => (content?.t === 'file' && content.file ? fileLabel(c
 function previewOf(m) {
   if (!m) return t('Нет сообщений');
   if (m.dir === 'sys' && m.content?.t === 'call') return callText(m.content);
+  if (m.dir === 'sys' && m.content?.t === 'group') return groupEventText(m.content);
   if (m.dir === 'sys') return t('Служебное сообщение');
   const body = textOf(m.content);
-  return (m.dir === 'out' ? t('Вы: ') : '') + body.replace(/\s+/g, ' ');
+  const who = m.dir === 'out' ? t('Вы: ') : m.from ? `${nameOf(m.from)}: ` : '';
+  return who + body.replace(/\s+/g, ' ');
+}
+
+// ---------- Группы: подписи ----------
+const whoName = (u) => (u === client.account?.username ? t('вы') : nameOf(u));
+const byName = (u) => (u === client.account?.username ? t('Вы') : nameOf(u));
+/** Служебная строка группы: создана, переименована, добавлены, исключены, вышел. */
+function groupEventText(e) {
+  const who = (e.who || []).map(whoName).join(', ');
+  switch (e.ev) {
+    case 'created':
+      return t('{0} создал(а) группу «{1}»', byName(e.by), e.name);
+    case 'renamed':
+      return t('{0} переименовал(а) группу в «{1}»', byName(e.by), e.name);
+    case 'added':
+      return t('{0} добавил(а): {1}', byName(e.by), who);
+    case 'removed':
+      return (e.who || []).includes(client.account?.username) ? t('{0} исключил(а) вас из группы', byName(e.by)) : t('{0} исключил(а): {1}', byName(e.by), who);
+    case 'left':
+      return e.by === client.account?.username ? t('Вы покинули группу') : t('{0} покинул(а) группу', byName(e.by));
+    default:
+      return t('Служебное сообщение');
+  }
+}
+function membersText(g) {
+  if (g.left) return t('вы не участник группы');
+  const n = g.members.length;
+  return n === 1 ? t('1 участник') : t('участников: {0}', n);
 }
 
 // ---------- Экраны ----------
@@ -397,6 +426,7 @@ async function renderContacts() {
     const top = el('div', 'c-top');
     const cn = el('span', 'c-name');
     setName(cn, c.username, client.isVerified(c.username));
+    if (c.group) cn.prepend(el('span', 'g-ico', '👥'));
     top.append(cn);
     if (client.isBlocked(c.username)) top.append(el('span', 'shield warn', t('🚫 заблокирован')));
     else if (c.keyChanged) top.append(el('span', 'shield warn', t('⚠ ключ изменён')));
@@ -489,6 +519,17 @@ async function renderHeader() {
   setName($('peer-name'), c.username, client.isVerified(c.username));
   paintAvatar($('peer-avatar'), c.username);
   const v = $('peer-verify');
+  const group = !!c.group;
+  // В группе нет звонков, кода безопасности и статуса «в сети»
+  for (const id of ['call-audio-btn', 'call-video-btn', 'safety-btn']) $(id).hidden = group;
+  if (group) {
+    v.className = 'peer-verify';
+    v.textContent = membersText(c.group);
+    $('peer-presence').textContent = '';
+    $('key-banner').hidden = true;
+    updateComposer(c);
+    return;
+  }
   if (c.keyChanged) {
     v.className = 'peer-verify bad';
     v.textContent = t('⚠ ключ изменился — сверьте код');
@@ -523,7 +564,7 @@ function presenceText(p) {
   return t('был(а) {0}', dmFmt.format(d));
 }
 function renderPresence() {
-  if (!current) return;
+  if (!current || isGroupChat(current)) return;
   const p = client.presenceOf(current);
   const node = $('peer-presence');
   node.textContent = client.status === 'online' ? presenceText(p) : '';
@@ -536,17 +577,18 @@ async function updateComposer(c) {
   if (!c) c = (await client.contacts())[current];
   // Заблокировали собеседника — вместо поля ввода полоска «Разблокировать»
   const iBlocked = client.isBlocked(current);
+  const left = !!c?.group?.left; // исключили или вышли из группы — писать нельзя
   $('blocked-bar').hidden = !iBlocked;
   $('composer').hidden = iBlocked;
   if (iBlocked) setReply(null);
-  const blocked = !c || !!c.keyChanged || iBlocked;
+  const blocked = !c || !!c.keyChanged || iBlocked || left;
   $('send-btn').disabled = blocked || client.status !== 'online';
   $('attach-btn').disabled = blocked || client.status !== 'online';
   const noCall = blocked || client.status !== 'online' || !window.RTCPeerConnection;
   $('call-audio-btn').disabled = noCall;
   $('call-video-btn').disabled = noCall;
   $('text').disabled = blocked;
-  $('text').placeholder = blocked ? t('Отправка остановлена: ключ изменился') : client.status === 'online' ? t('Сообщение') : t('Нет связи — сообщение уйдёт позже');
+  $('text').placeholder = left ? t('Вы не участник этой группы') : blocked ? t('Отправка остановлена: ключ изменился') : client.status === 'online' ? t('Сообщение') : t('Нет связи — сообщение уйдёт позже');
   if (!blocked) $('send-btn').disabled = !$('text').value.trim();
 }
 
@@ -561,6 +603,11 @@ function messageNode(m) {
     li.append(el('div', 'bubble', `${callText(m.content)} · ${timeFmt.format(new Date(m.ts))}`));
     return li;
   }
+  if (m.dir === 'sys' && m.content?.t === 'group') {
+    const li = el('li', 'msg sys group');
+    li.append(el('div', 'bubble', groupEventText(m.content)));
+    return li;
+  }
   if (m.dir === 'sys') {
     const bad = m.content.t === 'rejected';
     const text = bad
@@ -573,6 +620,15 @@ function messageNode(m) {
   const li = el('li', `msg ${m.dir}${m.status === 'failed' ? ' failed' : ''}`);
   li.dataset.id = m.id;
   const bubble = el('div', 'bubble');
+  // В группе — кто написал (нажатие открывает профиль участника)
+  if (m.dir === 'in' && m.from) {
+    const f = el('button', 'from', nameOf(m.from));
+    f.type = 'button';
+    f.dataset.act = 'from';
+    f.dataset.user = m.from;
+    f.style.color = `hsl(${hue(m.from)} 55% 42%)`;
+    bubble.append(f);
+  }
   const r = m.content?.reply;
   if (r) {
     const q = el('button', 'quote');
@@ -1827,7 +1883,9 @@ async function showNotice({ title, body, chat, tag, call = false, force = false 
 async function notifyMessage(contact, message) {
   const { preview } = await notifPrefs();
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
-  await showNotice({ title: nameOf(contact), body: text || t('Новое сообщение'), chat: contact, tag: 'msg:' + contact });
+  // Группа: в заголовке — название, в тексте — кто написал
+  const who = message.from ? `${nameOf(message.from)}: ` : '';
+  await showNotice({ title: nameOf(contact), body: who + (text || t('Новое сообщение')), chat: contact, tag: 'msg:' + contact });
 }
 
 let pendingNoticeChat = null;
@@ -2514,7 +2572,7 @@ function renderCall(c) {
 }
 
 async function startCall(video) {
-  if (!current) return;
+  if (!current || isGroupChat(current)) return;
   try {
     await calls.start(current, { video });
   } catch (err) {
@@ -2652,7 +2710,7 @@ async function findMsg(id) {
 async function replyTo(id) {
   const m = await findMsg(id);
   if (!m || m.dir === 'sys') return;
-  setReply({ id, name: m.dir === 'out' ? t('Вы') : nameOf(current), text: textOf(m.content).replace(/\s+/g, ' ').slice(0, 120) });
+  setReply({ id, name: m.dir === 'out' ? t('Вы') : nameOf(m.from || current), text: textOf(m.content).replace(/\s+/g, ' ').slice(0, 120) });
 }
 
 // Меню сообщения
@@ -2697,6 +2755,7 @@ $('messages').addEventListener('click', (e) => {
   const act = e.target.closest('[data-act]');
   if (!act) return;
   if (act.dataset.act === 'cancel-upload') return cancelUpload(act.dataset.up);
+  if (act.dataset.act === 'from') return openProfile(act.dataset.user);
   const id = msgId(act);
   if (!id) return;
   if (act.dataset.act === 'reply') return replyTo(id);
@@ -2744,7 +2803,11 @@ $('msg-menu').addEventListener('click', async (e) => {
     return;
   }
   if (b.dataset.act === 'delete') {
-    $('del-peer').textContent = nameOf(current);
+    const m = await findMsg(id);
+    const group = isGroupChat(current);
+    // В группе «у всех» — только для своих сообщений
+    $('del-all').closest('label').hidden = group && m?.dir !== 'out';
+    $('del-peer').textContent = group ? t('всех участников') : nameOf(current);
     $('del-all').checked = false;
     $('delete-dialog').dataset.id = id;
     $('delete-dialog').showModal();
@@ -2778,6 +2841,8 @@ client.on('deleted', async ({ contact, ids, chat }) => {
 let profileFor = null;
 let profileTab = 'media';
 async function openProfile(name) {
+  if (isGroupChat(name)) return openGroup(name);
+  if (name === client.account?.username) return openSettings('profile');
   profileFor = name;
   profileTab = 'media';
   await renderProfile();
@@ -2926,14 +2991,196 @@ for (const id of ['peer-open', 'peer-avatar']) {
 }
 for (const ev of ['contacts', 'presence', 'blocks']) client.on(ev, () => $('profile-dialog').open && renderProfile());
 
+// ---------- Группы ----------
+// Новая группа: название и участники (из ваших чатов или по юзернейму)
+const ngPicked = new Set();
+function renderPickList(all) {
+  const me = client.account.username;
+  const people = Object.values(all)
+    .filter((c) => !c.group && !c.hidden && c.username !== me)
+    .sort((a, b) => b.lastTs - a.lastTs)
+    .map((c) => c.username);
+  for (const u of ngPicked) if (!people.includes(u)) people.unshift(u);
+  $('ng-none').hidden = people.length > 0;
+  $('ng-list').replaceChildren(
+    ...people.map((u) => {
+      const li = el('li');
+      const lab = el('label');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = ngPicked.has(u);
+      cb.addEventListener('change', () => (cb.checked ? ngPicked.add(u) : ngPicked.delete(u)));
+      const av = el('span', 'avatar');
+      paintAvatar(av, u);
+      const body = el('span', 'p-name');
+      body.append(document.createTextNode(nameOf(u) + ' '), el('span', 'p-user', '@' + u));
+      lab.append(cb, av, body);
+      li.append(lab);
+      return li;
+    })
+  );
+}
+async function openNewGroup() {
+  ngPicked.clear();
+  $('ng-name').value = '';
+  $('ng-add').value = '';
+  $('ng-error').textContent = '';
+  renderPickList(await client.contacts());
+  $('newgroup-dialog').showModal();
+  $('ng-name').focus();
+}
+$('new-group-btn').addEventListener('click', () => client.account && openNewGroup());
+async function ngAdd() {
+  const u = $('ng-add').value.trim().replace(/^@/, '').toLowerCase();
+  $('ng-error').textContent = '';
+  if (!u) return;
+  if (u === client.account.username) return ($('ng-error').textContent = t('Это вы'));
+  try {
+    if (!(await client.fetchIdentity(u))) throw new Error(ERROR_TEXT.unknown_recipient);
+  } catch (err) {
+    $('ng-error').textContent = err.message;
+    return;
+  }
+  ngPicked.add(u);
+  $('ng-add').value = '';
+  renderPickList(await client.contacts());
+}
+$('ng-add-btn').addEventListener('click', ngAdd);
+$('ng-add').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), ngAdd()));
+$('ng-create').addEventListener('click', async () => {
+  $('ng-error').textContent = '';
+  if (!$('ng-name').value.trim()) return ($('ng-error').textContent = ERROR_TEXT.group_name);
+  if (ngPicked.size + 1 > GROUP_MAX) return ($('ng-error').textContent = ERROR_TEXT.group_too_big);
+  $('ng-create').disabled = true;
+  try {
+    const chat = await client.createGroup($('ng-name').value, [...ngPicked]);
+    $('newgroup-dialog').close();
+    await openChat(chat);
+  } catch (err) {
+    $('ng-error').textContent = err.user ? t('Нет пользователя @{0}', err.user) : err.message;
+  } finally {
+    $('ng-create').disabled = false;
+  }
+});
+
+// О группе: состав, админы, название; админ добавляет и исключает
+let groupFor = null;
+async function openGroup(chat) {
+  groupFor = chat;
+  await renderGroup();
+  if (!$('group-dialog').open) $('group-dialog').showModal();
+}
+async function renderGroup() {
+  const chat = groupFor;
+  if (!chat) return;
+  const g = await client.groupOf(chat);
+  if (!g) return $('group-dialog').close();
+  const me = client.account.username;
+  const admin = !g.left && g.admins.includes(me);
+  paintAvatar($('gd-avatar'), chat);
+  $('gd-name').textContent = g.name;
+  $('gd-count').textContent = membersText(g);
+  $('gd-rename').hidden = !admin;
+  if (admin && document.activeElement !== $('gd-name-input')) $('gd-name-input').value = g.name;
+  $('gd-add').hidden = !admin;
+  $('gd-leave').hidden = !!g.left;
+  $('gd-note').textContent = g.left
+    ? t('Вы больше не участник: новые сообщения сюда не приходят. История осталась только у вас.')
+    : admin
+      ? t('Вы администратор: можете добавлять и исключать участников, назначать администраторов и менять название.')
+      : t('Менять состав и название могут администраторы группы.');
+  const members = [...g.members].sort((a, b) => (a === me ? -1 : b === me ? 1 : g.admins.includes(b) - g.admins.includes(a)));
+  $('gd-members').replaceChildren(
+    ...members.map((u) => {
+      const li = el('li');
+      const av = el('span', 'avatar');
+      paintAvatar(av, u);
+      const body = el('div', 'm-body');
+      const nm = el('span', 'm-name');
+      setName(nm, u, client.isVerified(u));
+      if (u === me) nm.append(document.createTextNode(' ' + t('(вы)')));
+      body.append(nm, el('span', 'm-sub', '@' + u + (g.admins.includes(u) ? ' · ' + t('администратор') : '')));
+      li.append(av, body);
+      if (u !== me) {
+        av.classList.add('clickable');
+        av.addEventListener('click', () => ($('group-dialog').close(), openProfile(u)));
+      }
+      if (admin && u !== me) {
+        const acts = el('div', 'm-acts');
+        const isAdm = g.admins.includes(u);
+        const ab = el('button', 'ghost', isAdm ? t('Снять админа') : t('Сделать админом'));
+        ab.type = 'button';
+        ab.addEventListener('click', () => groupAction(chat, { admins: isAdm ? g.admins.filter((a) => a !== u) : [...g.admins, u] }));
+        const rb = el('button', 'ghost danger', t('Исключить'));
+        rb.type = 'button';
+        rb.addEventListener('click', () => confirm(t('Исключить {0} из группы?', nameOf(u))) && groupAction(chat, { remove: [u] }));
+        acts.append(ab, rb);
+        li.append(acts);
+      }
+      return li;
+    })
+  );
+}
+async function groupAction(chat, change) {
+  try {
+    await client.updateGroup(chat, change);
+  } catch (err) {
+    toast(err.user ? t('Нет пользователя @{0}', err.user) : err.message);
+  }
+}
+$('gd-close').addEventListener('click', () => $('group-dialog').close());
+$('gd-rename-save').addEventListener('click', () => groupFor && groupAction(groupFor, { name: $('gd-name-input').value }));
+async function gdAdd() {
+  const u = $('gd-add-input').value.trim().replace(/^@/, '').toLowerCase();
+  if (!u || !groupFor) return;
+  await groupAction(groupFor, { add: [u] });
+  $('gd-add-input').value = '';
+}
+$('gd-add-btn').addEventListener('click', gdAdd);
+$('gd-add-input').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), gdAdd()));
+async function leaveGroup(chat) {
+  if (!confirm(t('Покинуть группу «{0}»? Вы перестанете получать её сообщения.', nameOf(chat)))) return;
+  try {
+    await client.leaveGroup(chat);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+async function deleteGroupChat(chat) {
+  const g = await client.groupOf(chat);
+  const ask = g && !g.left ? t('Удалить группу «{0}» из списка? Вы выйдете из неё, переписка пропадёт на всех ваших устройствах.', nameOf(chat)) : t('Удалить чат «{0}»? Переписка пропадёт на всех ваших устройствах.', nameOf(chat));
+  if (!confirm(ask)) return;
+  try {
+    if (g && !g.left) await client.leaveGroup(chat);
+    await deleteChat(chat, false);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+$('gd-leave').addEventListener('click', () => groupFor && leaveGroup(groupFor));
+$('gd-delete').addEventListener('click', () => {
+  const chat = groupFor;
+  $('group-dialog').close();
+  if (chat) deleteGroupChat(chat);
+});
+client.on('group', ({ chat }) => {
+  if ($('group-dialog').open && groupFor === chat) renderGroup();
+  if (chat === current) renderHeader();
+});
+for (const ev of ['contacts', 'presence']) client.on(ev, () => $('group-dialog').open && renderGroup());
+
 // ---------- Блокировка и удаление чата ----------
 let chatMenuFor = null;
 function openChatMenu(name, x, y) {
   chatMenuFor = name;
   const menu = $('chat-menu');
   const isBlocked = client.isBlocked(name);
-  menu.querySelector('[data-act="block"]').hidden = isBlocked;
-  menu.querySelector('[data-act="unblock"]').hidden = !isBlocked;
+  const group = isGroupChat(name);
+  menu.querySelector('[data-act="block"]').hidden = isBlocked || group;
+  menu.querySelector('[data-act="unblock"]').hidden = !isBlocked || group;
+  menu.querySelector('[data-act="profile"]').hidden = group;
+  menu.querySelector('[data-act="group"]').hidden = !group;
+  menu.querySelector('[data-act="leave"]').hidden = !group;
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
@@ -2986,6 +3233,9 @@ $('chat-menu').addEventListener('click', (e) => {
   closeChatMenu();
   if (b.dataset.act === 'unblock') return setBlocked(name, false);
   if (b.dataset.act === 'profile') return openProfile(name);
+  if (b.dataset.act === 'group') return openGroup(name);
+  if (b.dataset.act === 'leave') return leaveGroup(name);
+  if (b.dataset.act === 'delete-chat' && isGroupChat(name)) return deleteGroupChat(name);
   if (b.dataset.act === 'block') {
     $('block-peer').textContent = nameOf(name);
     $('block-delete').checked = false;

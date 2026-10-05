@@ -102,6 +102,7 @@
       <form id="add-form" class="add-form" autocomplete="off">
         <input id="add-input" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм собеседника">
         <button class="icon-btn accent" title="Добавить" aria-label="Добавить">+</button>
+        <button type="button" id="new-group-btn" class="icon-btn" title="Новая группа" aria-label="Новая группа">👥</button>
       </form>
       <p id="add-error" class="error small" role="alert"></p>
       <div id="notif-offer" class="notif-offer" hidden>
@@ -455,6 +456,8 @@
   <!-- Действия с чатом (шапка чата или правый клик по чату в списке) -->
   <div id="chat-menu" class="msg-menu" role="menu" hidden>
     <button type="button" data-act="profile" role="menuitem">👤 Профиль</button>
+    <button type="button" data-act="group" role="menuitem">👥 О группе</button>
+    <button type="button" data-act="leave" role="menuitem" class="danger">🚪 Покинуть группу</button>
     <button type="button" data-act="block" role="menuitem" class="danger">🚫 Заблокировать</button>
     <button type="button" data-act="unblock" role="menuitem">✓ Разблокировать</button>
     <button type="button" data-act="delete-chat" role="menuitem" class="danger">🗑 Удалить чат</button>
@@ -493,6 +496,61 @@
         <div class="set-group">
           <button type="button" class="set-row" id="pf-block"></button>
           <button type="button" class="set-row danger" id="pf-delete"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить чат</span></button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Новая группа -->
+  <dialog id="newgroup-dialog">
+    <form method="dialog" class="dialog-body">
+      <h2>Новая группа</h2>
+      <input id="ng-name" maxlength="64" placeholder="Название группы" aria-label="Название группы" autocomplete="off">
+      <h3>Участники</h3>
+      <ul id="ng-list" class="pick-list"></ul>
+      <p id="ng-none" class="muted small" hidden>Пока не с кем: добавьте участников по юзернейму.</p>
+      <div class="add-form flush">
+        <input id="ng-add" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм участника">
+        <button type="button" id="ng-add-btn" class="primary">Добавить</button>
+      </div>
+      <p id="ng-error" class="error small" role="alert"></p>
+      <p class="hint">Сообщения в группе шифруются отдельно для каждого участника, сервер не знает ни состава, ни названия. До 50 участников.</p>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Отмена</button>
+        <button type="button" id="ng-create" class="primary">Создать</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- О группе: состав, админы, название, выход -->
+  <dialog id="group-dialog" class="settings profile">
+    <div class="settings-form">
+      <header class="set-head">
+        <h2>О группе</h2>
+        <button type="button" id="gd-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+      </header>
+      <div class="set-page">
+        <div class="pf-top">
+          <span class="avatar huge" id="gd-avatar"></span>
+          <div id="gd-name" class="pf-name"></div>
+          <div id="gd-count" class="pf-status"></div>
+        </div>
+        <div class="set-group set-pad" id="gd-rename" hidden>
+          <label class="set-field"><span>Название</span><input id="gd-name-input" maxlength="64" autocomplete="off"></label>
+          <button type="button" id="gd-rename-save" class="ghost">Сохранить название</button>
+        </div>
+        <h3 class="set-sub">Участники</h3>
+        <ul id="gd-members" class="set-group gd-members"></ul>
+        <div class="set-group set-pad" id="gd-add" hidden>
+          <div class="add-form flush">
+            <input id="gd-add-input" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм участника">
+            <button type="button" id="gd-add-btn" class="primary">Добавить</button>
+          </div>
+        </div>
+        <p class="set-note" id="gd-note"></p>
+        <div class="set-group">
+          <button type="button" class="set-row danger" id="gd-leave"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Покинуть группу</span></button>
+          <button type="button" class="set-row danger" id="gd-delete"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить чат</span></button>
         </div>
       </div>
     </div>

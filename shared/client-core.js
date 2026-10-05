@@ -75,10 +75,46 @@ function cleanProfile(p) {
   return out;
 }
 
+// ---------- Группы ----------
+// Группа — рассылка по уже существующим парным сессиям (как «старые» группы Signal):
+// каждое сообщение шифруется отдельно для каждого участника. Сервер о группах не знает:
+// состав, название и админов участники передают друг другу внутри E2E-сообщений.
+// Чат группы хранится как контакт с ключом '#<id>' (в юзернеймах «#» не бывает).
+export const GROUP_MAX = 50; // участников, вместе с создателем
+export const GROUP_NAME_MAX = 64;
+const GID_RE = /^[0-9a-f]{24}$/;
+const USER_RE = /^[a-z0-9_]{3,32}$/;
+export const isGroupChat = (chat) => typeof chat === 'string' && chat.startsWith('#');
+const groupKey = (gid) => '#' + gid;
+const newGroupId = () => [...globalThis.crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
+const cleanGroupName = (n) => cleanProfileText(n, GROUP_NAME_MAX).replace(/\n/g, ' ');
+
+/** Состояние группы { id, name, members, admins, v } из сообщения (только известные поля) или null. */
+function cleanGroup(g) {
+  const id = String(g?.g ?? g?.id ?? '');
+  if (!GID_RE.test(id) || !Number.isFinite(g.v) || g.v <= 0 || !Array.isArray(g.members)) return null;
+  const members = [...new Set(g.members.map(String))].filter((m) => USER_RE.test(m)).slice(0, GROUP_MAX);
+  if (!members.length) return null;
+  const admins = [...new Set((Array.isArray(g.admins) ? g.admins : []).map(String))].filter((a) => members.includes(a));
+  return { id, name: cleanGroupName(g.name) || t('Группа'), members, admins: admins.length ? admins : [members[0]], v: g.v };
+}
+
+/** Что изменилось в группе — для служебных строк в чате. */
+function groupEvents(old, next, by) {
+  if (!old) return [{ ev: 'created', by, name: next.name }];
+  const out = [];
+  if (old.name !== next.name) out.push({ ev: 'renamed', by, name: next.name });
+  const added = next.members.filter((m) => !old.members.includes(m));
+  const removed = old.members.filter((m) => !next.members.includes(m));
+  if (added.length) out.push({ ev: 'added', by, who: added });
+  if (removed.length) out.push({ ev: 'removed', by, who: removed });
+  return out;
+}
+
 /** Цитата для ответа: кто написал и начало текста. */
 function makeReply(orig, me, peer) {
   const body = String(orig.content?.body ?? '').replace(/\s+/g, ' ').trim();
-  const out = { id: orig.id, from: orig.dir === 'out' ? me : peer, body: body.slice(0, REPLY_SNIPPET) };
+  const out = { id: orig.id, from: orig.dir === 'out' ? me : orig.from || peer, body: body.slice(0, REPLY_SNIPPET) };
   if (orig.content?.file) out.kind = orig.content.file.kind;
   return out;
 }
@@ -146,6 +182,10 @@ export const ERROR_TEXT = {
   bad_currency: t('Этой валютой оплатить нельзя'),
   no_rate: t('Не удалось узнать курс валюты, попробуйте позже или выберите другую'),
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
+  group_too_big: t('В группе может быть не больше 50 участников'),
+  group_name: t('Введите название группы'),
+  group_not_admin: t('Менять группу могут только её администраторы'),
+  group_left: t('Вы больше не участник этой группы'),
   bad_device: t('Нельзя отвязать это устройство'),
   bad_url: t('Неверный адрес сервера'),
   you_blocked: t('Вы заблокировали этого пользователя. Разблокируйте, чтобы написать'),
@@ -406,6 +446,13 @@ export class MessengerClient extends Emitter {
       if (prof) contacts[c.username].profile = prof;
       if (c.shareProfile) contacts[c.username].shareProfile = true;
     }
+    // Группы: состав и название (переписка, как и в личных чатах, не переносится)
+    for (const raw of Array.isArray(p.groups) ? p.groups : []) {
+      const g = cleanGroup(raw);
+      if (!g) continue;
+      if (raw.left) g.left = true;
+      contacts[groupKey(g.id)] = { username: groupKey(g.id), group: g, unread: 0, lastTs: Date.now(), pending: [] };
+    }
     await this.storage.set('contacts', contacts);
     this._indexNames(contacts);
     this.profile = cleanProfile(p.profile) || { name: '', bio: '', v: 0 };
@@ -433,8 +480,12 @@ export class MessengerClient extends Emitter {
           else profile = { ...profile, avatar: undefined };
         }
         return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile };
-      });
-    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, profile: this.profile };
+      })
+      .filter((c) => !isGroupChat(c.username));
+    const groups = Object.values(await this.contacts())
+      .filter((c) => c.group)
+      .map((c) => ({ ...c.group }));
+    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, groups, profile: this.profile };
     let sealed;
     try {
       sealed = await sealProvision(link, payload);
@@ -676,7 +727,11 @@ export class MessengerClient extends Emitter {
         return this._serial(() => this._onSent(msg.cid));
       case 'delivered':
         if (msg.to === this.account.username) return;
-        return this._serial(() => this._setMsgStatus(msg.to, msg.id, 'delivered'));
+        return this._serial(async () => {
+          // Сообщение группы: доставлено хотя бы одному участнику
+          const chat = (await this._groupSentChat(msg.id)) || msg.to;
+          await this._setMsgStatus(chat, msg.id, 'delivered');
+        });
       case 'devices-changed':
         this.emit('devices-changed');
         return;
@@ -770,7 +825,8 @@ export class MessengerClient extends Emitter {
       await this._clearChat(username, true);
       let outbox = (await this.storage.get('outbox')) || [];
       // Неотправленное в этот чат больше не нужно
-      outbox = outbox.filter((x) => !((x.kind === 'msg' && x.to === username) || (x.kind === 'sync' && x.content?.to === username)));
+      outbox = outbox.filter((x) => !((x.kind === 'msg' && (x.to === username || x.chat === username)) || (x.kind === 'sync' && x.content?.to === username)));
+      if (isGroupChat(username)) forAll = false; // в группе — только у себя
       const ts = Date.now();
       const c = (await this.contacts())[username];
       if (forAll && c && !c.keyChanged) outbox.push({ id: randomId(), to: username, kind: 'ctl', content: { t: 'clear-chat', ts }, attempts: 0 });
@@ -928,12 +984,13 @@ export class MessengerClient extends Emitter {
     this._names.clear();
     this._avatars.clear();
     for (const c of Object.values(all || {})) {
+      if (c.group) this._names.set(c.username, c.group.name);
       if (c.profile?.name) this._names.set(c.username, c.profile.name);
       if (c.profile?.avatar) this._avatars.set(c.username, c.profile.avatar);
     }
   }
 
-  /** Имя для показа: имя из профиля или юзернейм. */
+  /** Имя для показа: имя из профиля или юзернейм; для группы — её название. */
   nameOf(username) {
     if (this.account && username === this.account.username) return this.profile.name || username;
     return this._names.get(username) || username;
@@ -1135,6 +1192,7 @@ export class MessengerClient extends Emitter {
 
   /** Сообщение собеседнику и копия «отправлено» своим устройствам (общая часть sendText и sendFile). */
   async _sendContent(username, base, replyTo) {
+    if (isGroupChat(username)) return this._sendGroupContent(username, base, replyTo);
     await this._serial(async () => {
       const all = await this.contacts();
       const c = all[username];
@@ -1163,6 +1221,313 @@ export class MessengerClient extends Emitter {
     this._pumpOutbox();
   }
 
+  // ---------- Группы ----------
+  // См. GROUP_MAX и комментарий у cleanGroup. Все изменения группы — от администраторов;
+  // каждый участник проверяет это сам по своему последнему известному состоянию.
+
+  /** Состояние группы { id, name, members, admins, v, left? } или null. */
+  async groupOf(chat) {
+    return (isGroupChat(chat) && (await this.contacts())[chat]?.group) || null;
+  }
+
+  /** Собеседник для рассылки: если его нет в контактах, заводим скрытым (в списке чатов не виден). */
+  async _ensureMember(all, name) {
+    const existed = !!all[name];
+    const c = await this._ensureContact(all, name);
+    if (c && !existed) c.hidden = true;
+    return c;
+  }
+
+  _normMembers(list) {
+    const me = this.account.username;
+    return [...new Set((Array.isArray(list) ? list : []).map((m) => String(m).trim().replace(/^@/, '').toLowerCase()))].filter((m) => m && m !== me);
+  }
+
+  async _ensureMembers(all, names) {
+    for (const m of names) {
+      if (!USER_RE.test(m) || !(await this._ensureMember(all, m))) throw Object.assign(errorOf('unknown_recipient'), { user: m });
+    }
+  }
+
+  /**
+   * Создать группу. members — юзернеймы участников (без себя). Возвращает id чата группы ('#…').
+   * Создатель — администратор.
+   */
+  async createGroup(name, members = []) {
+    const me = this.account.username;
+    const list = this._normMembers(members);
+    const nm = cleanGroupName(name);
+    if (!nm) throw errorOf('group_name');
+    if (list.length + 1 > GROUP_MAX) throw errorOf('group_too_big');
+    const gid = newGroupId();
+    await this._serial(async () => {
+      const all = await this.contacts();
+      await this._ensureMembers(all, list);
+      const next = { id: gid, name: nm, members: [me, ...list], admins: [me], v: Date.now() };
+      const outbox = (await this.storage.get('outbox')) || [];
+      this._queueGroupState(all, [], next, outbox);
+      await this.storage.set('outbox', outbox);
+      await this._applyGroupState(all, next, me);
+    });
+    this._pumpOutbox();
+    return groupKey(gid);
+  }
+
+  /**
+   * Изменить группу (только администратор): { name, add: [...], remove: [...], admins: [...] }.
+   * Исключённые получают новое состояние и узнают, что их исключили.
+   */
+  async updateGroup(chat, { name, add = [], remove = [], admins } = {}) {
+    const me = this.account.username;
+    await this._serial(async () => {
+      const all = await this.contacts();
+      const g = all[chat]?.group;
+      if (!g) throw new Error(t('Нет такой группы'));
+      if (g.left) throw errorOf('group_left');
+      if (!g.admins.includes(me)) throw errorOf('group_not_admin');
+      const addList = this._normMembers(add).filter((m) => !g.members.includes(m));
+      const drop = new Set(this._normMembers(remove));
+      const members = [...g.members.filter((m) => !drop.has(m)), ...addList];
+      if (members.length > GROUP_MAX) throw errorOf('group_too_big');
+      await this._ensureMembers(all, addList);
+      const nm = name === undefined ? g.name : cleanGroupName(name);
+      if (!nm) throw errorOf('group_name');
+      let adm = (Array.isArray(admins) ? this._normMembers(admins).concat(admins.includes(me) ? [me] : []) : g.admins).filter((a) => members.includes(a));
+      if (!adm.length) adm = [me];
+      const next = { id: g.id, name: nm, members, admins: [...new Set(adm)], v: Math.max(Date.now(), g.v + 1) };
+      // Бывшие участники тоже получают новое состояние — так они узнают, что их исключили
+      await this._ensureMembers(all, g.members.filter((m) => m !== me && !members.includes(m)));
+      const outbox = (await this.storage.get('outbox')) || [];
+      this._queueGroupState(all, g.members, next, outbox);
+      await this.storage.set('outbox', outbox);
+      await this._applyGroupState(all, next, me);
+    });
+    this._pumpOutbox();
+  }
+
+  /** Выйти из группы: участники уберут вас из состава; история у вас остаётся (только чтение). */
+  async leaveGroup(chat) {
+    const me = this.account.username;
+    await this._serial(async () => {
+      const all = await this.contacts();
+      const g = all[chat]?.group;
+      if (!g || g.left) return;
+      const outbox = (await this.storage.get('outbox')) || [];
+      const ts = Date.now();
+      for (const m of g.members) {
+        if (m === me || all[m]?.keyChanged) continue;
+        if (!all[m]) await this._ensureMember(all, m);
+        outbox.push({ id: randomId(), to: m, kind: 'ctl', content: { t: 'group-leave', g: g.id, ts }, attempts: 0 });
+      }
+      outbox.push({ id: randomId(), to: me, kind: 'ctl', content: { t: 'group-leave', g: g.id, ts }, attempts: 0 });
+      await this.storage.set('outbox', outbox);
+      await this._applyLeave(all, chat, me, me);
+    });
+    this._pumpOutbox();
+  }
+
+  /** Новое состояние группы — всем её участникам (и бывшим) и своим устройствам. */
+  _queueGroupState(all, oldMembers, next, outbox) {
+    const me = this.account.username;
+    const content = { t: 'group', g: next.id, name: next.name, members: next.members, admins: next.admins, v: next.v, ts: Date.now() };
+    for (const m of new Set([...oldMembers, ...next.members])) {
+      if (m === me || !all[m] || all[m].keyChanged) continue;
+      if (next.members.includes(m)) this._shareProfileTo(all[m], outbox); // участники видят ваше имя и фото
+      outbox.push({ id: randomId(), to: m, kind: 'ctl', content, attempts: 0 });
+    }
+    outbox.push({ id: randomId(), to: me, kind: 'ctl', content, attempts: 0 });
+  }
+
+  /** Применить состояние группы у себя: запись, служебные строки, отложенные сообщения. */
+  async _applyGroupState(all, next, by) {
+    const me = this.account.username;
+    const key = groupKey(next.id);
+    const rec = (all[key] ||= { username: key, unread: 0, lastTs: Date.now(), pending: [] });
+    const old = rec.group || null;
+    const events = groupEvents(old, next, by);
+    rec.group = { id: next.id, name: next.name, members: next.members, admins: next.admins, v: next.v };
+    if (!next.members.includes(me)) rec.group.left = true;
+    rec.lastTs = Date.now();
+    delete rec.hidden;
+    await this._saveContacts(all);
+    for (const e of events) await this._appendMsg(key, { id: 'g-' + randomId(9), dir: 'sys', ts: Date.now(), content: { t: 'group', ...e } });
+    this.emit('group', { chat: key, group: rec.group });
+    await this._replayGroup(all, key);
+  }
+
+  /** Участник вышел (или вы сами): убрать из состава; если админов не осталось — первый участник. */
+  async _applyLeave(all, key, who, by) {
+    const me = this.account.username;
+    const rec = all[key];
+    const g = rec?.group;
+    if (!g || !g.members.includes(who)) return;
+    g.members = g.members.filter((m) => m !== who);
+    g.admins = g.admins.filter((a) => a !== who);
+    if (!g.admins.length && g.members.length) g.admins = [g.members[0]];
+    if (who === me) g.left = true;
+    await this._saveContacts(all);
+    await this._appendMsg(key, { id: 'g-' + randomId(9), dir: 'sys', ts: Date.now(), content: { t: 'group', ev: 'left', by, who: [who] } });
+    this.emit('group', { chat: key, group: g });
+  }
+
+  /** Сообщение в группу: по копии каждому участнику и копия своим устройствам. */
+  async _sendGroupContent(chat, base, replyTo) {
+    const me = this.account.username;
+    await this._serial(async () => {
+      const all = await this.contacts();
+      const rec = all[chat];
+      const g = rec?.group;
+      if (!g) throw new Error(t('Нет такой группы'));
+      if (g.left || !g.members.includes(me)) throw errorOf('group_left');
+      const id = randomId();
+      const ts = Date.now();
+      const content = { ...base, ts };
+      if (replyTo) {
+        const orig = (await this.messages(chat)).find((m) => m.id === replyTo && m.dir !== 'sys');
+        if (orig) content.reply = makeReply(orig, me, orig.from || me);
+      }
+      const outbox = (await this.storage.get('outbox')) || [];
+      for (const m of g.members) {
+        if (m === me) continue;
+        const c = all[m] || (await this._ensureMember(all, m));
+        if (!c || c.keyChanged) continue; // ключ участника сменился — ему не отправится, пока не сверите
+        this._shareProfileTo(c, outbox);
+        outbox.push({ id, to: m, chat, kind: 'msg', content: { t: 'gmsg', g: g.id, m: content }, attempts: 0 });
+      }
+      const sync = { t: 'sync-sent', to: chat, body: content.body, ts, reply: content.reply };
+      if (content.file) sync.file = content.file;
+      outbox.push({ id, to: me, kind: 'sync', content: sync, attempts: 0 });
+      await this.storage.set('outbox', outbox);
+      await this._rememberGroupSent(id, chat);
+      // Один в группе — отправлять некому: сразу «отправлено»
+      const alone = !g.members.some((m) => m !== me);
+      await this._appendMsg(chat, { id, dir: 'out', ts, content, status: alone ? 'sent' : 'sending' });
+      rec.lastTs = ts;
+      delete rec.hidden;
+      await this._saveContacts(all);
+    });
+    this._pumpOutbox();
+  }
+
+  // Отметки «доставлено» приходят по id сообщения и участнику — помним, в какой группе оно
+  async _rememberGroupSent(id, chat) {
+    const list = (await this.storage.get('gsent')) || [];
+    list.push([id, chat]);
+    await this.storage.set('gsent', list.slice(-500));
+  }
+  async _groupSentChat(id) {
+    return ((await this.storage.get('gsent')) || []).find((x) => x[0] === id)?.[1] || null;
+  }
+
+  /**
+   * Групповое содержимое от участника (или со своего устройства, self): состояние группы,
+   * выход, удаление, сообщение. Возвращает «подтвердить доставку».
+   */
+  async _onGroupContent(all, from, res, self = false) {
+    const me = this.account.username;
+    const gc = res.content;
+    const gid = String(gc.g || '');
+    if (!GID_RE.test(gid)) {
+      await this._saveContacts(all);
+      return false;
+    }
+    const key = groupKey(gid);
+    const g = all[key]?.group;
+    if (gc.t === 'group') {
+      const next = cleanGroup(gc);
+      // Принимаем только более новое состояние и только от администратора (по нашему состоянию)
+      const ok = next && (g ? next.v > g.v && (self || g.admins.includes(from)) : self || next.admins.includes(from));
+      if (ok && (self || next.members.includes(me) || g)) await this._applyGroupState(all, next, from);
+      else await this._saveContacts(all);
+      return false;
+    }
+    if (gc.t === 'group-leave') {
+      if (g) await this._applyLeave(all, key, from, from);
+      else await this._saveContacts(all);
+      return false;
+    }
+    if (gc.t === 'gdelete' && Array.isArray(gc.ids)) {
+      await this._saveContacts(all);
+      if (!g) return false;
+      const ids = gc.ids.map(String).slice(0, MAX_DELETE);
+      const theirs = (await this.messages(key)).filter((m) => ids.includes(m.id) && m.from === from).map((m) => m.id);
+      if (theirs.length) await this._removeMessages(key, theirs);
+      return false;
+    }
+    if (gc.t === 'gmsg') {
+      const ts = Number.isFinite(gc.m?.ts) ? gc.m.ts : Date.now();
+      // Группа ещё неизвестна или участник ещё не в составе (состояние придёт следом) — отложим
+      if (!g || g.left || !g.members.includes(from)) {
+        await this._saveContacts(all);
+        await this._stashGroupMsg(gid, { id: res.id, from, m: gc.m, ts });
+        return true;
+      }
+      return this._appendGroupMsg(all, key, from, res.id, gc.m, ts);
+    }
+    await this._saveContacts(all);
+    return false;
+  }
+
+  async _appendGroupMsg(all, key, from, id, raw, ts) {
+    const content = cleanText(raw, ts);
+    const rec = all[key];
+    if (!content || !rec) {
+      await this._saveContacts(all);
+      return false;
+    }
+    if (await this._isDeleted(key, id)) {
+      await this._saveContacts(all);
+      return true;
+    }
+    const list = await this.messages(key);
+    if (list.some((m) => m.id === id && m.from === from)) {
+      await this._saveContacts(all);
+      return true;
+    }
+    rec.unread = (rec.unread || 0) + 1;
+    rec.lastTs = Date.now();
+    delete rec.hidden;
+    await this._saveContacts(all);
+    await this._appendMsg(key, { id, dir: 'in', ts, from, content });
+    return true;
+  }
+
+  async _stashGroupMsg(gid, item) {
+    const k = 'gpend:' + gid;
+    const list = (await this.storage.get(k)) || [];
+    if (!list.some((x) => x.id === item.id && x.from === item.from)) list.push(item);
+    await this.storage.set(k, list.slice(-100));
+  }
+
+  async _replayGroup(all, key) {
+    const k = 'gpend:' + key.slice(1);
+    const list = (await this.storage.get(k)) || [];
+    const g = all[key]?.group;
+    if (!list.length || !g || g.left) return;
+    const keep = [];
+    for (const it of list) {
+      if (g.members.includes(it.from)) await this._appendGroupMsg(all, key, it.from, it.id, it.m, it.ts);
+      else keep.push(it);
+    }
+    await this.storage.set(k, keep);
+  }
+
+  /** Своё сообщение в группу, отправленное с другого своего устройства. */
+  async _onGroupSyncSent(chat, id, c) {
+    const all = await this.contacts();
+    const rec = all[chat];
+    if (!rec?.group || (await this._isDeleted(chat, id))) return;
+    const content = cleanText(c);
+    if (!content) return;
+    const list = await this.messages(chat);
+    if (list.some((m) => m.id === id && m.dir === 'out')) return;
+    rec.lastTs = Date.now();
+    delete rec.hidden;
+    await this._saveContacts(all);
+    await this._rememberGroupSent(id, chat);
+    await this._appendMsg(chat, { id, dir: 'out', ts: Number.isFinite(c.ts) ? c.ts : Date.now(), content, status: 'sent' });
+  }
+
   // ---------- Вложения ----------
 
   /** https://сервер — для загрузки и скачивания файлов (адрес WebSocket без /ws). */
@@ -1184,8 +1549,12 @@ export class MessengerClient extends Emitter {
   async sendFile(username, source, meta = {}, { caption = '', replyTo = null, onProgress = () => {}, signal, onReady = () => {} } = {}) {
     const all = await this.contacts();
     if (!all[username]) throw new Error(t('Нет такого контакта'));
-    if (all[username].keyChanged) throw errorOf('key_changed');
-    if (this.isBlocked(username)) throw errorOf('you_blocked');
+    if (isGroupChat(username)) {
+      if (all[username].group?.left) throw errorOf('group_left');
+    } else {
+      if (all[username].keyChanged) throw errorOf('key_changed');
+      if (this.isBlocked(username)) throw errorOf('you_blocked');
+    }
     const size = source.size ?? source.length;
     const mime = String(meta.mime || source.type || 'application/octet-stream').toLowerCase();
     const { keyB64, id } = await this._upload(source, size, onProgress, signal);
@@ -1280,12 +1649,19 @@ export class MessengerClient extends Emitter {
     if (!ids.length) return;
     await this._serial(async () => {
       const me = this.account.username;
+      // В группе «у всех» можно удалить только свои сообщения — запоминаем их до удаления
+      const mine = isGroupChat(username) ? (await this.messages(username)).filter((m) => m.dir === 'out' && ids.includes(m.id)).map((m) => m.id) : [];
       await this._removeMessages(username, ids);
       // Ещё не отправленные сообщения — просто отменяем
       let outbox = (await this.storage.get('outbox')) || [];
       outbox = outbox.filter((x) => !(ids.includes(x.id) && (x.kind === 'msg' || x.kind === 'sync')));
       const ts = Date.now();
-      if (forAll) {
+      if (forAll && isGroupChat(username)) {
+        const g = (await this.contacts())[username]?.group;
+        if (g && !g.left && mine.length) {
+          for (const m of g.members) if (m !== me) outbox.push({ id: randomId(), to: m, kind: 'ctl', content: { t: 'gdelete', g: g.id, ids: mine, ts }, attempts: 0 });
+        }
+      } else if (forAll) {
         const c = (await this.contacts())[username];
         if (c && !c.keyChanged) outbox.push({ id: randomId(), to: username, kind: 'ctl', content: { t: 'delete', ids, ts }, attempts: 0 });
       }
@@ -1495,7 +1871,7 @@ export class MessengerClient extends Emitter {
     if (i < 0) return;
     const [item] = outbox.splice(i, 1);
     await this.storage.set('outbox', outbox);
-    if (item.kind === 'msg') await this._setMsgStatus(item.to, item.id, 'sent');
+    if (item.kind === 'msg') await this._setMsgStatus(item.chat || item.to, item.id, 'sent');
   }
 
   async _failOutbox(cid, err) {
@@ -1506,7 +1882,11 @@ export class MessengerClient extends Emitter {
     const [item] = outbox.splice(i, 1);
     await this.storage.set('outbox', outbox);
     if (item.kind === 'msg') {
-      await this._setMsgStatus(item.to, item.id, 'failed');
+      // В группе «не отправлено», только если не ушло никому и больше никому не уходит
+      const chat = item.chat || item.to;
+      const same = item.chat && outbox.some((x) => x.id === item.id && x.kind === 'msg');
+      const m = item.chat && (await this.messages(chat)).find((x) => x.id === item.id);
+      if (!same && (!item.chat || m?.status === 'sending')) await this._setMsgStatus(chat, item.id, 'failed');
       if (err) this.emit('error', { code: err.code, text: err.message });
     }
   }
@@ -1570,6 +1950,14 @@ export class MessengerClient extends Emitter {
       }
       if (c?.t === 'sync-delete' && typeof c.chat === 'string' && Array.isArray(c.ids)) {
         await this._removeMessages(c.chat, c.ids.map(String).slice(0, MAX_DELETE));
+        return ack(false);
+      }
+      if (c?.t === 'group' || c?.t === 'group-leave') {
+        await this._onGroupContent(await this.contacts(), me, res, true);
+        return ack(false);
+      }
+      if (c?.t === 'sync-sent' && isGroupChat(c.to)) {
+        await this._onGroupSyncSent(c.to, res.id, c);
         return ack(false);
       }
       if (c?.t === 'sync-sent' && typeof c.to === 'string' && c.to !== me) {
@@ -1655,6 +2043,10 @@ export class MessengerClient extends Emitter {
     // Заблокирован: сервер такое уже не доставляет, а пришедшее до блокировки — отбрасываем
     // (расшифровали, чтобы не сбить храповик на случай разблокировки)
     if (this.isBlocked(from)) return ack(false);
+    if (['gmsg', 'group', 'group-leave', 'gdelete'].includes(res.content?.t)) {
+      if (!known) c.hidden = true; // участник группы, с которым нет личного чата
+      return ack(await this._onGroupContent(all, from, res));
+    }
     if (res.content?.t === 'profile-req') {
       // Повторная отправка профиля по просьбе собеседника — тем, кому вы пишете. На один и тот же
       // запрос (та же версия профиля у собеседника) — не чаще раза в час.

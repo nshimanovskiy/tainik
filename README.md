@@ -144,13 +144,13 @@ Run **Actions → «Выпуск приложений» → Run workflow** with 
 2. **Unlinking does not revoke the identity key.** A stolen device stops receiving messages, but its identity key could still be used to link a new device. If a device is stolen, create a new account.
 3. **The web client is served by the server**, so a compromised server could ship modified JavaScript. Use the desktop or Android app for stronger guarantees.
 4. **Metadata** (who, to whom, when, and online status unless hidden) is visible to the server. During calls, peers see each other's IP addresses unless traffic goes through TURN.
-5. No group calls, groups, attachments or key backup yet. Web Push goes through the browser vendor's push service (Google, Mozilla, Apple), which learns *when* you receive messages. Message history is not transferred to newly linked devices.
+5. No group calls or key backup yet. Groups (up to 50 members) fan out over pairwise Double Ratchet sessions; the server knows nothing about them. Web Push goes through the browser vendor's push service (Google, Mozilla, Apple), which learns *when* you receive messages. Message history is not transferred to newly linked devices.
 
 ## Roadmap
 
 - History transfer to new devices; sync of read and verified state
 - iOS app (same approach as Android: a native shell around the shared UI)
-- Groups (MLS) and attachments
+- Larger groups (Sender Keys / MLS) and group calls
 
 ## License
 

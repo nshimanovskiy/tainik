@@ -410,6 +410,24 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
 .call-dev-menu label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #b9c9c3; }
 .call-dev-menu .dev-select { background: #24302c; border-color: #34443f; color: #eef5f2; }
 #call-devices.on svg { background: var(--accent); }
+.pick-list { list-style: none; margin: 4px 0 10px; padding: 0; max-height: 40vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; }
+.pick-list li { border-bottom: 1px solid var(--line); }
+.pick-list li:last-child { border-bottom: 0; }
+.pick-list label { display: flex; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; }
+.pick-list .p-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-list .p-user { color: var(--muted); font-size: 12px; }
+#ng-name { width: 100%; margin-bottom: 4px; }
+.gd-members { list-style: none; padding: 0; }
+.gd-members li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.gd-members li:last-child { border-bottom: 0; }
+.gd-members .m-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gd-members .m-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gd-members .m-sub { color: var(--muted); font-size: 12px; }
+.gd-members .m-acts { display: flex; gap: 4px; }
+.gd-members .m-acts button { padding: 4px 8px; font-size: 12px; }
+.msg .from { display: block; font-size: 12.5px; font-weight: 700; margin-bottom: 2px; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; }
+.msg.sys.group .bubble { font-size: 13px; }
+.g-ico { margin-right: 4px; font-size: .9em; }
 .vol-range { width: 100%; accent-color: var(--accent); margin: 2px 0; }
 .vol-val { float: right; font-weight: 600; font-variant-numeric: tabular-nums; color: inherit; }
 .call-dev-menu .vol-val { color: #eef5f2; }
@@ -758,3 +776,5 @@ dialog.scanner[open] { display: flex; flex-direction: column; }
 .pf-thumb img.blur { filter: blur(3px); transform: scale(1.1); }
 .pf-play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 22px; text-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
 .pf-files .set-row { gap: 10px; }
+.avatar.clickable { cursor: pointer; }
+.pick-list input[type=checkbox] { width: auto; flex: none; margin: 0; }
