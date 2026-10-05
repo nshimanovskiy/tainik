@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на 5 октября 2026, версия **0.26.0** (`main`): прокси в приложениях (SOCKS5/HTTP с паролем) и исправление самообновления; до этого — групповые чаты, громкость и выбор устройств в звонке, подписка «Тайник Премиум» (xRocket Pay), версия приложения у устройств, страница проверки сети `/diag.html`. Сервер работает на `https://chat.sdsds.top`.
+Состояние на 5 октября 2026, версия **0.27.0** (`main`): голосовые и квадратные видеосообщения, статус «в сети» только когда приложение на экране; до этого — прокси в приложениях (SOCKS5/HTTP с паролем), исправление самообновления, групповые чаты, громкость и выбор устройств в звонке, подписка «Тайник Премиум» (xRocket Pay), версия приложения у устройств, страница проверки сети `/diag.html`. Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано и что известно плохого. Подробности для пользователей — в `README.md` / `README.ru.md`, развёртывание — в `DEPLOY.md`, выпуски — в `RELEASING.md`, история — в `CHANGELOG.md`.
 
@@ -18,6 +18,7 @@
 Возможности:
 - текст, ответы с цитатой, удаление «у меня» / «у всех»;
 - фото, видео и файлы (E2E, до 100 МБ);
+- голосовые сообщения и квадратные видеосообщения, записанные прямо в чате;
 - аудио- и видеозвонки и показ экрана (WebRTC), свернуть звонок и переписываться;
 - статус «в сети», скрытие статуса;
 - до 5 устройств на аккаунт, синхронизация отправленного, удалений и прочтения между ними;
@@ -106,7 +107,7 @@
   - `upload-prekeys`, `get-identity`, `get-bundles`;
   - `send`, `send-ephemeral`, `ack`;
   - `list-devices`, `unlink-device`, `provision-open`, `provision-send`;
-  - `presence-subscribe`, `set-presence-visibility`;
+  - `presence-subscribe`, `set-presence-visibility`, `set-active` (приложение на экране или в фоне; «в сети» — только если хоть одно подключение активно, `conn.meta.active`; то же поле `active` есть в `auth`);
   - `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`;
   - `premium-buy` (счёт на тариф), `premium-check` (сверить оплату).
   - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}` и `billing {plans, testnet}`), `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
@@ -140,6 +141,8 @@
 ### 2.4 Интерфейс (`client/`)
 
 - `index.html` + `app.js` (~2900 строк) + `style.css` — весь мессенджер. В `call.js` — `CallManager` для WebRTC. Микрофон — `calls.micId` / `setMicrophone(id)` (replaceTrack на лету); динамик — `setSinkId` у `#remote-audio` и у AudioContext гудков. Громкость своего голоса — `calls.setMicGain()` (микрофон → GainNode → ограничитель → MediaStreamDestination, только если не 100%); собеседника — `audio.volume` до 100%, больше — WebAudio (элемент играет без звука). Выбор хранится в настройках устройства: `audio-in` / `audio-out` / `mic-gain` / `peer-volume` (проценты); страница ⋯ → «Звук и микрофон» (`data-page="media"`), в звонке — кнопка «Звук».
+- Голосовые и видеосообщения — раздел «Голосовые и видеосообщения» в `app.js`: MediaRecorder (сначала mp4, затем webm/ogg), видео — кадр фронтальной камеры, обрезанный до квадрата 384×384 на `<canvas>`, `captureStream(30)` + дорожка микрофона; волна — AnalyserNode, 64 байта в base64. Отправка — `sendFile` с `as: 'voice' | 'note'`, `dur`, `wave` (голос) или `thumb`, `w/h` (видео); `cleanFile` принимает `as` только для audio/video соответственно. Воспроизведение — один элемент `playing` на всю ленту.
+- Активность для статуса: `pageActive()` — на Android `desktop.isActive()` (окно на экране, `MainActivity.updateForeground` → `WebHost.setActive` → `__tainikActive`), в браузере и десктопе — `document.visibilityState`; `client.setActive()` шлёт `set-active`.
 - `landing.html/js/css` — главная `/` с вкладками «О Тайнике» и «Скачать». Главная открывается всегда; в мессенджер ведёт кнопка «Перейти в чаты». Сразу в мессенджер попадают только по значку на экране «Домой» и по ссылкам `#chat=`.
 - `ios.html` + `install.js` — установка на iPhone.
 - `idb-storage.js` — хранилище веба: IndexedDB, шифрование неизвлекаемым ключом WebCrypto.
@@ -255,7 +258,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test`. На 0.26.0 — **86 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
+- **Тесты:** `npm test`. На 0.27.0 — **87 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
 - **Локально:** `npm start` → главная `http://localhost:8080`, мессенджер `/app`. Чтобы проверить вдвоём, откройте обычное окно и окно инкогнито.
 - **CI:** каждый push в `main` запускает `build.yml`: test, docker, desktop×3, android. Статус:
   `curl -s "https://api.github.com/repos/nshimanovskiy/tainik/actions/runs?branch=main&per_page=1"`
@@ -320,6 +323,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.19 | Юзернейм и имя, «о себе», профиль собеседника, ссылка на главную в «О Тайнике» |
 | 0.20 | Подписка «Тайник Премиум» через xRocket Pay, фото профиля, звезда ★, подписка в админке |
 | 0.21 | Версия приложения у устройств (список устройств, админка); повторный запрос профиля, если фото потерялось |
+| 0.27 | Голосовые и квадратные видеосообщения; «в сети» только когда приложение на экране (Android в фоне — не в сети) |
 | 0.26 | Прокси в приложениях (SOCKS5/HTTP с паролем); самообновление находит версию новее уже скачанной |
 | 0.25 | Групповые чаты (до 50, без сервера); чистка: убраны варианты Caddy/systemd |
 | 0.24 | Громкость собеседника и своего голоса (0–200%) |

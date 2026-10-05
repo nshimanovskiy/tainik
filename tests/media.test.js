@@ -87,6 +87,16 @@ test('вложения: описание файла проверяется', () 
   assert.deepEqual(f, { id, key, size: 5, name: '_.._etc_passwd', mime: 'text/html', kind: 'file' });
   assert.equal(cleanFile({ id, key, size: 5, mime: 'image/svg+xml', kind: 'image' }).kind, 'file', 'SVG не показываем как картинку');
   assert.equal(cleanFile({ id, key, size: 5, mime: 'image/jpeg', kind: 'image', w: 10, h: 20, thumb: 'data:image/jpeg;base64,AAAA' }).thumb, 'data:image/jpeg;base64,AAAA');
+  // Голосовое и видеосообщение: пометка только при подходящем виде, волна — короткий base64
+  const v = cleanFile({ id, key, size: 5, mime: 'audio/webm', kind: 'audio', as: 'voice', dur: 7, wave: 'AAEC/w==' });
+  assert.equal(v.as, 'voice');
+  assert.equal(v.wave, 'AAEC/w==');
+  assert.equal(cleanFile({ id, key, size: 5, mime: 'video/mp4', kind: 'video', as: 'note', w: 384, h: 384 }).as, 'note');
+  assert.equal(cleanFile({ id, key, size: 5, mime: 'video/mp4', kind: 'video', as: 'voice' }).as, undefined);
+  assert.equal(cleanFile({ id, key, size: 5, mime: 'text/plain', kind: 'audio', as: 'voice' }).as, undefined);
+  assert.equal(cleanFile({ id, key, size: 5, mime: 'audio/ogg', kind: 'audio', as: 'evil' }).as, undefined);
+  assert.equal(cleanFile({ id, key, size: 5, mime: 'audio/ogg', kind: 'audio', as: 'voice', wave: 'A'.repeat(200) }).wave, undefined);
+  assert.equal(cleanFile({ id, key, size: 5, mime: 'audio/ogg', kind: 'audio', as: 'voice', wave: '<b>' }).wave, undefined);
   assert.equal(safeName('a‮gnp.exe'), 'agnp.exe');
   assert.equal(safeName(''), 'file');
   assert.equal(kindOf('video/mp4'), 'video');
@@ -136,6 +146,17 @@ test('вложения: отправка, получение, свои устр�
   const r = (await rep).message.content.reply;
   assert.equal(r.kind, 'image');
   assert.equal(r.body, '');
+
+  // Голосовое: пометка и волна доходят до собеседника и своих устройств, ответ на него — с пометкой
+  const gotVoice = waitFor(bob, 'message', (d) => d.message.content.file?.as === 'voice');
+  const syncVoice = waitFor(alice2, 'message', (d) => d.message.content.file?.as === 'voice');
+  await alice.sendFile('bob', new Uint8Array([9, 9, 9]), { name: 'voice.webm', mime: 'audio/webm', as: 'voice', dur: 3, wave: 'AH//' });
+  const vm = (await gotVoice).message;
+  assert.deepEqual([vm.content.file.kind, vm.content.file.dur, vm.content.file.wave], ['audio', 3, 'AH//']);
+  assert.equal((await syncVoice).message.content.file.wave, 'AH//');
+  const rep2 = waitFor(alice, 'message', (d) => d.message.content.body === 'Услышал');
+  await bob.sendText('alice', 'Услышал', { replyTo: vm.id });
+  assert.deepEqual(((await rep2).message.content.reply), { id: vm.id, from: 'alice', body: '', kind: 'audio', as: 'voice' });
 });
 
 test('вложения: сервер проверяет токен, смещение, размер; Range; удаление по сроку', async (t) => {

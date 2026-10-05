@@ -115,6 +115,11 @@ class MainActivity : Activity() {
 
     private fun updateForeground() {
         app.inForeground = resumed && focused
+        // «В сети» — пока окно на экране (фокус может забрать системный диалог — это не уход в фон)
+        if (app.visible != resumed) {
+            app.visible = resumed
+            app.hostIfCreated?.setActive(resumed)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

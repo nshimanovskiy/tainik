@@ -240,7 +240,9 @@ export function startServer({
   }
 
   // ---------- Присутствие («в сети» / «был(а) …») ----------
-  const isOnline = (name) => store.deviceIds(name).some((d) => online.has(addr(name, d)));
+  // «В сети» — есть подключённое устройство, где приложение открыто на экране. Приложение
+  // в фоне (Android, свёрнутое в трей) держит соединение ради сообщений, но статус не даёт.
+  const isOnline = (name) => store.deviceIds(name).some((d) => online.get(addr(name, d))?.meta?.active !== false && online.has(addr(name, d)));
   /** Статус name глазами viewer: кого name заблокировал, видит «был(а) давно», как при скрытом статусе. */
   function presenceOf(name, viewer) {
     const p = store.getPresence(name);
@@ -338,7 +340,7 @@ export function startServer({
             mode = 'login';
           }
         }
-        state.pending = { username, identity, mode, keys, deviceId: Number(msg.deviceId), appVersion: cleanVersion(msg.appVersion), nonce: b64(randomBytes(32)) };
+        state.pending = { username, identity, mode, keys, deviceId: Number(msg.deviceId), appVersion: cleanVersion(msg.appVersion), active: msg.active !== false, nonce: b64(randomBytes(32)) };
         return send(conn, { type: 'challenge', nonce: state.pending.nonce });
       }
 
@@ -375,11 +377,12 @@ export function startServer({
           prev.close(4000, 'replaced');
         }
         const wasOnline = isOnline(p.username);
+        if (conn.meta) conn.meta.active = p.active; // открыто ли приложение на экране (старые версии — всегда да)
         state.user = p.username;
         state.device = deviceId;
         if (conn.meta) conn.meta.user = p.username;
         online.set(key, conn);
-        if (!wasOnline) broadcastPresence(p.username);
+        if (isOnline(p.username) !== wasOnline) broadcastPresence(p.username);
         const d = store.getDevice(p.username, deviceId);
         send(conn, {
           type: 'ready',
@@ -688,6 +691,18 @@ export function startServer({
 
       case 'ping':
         return send(conn, { type: 'pong' });
+
+      // Приложение ушло в фон или вернулось на экран: от этого зависит «в сети»
+      case 'set-active': {
+        if (!state.user || !conn.meta) return;
+        const active = msg.active !== false;
+        if (conn.meta.active === active) return;
+        const was = isOnline(state.user);
+        conn.meta.active = active;
+        if (!active) store.touchDevice(state.user, state.device); // «был(а)» — с этого момента
+        if (isOnline(state.user) !== was) broadcastPresence(state.user);
+        return;
+      }
 
       // Диагностика сети (/diag.html): эхо и «скачать N КБ» по WebSocket, без входа.
       // Ограничено частотой и размером — нагрузку не создаст.

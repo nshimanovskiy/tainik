@@ -11,6 +11,7 @@ export const SEG = 768 * 1024 - 16; // часть открытого текст�
 const TAG = 16;
 export const KINDS = ['image', 'video', 'audio', 'file'];
 export const THUMB_MAX = 16_000; // символов data:-URL превью
+export const WAVE_MAX = 128; // base64 громкостей голосового (до 96 столбиков 0–255)
 export const CAPTION_MAX = 4000;
 
 /** Размер зашифрованного файла. */
@@ -100,6 +101,11 @@ export function cleanFile(f) {
   const dur = int(f.dur, 100 * 3600);
   if (dur !== undefined) out.dur = dur;
   if (typeof f.thumb === 'string' && f.thumb.length <= THUMB_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/]+=*$/.test(f.thumb)) out.thumb = f.thumb;
+  // Голосовое (аудио) и видеосообщение (квадратное видео) — записаны прямо в чате
+  if ((f.as === 'voice' && out.kind === 'audio') || (f.as === 'note' && out.kind === 'video')) {
+    out.as = f.as;
+    if (typeof f.wave === 'string' && f.wave.length <= WAVE_MAX && /^[A-Za-z0-9+/]+=*$/.test(f.wave)) out.wave = f.wave;
+  }
   return out;
 }
 

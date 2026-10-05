@@ -137,6 +137,12 @@ class WebHost(private val app: TainikApp) {
         webView.evaluateJavascript("window.__tainikWake && window.__tainikWake($restart)", null)
     }
 
+    /** Приложение ушло в фон или вернулось на экран — страница сообщит серверу («в сети»). */
+    fun setActive(active: Boolean) {
+        if (destroyed || !bridgeReady) return
+        webView.evaluateJavascript("window.__tainikActive && window.__tainikActive($active)", null)
+    }
+
     /** Новое состояние обновления — в страницу (см. bridge.js updates.onChange). */
     fun pushUpdateState(st: org.json.JSONObject) {
         if (destroyed || !bridgeReady) return

@@ -178,8 +178,21 @@
           <button type="button" id="attach-btn" class="icon-btn attach" aria-label="Прикрепить файл" title="Прикрепить файл"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6.5v10.5a4.5 4.5 0 0 1-9 0V5.5a3 3 0 0 1 6 0V16a1.5 1.5 0 0 1-3 0V6.5H9V16a3 3 0 0 0 6 0V5.5a4.5 4.5 0 0 0-9 0V17a6 6 0 0 0 12 0V6.5z"/></svg></button>
           <input type="file" id="file-input" multiple hidden>
           <textarea id="text" rows="1" placeholder="Сообщение" aria-label="Сообщение"></textarea>
+          <button type="button" id="voice-btn" class="icon-btn rec-btn" aria-label="Записать голосовое сообщение" title="Голосовое сообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg></button>
+          <button type="button" id="note-btn" class="icon-btn rec-btn" aria-label="Записать видеосообщение" title="Видеосообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h12a1 1 0 0 1 1 1v3.5l4.4-2.9A1 1 0 0 1 22 7.4v9.2a1 1 0 0 1-1.6.8L16 14.5V18a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 2v10h10V7z"/></svg></button>
           <button id="send-btn" class="primary send" aria-label="Отправить">➤</button>
         </form>
+        <div id="rec-bar" class="rec-bar" hidden>
+          <button type="button" id="rec-cancel" class="icon-btn" aria-label="Отменить запись" title="Отменить">✕</button>
+          <span class="rec-dot" aria-hidden="true"></span>
+          <span id="rec-time" class="rec-time">0:00</span>
+          <canvas id="rec-wave" class="rec-wave" width="300" height="36" aria-hidden="true"></canvas>
+          <button type="button" id="rec-send" class="primary send" aria-label="Отправить запись" title="Отправить">➤</button>
+        </div>
+        <div id="note-preview" class="note-preview" hidden>
+          <video id="note-video" muted playsinline autoplay></video>
+          <svg class="note-progress" viewBox="0 0 100 100" aria-hidden="true"><rect x="2" y="2" width="96" height="96" rx="14" pathLength="100"></rect></svg>
+        </div>
       </div>
     </main>
   </section>

@@ -115,7 +115,10 @@ function groupEvents(old, next, by) {
 function makeReply(orig, me, peer) {
   const body = String(orig.content?.body ?? '').replace(/\s+/g, ' ').trim();
   const out = { id: orig.id, from: orig.dir === 'out' ? me : orig.from || peer, body: body.slice(0, REPLY_SNIPPET) };
-  if (orig.content?.file) out.kind = orig.content.file.kind;
+  if (orig.content?.file) {
+    out.kind = orig.content.file.kind;
+    if (orig.content.file.as) out.as = orig.content.file.as;
+  }
   return out;
 }
 
@@ -137,6 +140,7 @@ function cleanText(c, tsFallback = Date.now()) {
   if (r && typeof r.id === 'string' && typeof r.from === 'string') {
     out.reply = { id: r.id.slice(0, 64), from: r.from.slice(0, 32), body: String(r.body ?? '').slice(0, REPLY_SNIPPET) };
     if (KINDS.includes(r.kind)) out.reply.kind = r.kind;
+    if ((r.as === 'voice' && r.kind === 'audio') || (r.as === 'note' && r.kind === 'video')) out.reply.as = r.as;
   }
   return out;
 }
@@ -235,6 +239,7 @@ export class MessengerClient extends Emitter {
     super();
     this.url = url;
     this.appVersion = appVersion; // версия приложения — видна в списке устройств аккаунта
+    this.active = true; // приложение на экране: только тогда собеседники видят «в сети»
     this.storage = storage;
     this.WS = WebSocketImpl;
     this.fetch = fetchImpl;
@@ -558,6 +563,7 @@ export class MessengerClient extends Emitter {
         deviceId: this.account.deviceId ?? undefined,
         identity: this.account.pub,
         ...(this.appVersion ? { appVersion: String(this.appVersion) } : {}),
+        active: this.active,
         ...(this._authExtra || {}),
       });
     };
@@ -692,6 +698,7 @@ export class MessengerClient extends Emitter {
         }
         this.push = { vapidKey: msg.vapidKey || null, endpoint: msg.pushEndpoint || null };
         this.billing = msg.billing && Array.isArray(msg.billing.plans) ? msg.billing : null;
+        this._send({ type: 'set-active', active: this.active }); // мог смениться, пока шёл вход
         this._setPremium(msg.premium);
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._setStatus('online');
@@ -947,6 +954,17 @@ export class MessengerClient extends Emitter {
     if (!all.length) return;
     const r = await this._request({ type: 'presence-subscribe', names: all, replace: !names });
     this._onPresence(r.list);
+  }
+
+  /**
+   * Приложение на экране (true) или в фоне (false). В фоне соединение остаётся — сообщения
+   * и звонки приходят, — но собеседники видят «был(а) …», а не «в сети».
+   */
+  setActive(active) {
+    active = !!active;
+    if (this.active === active) return;
+    this.active = active;
+    this._send({ type: 'set-active', active });
   }
 
   /** Показывать ли другим, что я в сети и когда был(а). */

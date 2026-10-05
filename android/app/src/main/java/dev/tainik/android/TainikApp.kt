@@ -41,6 +41,10 @@ class TainikApp : Application() {
     /** Окно на экране и в фокусе — уведомления о сообщениях не нужны (как в десктопе). */
     var inForeground = false
 
+    /** Окно приложения на экране (не в фоне) — от этого зависит статус «в сети». */
+    @Volatile
+    var visible = false
+
     override fun onCreate() {
         super.onCreate()
         store = SecureStore(noBackupFilesDir)

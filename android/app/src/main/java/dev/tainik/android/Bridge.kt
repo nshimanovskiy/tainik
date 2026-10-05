@@ -35,6 +35,10 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
         if (ours()) host.bridgeReady = true
     }
 
+    /** Окно приложения на экране (для статуса «в сети»). */
+    @JavascriptInterface
+    fun isActive(): Boolean = ours() && app.visible
+
     /** Асинхронный вызов; ответ уходит в __tainikNative.done(id, ok, text). */
     @JavascriptInterface
     fun post(id: Int, method: String, args: String) {
