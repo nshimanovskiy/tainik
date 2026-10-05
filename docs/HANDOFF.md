@@ -238,7 +238,7 @@ desktop/           Electron: main.cjs, preload.cjs, lib.cjs (SecureStore, CSP), 
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, SecureStore, Updater, I18n; assets/native/bridge.js
 deploy/            setup.sh (nginx+certbot), update.sh, backup.sh, setup-calls.sh (coturn),
-                   sign-profile.sh (подпись профиля iOS), connect-github.sh, nginx-site.conf, Caddy*
+                   sign-profile.sh (подпись профиля iOS), connect-github.sh, nginx-site.conf
 tests/             node:test — протокол, e2e клиент↔сервер, вложения, блокировка, профиль, QR,
                    админка, релизы, обновления, push, веб-клип, i18n, десктоп, Android-мост
 .github/workflows/ build.yml (тесты + сборки на каждый push), release.yml («Выпуск приложений»),

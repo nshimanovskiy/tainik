@@ -3,9 +3,6 @@
 #
 # Звонки: TURN-сервер coturn включается скриптом deploy/setup-calls.sh
 # (он пишет в .env COMPOSE_PROFILES=calls и учётные данные TURN).
-#
-# Если на сервере нет своего веб-сервера, можно запустить вместе с Caddy:
-#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d --build
 # Имя проекта фиксировано: от него зависят имена томов с данными
 name: e2e-messenger
 

@@ -26,7 +26,7 @@ die()  { printf '\033[1;31m[x] %s\033[0m\n' "$*" >&2; exit 1; }
 [[ "$EMAIL" == *@* ]] || die "Неверный email: $EMAIL"
 
 command -v docker >/dev/null && docker compose version >/dev/null 2>&1 || die "Нужны docker и docker compose"
-command -v nginx >/dev/null || die "nginx не найден. Без своего веб-сервера используйте вариант с Caddy (см. DEPLOY.md)"
+command -v nginx >/dev/null || die "nginx не найден: установите его (apt install nginx) и запустите скрипт снова"
 
 # ---------- Порт ----------
 if [ -f .env ] && grep -q '^TAINIK_PORT=' .env; then
@@ -64,7 +64,6 @@ chmod 600 .env
 
 # ---------- Docker ----------
 say "Собираю и запускаю сервер"
-# остатки прошлой версии установки (контейнер caddy) убираем, данные остаются
 # Docker Hub иногда отвечает с таймаутом — несколько попыток, затем сборка
 # классическим сборщиком из локального кэша базового образа
 built=""

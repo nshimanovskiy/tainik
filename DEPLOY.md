@@ -30,14 +30,6 @@ sudo ./deploy/setup.sh chat.example.com you@example.com
 
 Скрипт можно запускать повторно. Уже выпущенный сертификат он не трогает.
 
-### Если до этого запускалась прошлая версия скрипта (с Caddy)
-
-Ничего чистить вручную не нужно: новая версия сама удалит оставшийся контейнер `caddy`. Данные сервера (том `tainik-data`) сохранятся. Если в прошлый раз включился ufw и вы его отключили, правила, добавленные скриптом, можно убрать:
-
-```bash
-ufw delete allow OpenSSH; ufw delete allow 80/tcp; ufw delete allow 443/tcp; ufw delete allow 443/udp
-```
-
 ## Подключить клиентов
 
 - **Главная страница и загрузки:** `https://chat.example.com` — описание и вкладка «Скачать» (файлы последнего выпуска с GitHub отдаёт ваш сервер, см. `RELEASES_REPO`).
@@ -233,17 +225,6 @@ sudo ./deploy/sign-profile.sh
 | `PREMIUM_PAY_CURRENCIES` | `GRAM,TRX` | Чем ещё можно заплатить — по курсу xRocket; пусто — только `PREMIUM_CURRENCY` |
 
 После изменения `.env` выполните `docker compose up -d`.
-
-## Сервер без nginx
-
-Если портов 80 и 443 никто не занимает, можно обойтись без nginx и запустить Caddy, который сам получит HTTPS-сертификат:
-
-```bash
-cp .env.example .env && nano .env    # DOMAIN, ACME_EMAIL
-docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d --build
-```
-
-Есть и вариант без Docker: `deploy/tainik.service` (systemd, нужен Node.js 22.13+).
 
 ## Если что-то не работает
 

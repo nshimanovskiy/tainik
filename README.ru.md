@@ -184,8 +184,8 @@ android/                      ← Android (Kotlin, без библиотек)
   app/src/main/assets/native/bridge.js  window.desktop для страницы (тот же интерфейс, что у Electron)
   app/build.gradle.kts          копирует client/ и shared/ в ассеты, адрес сервера из TAINIK_SERVER
 server/                       ← ретранслятор (без зависимостей, база — встроенный SQLite)
-deploy/                         setup.sh (nginx + certbot), backup.sh, update.sh, шаблоны nginx/Caddy, systemd
-Dockerfile, docker-compose*.yml сервер (+ необязательный Caddy)
+deploy/                         setup.sh (nginx + certbot), backup.sh, update.sh, шаблон nginx
+Dockerfile, docker-compose.yml сервер
 tests/                          protocol, e2e, desktop, push, android-bridge
 .github/workflows/build.yml     CI: тесты + установщики для 3 ОС + APK
 ```

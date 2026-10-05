@@ -122,7 +122,7 @@ function serveStatic(req, res) {
 // ---------- Сервер ----------
 /**
  * @param {object} o
- * @param {boolean} [o.trustProxy]   брать IP клиента из X-Forwarded-For (только за своим прокси, напр. Caddy)
+ * @param {boolean} [o.trustProxy]   брать IP клиента из X-Real-IP / X-Forwarded-For (только за своим прокси — nginx)
  * @param {number}  [o.maxConnPerIp]
  * @param {number}  [o.queueTtlDays] сколько дней хранить недоставленные конверты
  */
@@ -216,7 +216,7 @@ export function startServer({
 
   function clientIp(req) {
     if (trustProxy) {
-      // nginx из deploy/ ставит X-Real-IP; Caddy — X-Forwarded-For
+      // nginx из deploy/ ставит X-Real-IP (и X-Forwarded-For)
       const real = String(req.headers['x-real-ip'] || '').trim();
       if (real) return real;
       const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();

@@ -20,7 +20,7 @@ Tainik ("hideaway" in Russian) is a small, self-hostable messenger built on the 
 - 📱 **Multiple devices.** Up to 5 devices per account. Link a new one by scanning a QR code with the built-in, dependency-free scanner (works in every version, including the Windows, Linux and Android apps); sent messages, deletions and read state sync across your devices.
 - ✅ **Key verification.** A 60-digit safety number, plus a warning that blocks sending if a contact's key changes.
 - 📦 **Zero dependencies.** Plain Node.js and the standard WebCrypto API. The server uses Node's built-in SQLite.
-- 🐳 **Easy self-hosting.** Docker image, nginx/Caddy templates, one-command setup and daily backups.
+- 🐳 **Easy self-hosting.** Docker image, nginx template, one-command setup and daily backups.
 
 > ⚠️ **Status: prototype.** The protocol is an independent implementation of the Signal specifications. It is covered by tests but **has not been audited**. Do not rely on it for high-risk communication yet. See [Limitations](#limitations).
 
@@ -84,7 +84,7 @@ On a VPS that already has Docker and nginx:
 sudo ./deploy/setup.sh chat.example.com you@example.com
 ```
 
-The script runs the server on `127.0.0.1`, adds an nginx site with WebSocket support, obtains a Let's Encrypt certificate via certbot, and schedules daily backups. It does not touch your firewall or other sites. See **[DEPLOY.md](DEPLOY.md)** for manual setup, a Caddy-only variant, a systemd variant, backups and troubleshooting.
+The script runs the server on `127.0.0.1`, adds an nginx site with WebSocket support, obtains a Let's Encrypt certificate via certbot, and schedules daily backups. It does not touch your firewall or other sites. See **[DEPLOY.md](DEPLOY.md)** for manual setup, backups and troubleshooting.
 
 **Updates from GitHub:** run `sudo ./deploy/connect-github.sh OWNER/REPO` once (read-only deploy key, plus an Actions key restricted to the update script), then update with **Actions → «Деплой сервера»**.
 
@@ -129,7 +129,7 @@ client/              UI (shared by web and desktop)
 desktop/             Electron shell: secure storage, app:// protocol, packaging
 android/             Android shell (Kotlin, no libraries): WebView, Keystore-backed storage, notifications, background service
 server/              Relay server: WebSocket (RFC 6455), SQLite store, Web Push (VAPID + RFC 8291), backups
-deploy/              setup / backup / update scripts, nginx, Caddy and systemd templates
+deploy/              setup / backup / update scripts, nginx template
 tests/               node:test suites
 .github/workflows/   CI and desktop release pipeline
 ```
