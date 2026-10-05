@@ -227,6 +227,7 @@
         <button type="button" data-go="privacy" class="set-row"><span class="set-ico" aria-hidden="true">🔒</span><span class="set-label">Конфиденциальность</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="media" class="set-row"><span class="set-ico" aria-hidden="true">🎧</span><span class="set-label">Звук и микрофон</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="notif" class="set-row"><span class="set-ico" aria-hidden="true">🔔</span><span class="set-label">Уведомления</span><span class="set-value" id="set-notif-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="proxy" class="set-row" id="row-proxy" hidden><span class="set-ico" aria-hidden="true">🛡</span><span class="set-label">Прокси</span><span class="set-value" id="set-proxy-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="bg" class="set-row" id="row-bg" hidden><span class="set-ico" aria-hidden="true">🔋</span><span class="set-label">Работа в фоне</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="lang" class="set-row"><span class="set-ico" aria-hidden="true">🌐</span><span class="set-label">Язык</span><span class="set-value" id="set-lang-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="upd" class="set-row" id="row-upd" hidden><span class="set-ico" aria-hidden="true">⬆️</span><span class="set-label">Обновления</span><span class="set-value" id="set-upd-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
@@ -320,6 +321,28 @@
         <p class="set-note" id="dev-speaker-note" hidden>Устройство вывода звука на этом устройстве выбирается в настройках системы.</p>
         <button type="button" id="dev-allow" class="ghost-link" hidden>Разрешить доступ к микрофону, чтобы увидеть названия устройств</button>
         <p class="set-note">Выбор действует для звонков на этом устройстве; во время звонка всё это можно поменять кнопкой «Звук». Если выбранное устройство отключить, звук пойдёт через системное. «Громкость моего голоса» — насколько громко вас слышит собеседник; больше 100% — усиление для тихого микрофона.</p>
+      </div>
+
+      <div class="set-page" data-page="proxy" data-title="Прокси" hidden>
+        <div class="set-group">
+          <label class="set-row set-toggle"><span class="set-label">Подключаться через прокси</span><input type="checkbox" id="px-on"></label>
+        </div>
+        <div class="set-group set-pad">
+          <label class="set-field"><span>Тип</span><select id="px-type" class="dev-select"><option value="socks5">SOCKS5</option><option value="http">HTTP</option></select></label>
+          <div class="px-addr">
+            <label class="set-field"><span>Адрес</span><input id="px-host" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="proxy.example.com"></label>
+            <label class="set-field px-port"><span>Порт</span><input id="px-port" inputmode="numeric" autocomplete="off" placeholder="1080"></label>
+          </div>
+          <label class="set-field"><span>Логин</span><input id="px-user" autocomplete="off" spellcheck="false" autocapitalize="none" placeholder="необязательно"></label>
+          <label class="set-field"><span>Пароль</span><input id="px-pass" type="password" autocomplete="new-password" placeholder="необязательно"></label>
+          <div class="upd-actions">
+            <button type="button" id="px-test" class="ghost">Проверить</button>
+            <button type="button" id="px-save" class="primary">Сохранить</button>
+          </div>
+          <p class="small" id="px-status" role="status"></p>
+        </div>
+        <p class="set-note" id="px-unsupported" hidden>Встроенный браузер Android на этом телефоне слишком старый для прокси — обновите «Android System WebView» в Google Play.</p>
+        <p class="set-note">Через прокси идут сообщения, файлы и обновления. Сквозное шифрование сохраняется: прокси видит только адрес сервера. Звонки идут напрямую или через TURN-сервер, не через прокси. Пароль хранится на этом устройстве в зашифрованном виде.</p>
       </div>
 
       <div class="set-page" data-page="notif" data-title="Уведомления" hidden>

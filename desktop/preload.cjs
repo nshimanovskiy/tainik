@@ -43,6 +43,12 @@ contextBridge.exposeInMainWorld('desktop', {
     set: (key, value) => ipcRenderer.invoke('bg:set', String(key), !!value),
   },
   version: () => ipcRenderer.invoke('app:version'),
+  // Прокси: { enabled, type: 'socks5'|'http', host, port, user, hasPass, active }; pass не возвращается
+  proxy: {
+    get: () => ipcRenderer.invoke('proxy:get'),
+    set: (cfg) => ipcRenderer.invoke('proxy:set', cfg),
+    test: (cfg, serverUrl) => ipcRenderer.invoke('proxy:test', cfg, String(serverUrl)),
+  },
   // Самообновление: состояние { status, version, progress, error, auto, … }
   updates: {
     get: () => ipcRenderer.invoke('upd:get'),

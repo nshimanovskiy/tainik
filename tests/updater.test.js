@@ -87,10 +87,11 @@ test('обновления: подписанный выпуск скачивае
   assert.equal(path.dirname(u.ready.file), dir);
   assert.ok(states.includes('checking') && states.includes('downloading'));
   assert.deepEqual(fs.readdirSync(dir), [srv.name], 'временных файлов не осталось');
-  // Повторная проверка ничего не качает заново
+  // Повторная проверка спрашивает сервер, но тот же файл заново не качает
   const n = srv.calls.length;
   await u.check();
-  assert.equal(srv.calls.length, n);
+  assert.ok(!srv.calls.slice(n).some((c) => c.endsWith(srv.name)));
+  assert.equal(u.state.status, 'ready');
   // Уборка оставляет готовое обновление
   fs.writeFileSync(path.join(dir, 'старое.exe'), 'x');
   await u.cleanup();
@@ -137,4 +138,23 @@ test('обновления: подмена отклоняется, неподп�
   const off = mk(t, fakeServer({}), { kind: null });
   await off.u.check();
   assert.equal(off.u.state.status, 'unsupported');
+});
+
+test('обновления: скачано, но не установлено — более новая версия всё равно находится', async (t) => {
+  const v1 = fakeServer({ version: '1.0.0', file: Buffer.from('версия 1') });
+  const v2 = fakeServer({ version: '1.1.0', file: Buffer.from('версия 1.1') });
+  let srv = v1;
+  const { u, dir } = mk(t, { fetch: (url) => srv.fetch(url) });
+  await u.check();
+  assert.equal(u.ready.version, '1.0.0');
+  srv = v2; // вышла ещё одна версия, а первую так и не установили
+  await u.check();
+  assert.equal(u.state.status, 'ready');
+  assert.equal(u.ready.version, '1.1.0');
+  assert.deepEqual(fs.readFileSync(u.ready.file), v2.file);
+  assert.deepEqual(fs.readdirSync(dir), [v2.name], 'старый скачанный файл удалён');
+  // Сервер недоступен — готовое обновление остаётся готовым
+  srv = { fetch: async () => { throw new Error('нет сети'); } };
+  await u.check();
+  assert.equal(u.state.status, 'ready');
 });

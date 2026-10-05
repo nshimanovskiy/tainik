@@ -17,6 +17,8 @@ class TainikApp : Application() {
         private set
     lateinit var updater: Updater
         private set
+    lateinit var proxy: ProxyManager
+        private set
 
     private var hostRef: WebHost? = null
     private val extraStores = HashMap<String, SecureStore>()
@@ -43,6 +45,8 @@ class TainikApp : Application() {
         super.onCreate()
         store = SecureStore(noBackupFilesDir)
         prefs = Prefs(this)
+        // Прокси — до создания WebView: страница сразу подключается через него
+        proxy = ProxyManager(this).also { it.apply() }
         Notifier.createChannels(this)
         updater = Updater(this).also { u ->
             u.onChange = { st -> hostRef?.pushUpdateState(st) }

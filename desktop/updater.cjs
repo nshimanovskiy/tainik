@@ -140,17 +140,22 @@ class Updater {
 
   async _check(auto) {
     if (!this.kind) return this._set({ status: 'unsupported' });
-    if (this.ready) return this._set({ status: 'ready', version: this.ready.version });
     const base = this.base();
     if (!base) return this._set({ status: 'error', error: t('Не задан сервер') });
-    this._set({ status: 'checking', error: null });
+    // Обновление уже скачано — всё равно спрашиваем сервер: вдруг вышла версия ещё новее
+    if (!this.ready) this._set({ status: 'checking', error: null });
     let rel;
     try {
       rel = await this._get(`${base}/api/releases`);
     } catch (e) {
+      if (this.ready) return this._set({ status: 'ready', version: this.ready.version });
       return this._set({ status: 'error', error: t('Не удалось проверить обновления: ') + e.message, checkedAt: Date.now() });
     }
     const checkedAt = Date.now();
+    if (this.ready) {
+      if (compareVersions(rel.version, this.ready.version) <= 0) return this._set({ status: 'ready', version: this.ready.version, checkedAt });
+      await this._dropReady(); // скачанное устарело — качаем новое
+    }
     if (compareVersions(rel.version, this.current) <= 0) return this._set({ status: 'latest', version: rel.version, checkedAt });
     const asset = (rel.assets || []).find((a) => a.platform === this.kind);
     const manual = `${base}/?home#download`;
@@ -162,6 +167,12 @@ class Updater {
     return this._download(base, rel, asset);
   }
 
+  async _dropReady() {
+    const old = this.ready;
+    this.ready = null;
+    if (old?.file) await fsp.rm(old.file, { force: true }).catch(() => {});
+  }
+
   /** Скачать без проверки «auto» (кнопка «Обновить»). */
   download() {
     if (this._busy) return this._busy;
@@ -170,6 +181,8 @@ class Updater {
       const rel = await this._get(`${base}/api/releases`);
       const asset = (rel.assets || []).find((a) => a.platform === this.kind);
       if (!asset || !rel.signed) return this._check(false);
+      if (this.ready && compareVersions(rel.version, this.ready.version) <= 0) return this._set({ status: 'ready', version: this.ready.version });
+      if (this.ready) await this._dropReady();
       return this._download(base, rel, asset);
     })()
       .catch((e) => this._set({ status: 'error', error: e.message }))

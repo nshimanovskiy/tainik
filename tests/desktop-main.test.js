@@ -172,7 +172,7 @@ function fakeElectron({ userData, appData, platform }) {
       encryptString: (s) => Buffer.from(s),
       decryptString: (b) => b.toString(),
     },
-    session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, setDisplayMediaRequestHandler() {} } },
+    session: { defaultSession: { setPermissionRequestHandler() {}, setPermissionCheckHandler() {}, setDisplayMediaRequestHandler() {}, async setProxy(c) { log.proxy = c; }, async closeAllConnections() {} } },
     shell: { openExternal() {} },
     dialog: { showErrorBox: (t, m) => log.errors.push(m), showMessageBoxSync: () => 1 },
     desktopCapturer: { getSources: async () => [] },
@@ -306,4 +306,28 @@ test('десктоп (Windows): запуск в фоне при входе, ав
   // «Выйти» из меню трея — настоящий выход
   d.log.trays[0].menu.find((i) => i.label === 'Выйти').click();
   assert.equal(w.tryClose(), false);
+});
+
+test('десктоп: прокси — включение через ретранслятор, пароль не уходит странице, служебные настройки закрыты', async (t) => {
+  const d = await boot(t, { platform: 'linux' });
+  assert.deepEqual(d.log.proxy, { mode: 'system' }, 'по умолчанию — системные настройки');
+  const st = await d.ipcHandle['proxy:set'](d.ours, { enabled: true, type: 'socks5', host: 'proxy.example.com', port: 1080, user: 'me', pass: 'секрет' });
+  assert.equal(st.hasPass, true);
+  assert.equal(st.pass, undefined, 'пароль странице не возвращается');
+  assert.equal(st.active, true);
+  assert.match(d.log.proxy.proxyRules, /^127\.0\.0\.1:\d+$/, 'Chromium ходит в локальный ретранслятор');
+  const file = fs.readFileSync(path.join(d.userData, 'settings.json'), 'utf8');
+  assert.ok(!file.includes('"pass"') && file.includes('pass64'), 'пароль хранится зашифрованным');
+  assert.equal(await d.ipcHandle['settings:get'](d.ours, '_proxy'), null, 'страница не читает служебные настройки');
+  await assert.rejects(async () => d.ipcHandle['settings:set'](d.ours, '_proxy', '{}'));
+  // Изменение без пароля — пароль сохраняется прежний
+  const again = await d.ipcHandle['proxy:set'](d.ours, { enabled: true, type: 'socks5', host: 'proxy.example.com', port: 1081, user: 'me' });
+  assert.equal(again.hasPass, true);
+  assert.equal(again.port, 1081);
+  await assert.rejects(async () => d.ipcHandle['proxy:set'](d.ours, { enabled: true, host: 'плохой адрес', port: 1 }));
+  assert.equal((await d.ipcHandle['proxy:test'](d.ours, { enabled: true, host: '127.0.0.1', port: 1 }, 'wss://chat.example.com/ws')).code, 'proxy_unreachable');
+  const off = await d.ipcHandle['proxy:set'](d.ours, { enabled: false });
+  assert.equal(off.active, false);
+  assert.deepEqual(d.log.proxy, { mode: 'system' });
+  assert.throws(() => d.ipcHandle['proxy:get'](d.evil), /forbidden/);
 });

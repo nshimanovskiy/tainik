@@ -78,6 +78,12 @@
       set: (key, value) => call('bg.set', String(key), !!value).then(() => undefined),
     }),
     version: () => call('version').then(parsed('')),
+    // Прокси: { enabled, type, host, port, user, hasPass, active, supported } — как в десктопе
+    proxy: Object.freeze({
+      get: () => call('proxy.get').then(parsed(null)),
+      set: (cfg) => call('proxy.set', cfg ?? {}).then(parsed(null)),
+      test: (cfg, serverUrl) => call('proxy.test', cfg ?? {}, String(serverUrl)).then(parsed(null)),
+    }),
     // Самообновление: { status, version, progress, error, auto, … } — как в десктопе
     updates: Object.freeze({
       get: () => call('upd.get').then(parsed(null)),

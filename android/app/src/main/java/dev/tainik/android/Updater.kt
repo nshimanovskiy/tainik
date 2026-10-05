@@ -63,6 +63,9 @@ class Updater(private val app: TainikApp) {
     private var readyFile: File? = null
 
     @Volatile
+    private var readyVersion: String? = null
+
+    @Volatile
     private var busy = false
 
     /** Вызывается при каждом изменении (из любого потока). */
@@ -133,7 +136,8 @@ class Updater(private val app: TainikApp) {
     }
 
     private fun open(url: String): HttpURLConnection {
-        val c = URL(url).openConnection() as HttpURLConnection
+        // Через тот же прокси, что и мессенджер (если включён)
+        val c = URL(url).openConnection(app.proxy.javaProxy()) as HttpURLConnection
         c.connectTimeout = 15_000
         c.readTimeout = 30_000
         c.setRequestProperty("Cache-Control", "no-cache")
@@ -157,7 +161,9 @@ class Updater(private val app: TainikApp) {
                 doCheck(auto)
             } catch (e: Exception) {
                 Log.w(TAG, "проверка обновлений", e)
-                set("status" to "error", "error" to I18n.tr(app, "Не удалось проверить обновления: ", "Couldn’t check for updates: ") + e.message)
+                // Сервер недоступен, а обновление уже скачано — оно по-прежнему готово
+                if (readyFile?.exists() == true) set("status" to "ready", "version" to readyVersion)
+                else set("status" to "error", "error" to I18n.tr(app, "Не удалось проверить обновления: ", "Couldn’t check for updates: ") + e.message)
             } finally {
                 busy = false
             }
@@ -179,13 +185,20 @@ class Updater(private val app: TainikApp) {
     }
 
     private fun doCheck(auto: Boolean) {
-        val ready = readyFile
-        if (ready != null && ready.exists()) return set("status" to "ready")
         val base = base() ?: return set("status" to "error", "error" to I18n.tr(app, "Не задан сервер", "No server is set"))
-        set("status" to "checking", "error" to null)
+        // Обновление уже скачано — всё равно спрашиваем сервер: вдруг вышла версия ещё новее
+        val ready = readyFile?.takeIf { it.exists() }
+        if (ready == null) set("status" to "checking", "error" to null)
         val rel = JSONObject(text("$base/api/releases"))
         val version = rel.optString("version")
         val now = System.currentTimeMillis()
+        if (ready != null) {
+            val rv = readyVersion
+            if (rv != null && compare(version, rv) <= 0) return set("status" to "ready", "version" to rv, "checkedAt" to now)
+            ready.delete() // скачанное устарело — качаем новое
+            readyFile = null
+            readyVersion = null
+        }
         if (compare(version, current) <= 0) return set("status" to "latest", "version" to version, "checkedAt" to now)
         val assets = rel.optJSONArray("assets") ?: org.json.JSONArray()
         val asset = (0 until assets.length()).map { assets.getJSONObject(it) }.firstOrNull { it.optString("platform") == "android" }
@@ -237,6 +250,7 @@ class Updater(private val app: TainikApp) {
         val file = File(dir, name)
         part.renameTo(file)
         readyFile = file
+        readyVersion = version
         set("status" to "ready", "version" to version, "progress" to 1.0)
         if (!app.inForeground) notifyReady(version)
     }

@@ -65,6 +65,26 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
                 if (app.prefs.autoUpdate && app.updater.stateJson().optString("status") == "available") app.updater.download()
                 host.reply(id, true, "true")
             }
+            // Прокси (ProxyRelay.kt): пароль странице не возвращается
+            "proxy.get" -> onIo(id) { app.proxy.stateJson().toString() }
+            "proxy.set" -> onIo(id) {
+                app.proxy.save(ProxyCfg.from(a.getJSONObject(0), app.proxy.cfg.pass))
+                app.proxy.stateJson().toString()
+            }
+            "proxy.test" -> Thread({ // проверка может идти до 15 с — не держим поток хранилища
+                val r = JSONObject()
+                try {
+                    val c = ProxyCfg.from(a.getJSONObject(0).put("enabled", true), app.proxy.cfg.pass)
+                    val u = android.net.Uri.parse(a.getString(1))
+                    val port = if (u.port > 0) u.port else if (u.scheme == "wss" || u.scheme == "https") 443 else 80
+                    r.put("ok", true).put("ms", app.proxy.test(c, u.host ?: throw ProxyException("proxy_bad"), port))
+                } catch (e: ProxyException) {
+                    r.put("ok", false).put("code", e.message)
+                } catch (e: Exception) {
+                    r.put("ok", false).put("code", "proxy_unreachable")
+                }
+                host.reply(id, true, r.toString())
+            }, "tainik-proxy-test").start()
             // Сохранение вложения: страница передаёт файл частями (base64), затем окно «Сохранить как»
             "save.begin" -> onIo(id) { saves.begin(a.getString(0), a.optString(1)) }
             "save.chunk" -> onIo(id) { saves.chunk(a.getString(0), a.getString(1)); null }

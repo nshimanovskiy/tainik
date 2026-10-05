@@ -141,6 +141,12 @@ kotlin {
     }
 }
 
+// Единственная библиотека: androidx.webkit (Google) — только ради прокси у WebView
+// (ProxyController). Без неё WebView не умеет подключаться через прокси.
+dependencies {
+    implementation("androidx.webkit:webkit:1.14.0")
+}
+
 androidComponents {
     onVariants { variant ->
         variant.sources.assets?.addGeneratedSourceDirectory(prepareWeb, PrepareWebTask::outputDir)

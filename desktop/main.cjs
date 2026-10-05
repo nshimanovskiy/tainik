@@ -24,6 +24,7 @@ const { spawn } = require('node:child_process');
 const { Updater, updateKind, serverBase, macInstallScript } = require('./updater.cjs');
 const { t, setLangSource, langFromLocale } = require('./i18n.cjs');
 const { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry } = require('./lib.cjs');
+const { cleanProxy, startRelay, testProxy } = require('./proxy.cjs');
 // Хранилище v3 (несколько устройств) несовместимо с v2 — отдельный файл
 
 const RENDERER_DIR = path.join(__dirname, 'renderer');
@@ -404,14 +405,39 @@ function registerIpc() {
   ipcMain.handle('store:set', guard((k, v, ns) => storeFor(ns).set(key(k), v)));
   ipcMain.handle('store:del', guard((k, ns) => storeFor(ns).del(key(k))));
   ipcMain.handle('store:clear', guard((ns) => storeFor(ns).clear()));
-  ipcMain.handle('settings:get', guard((k) => (typeof k === 'string' ? settings[k] ?? null : null)));
+  // Ключи на «_» — служебные (прокси с зашифрованным паролем): странице недоступны
+  ipcMain.handle('settings:get', guard((k) => (typeof k === 'string' && !k.startsWith('_') ? settings[k] ?? null : null)));
   ipcMain.handle(
     'settings:set',
     guard((k, v) => {
-      if (typeof k !== 'string' || (v !== null && typeof v !== 'string')) throw new Error('bad setting');
+      if (typeof k !== 'string' || k.startsWith('_') || (v !== null && typeof v !== 'string')) throw new Error('bad setting');
       settings[k] = v;
       saveSettings();
       if (k === 'lang') updateTrayMenu(); // трей — на новом языке
+    })
+  );
+  // Прокси: настройки, применение, проверка (пароль странице не возвращается)
+  ipcMain.handle('proxy:get', guard(() => proxyPublic()));
+  ipcMain.handle(
+    'proxy:set',
+    guard(async (cfg) => {
+      const next = cleanProxy({ ...cfg, pass: cfg?.pass == null ? proxyCfg.pass : cfg.pass });
+      saveProxyConfig(next);
+      await applyProxy();
+      return proxyPublic();
+    })
+  );
+  ipcMain.handle(
+    'proxy:test',
+    guard(async (cfg, serverUrl) => {
+      try {
+        const c = cleanProxy({ ...cfg, enabled: true, pass: cfg?.pass == null ? proxyCfg.pass : cfg.pass });
+        const u = new URL(String(serverUrl));
+        const port = Number(u.port) || (u.protocol === 'wss:' || u.protocol === 'https:' ? 443 : 80);
+        return { ok: true, ms: await testProxy(c, u.hostname, port) };
+      } catch (e) {
+        return { ok: false, code: e.code && String(e.code).startsWith('proxy_') ? e.code : 'proxy_unreachable' };
+      }
     })
   );
   ipcMain.on('notify', (event, n) => {
@@ -558,7 +584,44 @@ app.on('second-instance', () => {
   if (store) showWindow();
 });
 
-app.whenReady().then(() => {
+// ---------- Прокси ----------
+// Chromium ходит в локальный ретранслятор (proxy.cjs), а тот — через прокси пользователя,
+// в том числе SOCKS5 с паролем, которого Chromium сам не умеет. Пароль хранится зашифрованным
+// через safeStorage, как и переписка.
+let proxyCfg = cleanProxy({});
+let proxyRelay = null;
+function loadProxyConfig() {
+  try {
+    const p = JSON.parse(settings._proxy || 'null');
+    if (!p) return cleanProxy({});
+    const pass = p.pass64 ? safeStorage.decryptString(Buffer.from(p.pass64, 'base64')) : '';
+    return cleanProxy({ ...p, pass });
+  } catch {
+    return cleanProxy({});
+  }
+}
+function saveProxyConfig(cfg) {
+  const { pass, ...rest } = cfg;
+  settings._proxy = JSON.stringify({ ...rest, pass64: pass ? safeStorage.encryptString(pass).toString('base64') : '' });
+  saveSettings();
+}
+const proxyPublic = () => ({ ...proxyCfg, pass: undefined, hasPass: !!proxyCfg.pass, active: !!proxyRelay });
+async function applyProxy() {
+  proxyCfg = loadProxyConfig();
+  if (proxyRelay) {
+    await proxyRelay.close().catch(() => {});
+    proxyRelay = null;
+  }
+  if (proxyCfg.enabled) {
+    proxyRelay = await startRelay(() => proxyCfg, { onError: (e) => console.warn('proxy:', e.code) });
+    await session.defaultSession.setProxy({ proxyRules: `127.0.0.1:${proxyRelay.port}` });
+  } else {
+    await session.defaultSession.setProxy({ mode: 'system' });
+  }
+  await session.defaultSession.closeAllConnections?.().catch?.(() => {});
+}
+
+app.whenReady().then(async () => {
   if (process.platform === 'win32') app.setAppUserModelId('dev.tainik.desktop');
   if (isMac) {
     const li = app.getLoginItemSettings();
@@ -616,6 +679,8 @@ app.whenReady().then(() => {
   });
   registerAppProtocol();
   registerIpc();
+  // Прокси — до первого подключения страницы
+  await applyProxy().catch((e) => console.error('proxy', e));
   setupUpdater();
   createWindow();
   if (backgroundOn()) createTray();

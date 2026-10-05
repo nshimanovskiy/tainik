@@ -1,7 +1,7 @@
 {
   "name": "tainik-desktop",
   "productName": "Tainik",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "description": "Тайник — десктопный E2E-мессенджер (X3DH + Double Ratchet)",
   "main": "main.cjs",
   "private": true,
@@ -32,6 +32,7 @@
       "preload.cjs",
       "lib.cjs",
       "updater.cjs",
+      "proxy.cjs",
       "i18n.cjs",
       "release-key.pem",
       "renderer/**/*",

@@ -1210,6 +1210,7 @@ function showSetPage(name) {
   if (name === 'profile') fillProfileEdit();
   if (name === 'premium') fillPremium();
   if (name === 'media') openMediaPage();
+  if (name === 'proxy') fillProxy();
   else stopMicMeter();
   page.scrollTop = 0;
   $('menu-dialog').querySelector('.settings-form').scrollTop = 0;
@@ -1256,6 +1257,7 @@ async function fillSettings() {
   $('set-lang-value').textContent = LANGS.find(([c]) => c === LANG)?.[1] || '';
   $('set-blocked-value').textContent = client.blocked.size ? String(client.blocked.size) : '';
   fillPremiumRow();
+  fillProxyRow();
   await fillNotifSettings();
 }
 
@@ -1358,6 +1360,87 @@ client.on('profile', () => {
     paintAvatar($('set-avatar'), client.account.username);
   }
 });
+// ---------- Прокси (только в приложениях: десктоп и Android) ----------
+// Сам прокси работает в нативной части (desktop/proxy.cjs, android/.../ProxyRelay.kt):
+// пароль туда уходит один раз и обратно странице не возвращается.
+const PROXY_ERR = {
+  proxy_unreachable: t('Прокси не отвечает: проверьте адрес и порт'),
+  proxy_auth: t('Прокси не принял логин или пароль'),
+  proxy_refused: t('Прокси не пустил к серверу Тайника'),
+  proxy_bad: t('Неверные настройки прокси'),
+  proxy_timeout: t('Прокси не ответил вовремя'),
+};
+// Код ошибки может прийти внутри текста (ошибка IPC Electron: «…: Error: proxy_bad: host»)
+const proxyErr = (code) => PROXY_ERR[/proxy_[a-z]+/.exec(String(code))?.[0]] || t('Не удалось подключиться через прокси');
+let proxyState = null;
+async function fillProxyRow() {
+  $('row-proxy').hidden = !desktop?.proxy;
+  if (!desktop?.proxy) return;
+  try {
+    proxyState = await desktop.proxy.get();
+  } catch {
+    proxyState = null;
+  }
+  $('set-proxy-value').textContent = proxyState?.enabled ? t('вкл.') : '';
+}
+function proxyForm() {
+  const port = Number($('px-port').value.trim());
+  const cfg = { enabled: $('px-on').checked, type: $('px-type').value, host: $('px-host').value.trim(), port, user: $('px-user').value };
+  // Пустое поле пароля — оставить прежний (его не показываем)
+  if ($('px-pass').value || !proxyState?.hasPass) cfg.pass = $('px-pass').value;
+  return cfg;
+}
+function proxyStatus(text, ok) {
+  $('px-status').textContent = text;
+  $('px-status').className = 'small' + (ok === true ? ' ok' : ok === false ? ' bad' : '');
+}
+async function fillProxy() {
+  await fillProxyRow();
+  const p = proxyState || {};
+  $('px-on').checked = !!p.enabled;
+  $('px-type').value = p.type === 'http' ? 'http' : 'socks5';
+  $('px-host').value = p.host || '';
+  $('px-port').value = p.port || '';
+  $('px-user').value = p.user || '';
+  $('px-pass').value = '';
+  $('px-pass').placeholder = p.hasPass ? t('сохранён — оставьте пустым') : t('необязательно');
+  $('px-unsupported').hidden = p.supported !== false;
+  proxyStatus(p.enabled ? (p.active ? t('Включён') : t('Не работает на этом устройстве')) : '', p.enabled ? !!p.active : undefined);
+}
+$('px-type').addEventListener('change', () => {
+  if (!$('px-port').value) $('px-port').placeholder = $('px-type').value === 'http' ? '3128' : '1080';
+});
+$('px-test').addEventListener('click', async () => {
+  $('px-test').disabled = true;
+  proxyStatus(t('Проверяю…'));
+  try {
+    const r = await desktop.proxy.test(proxyForm(), client.url);
+    if (r?.ok) proxyStatus(t('Прокси работает: сервер доступен ({0} мс)', r.ms), true);
+    else proxyStatus(proxyErr(r?.code), false);
+  } catch (err) {
+    proxyStatus(proxyErr(err.message), false);
+  } finally {
+    $('px-test').disabled = false;
+  }
+});
+$('px-save').addEventListener('click', async () => {
+  const cfg = proxyForm();
+  if (cfg.enabled && (!cfg.host || !(cfg.port >= 1 && cfg.port <= 65535))) return proxyStatus(PROXY_ERR.proxy_bad, false);
+  $('px-save').disabled = true;
+  try {
+    proxyState = await desktop.proxy.set(cfg);
+    await fillProxy();
+    toast(cfg.enabled ? t('Прокси включён — переподключаюсь') : t('Прокси выключен'));
+    // Новые соединения — уже через прокси (или напрямую)
+    client.reconnectNow({ restart: true });
+    for (const o of others.values()) o.client.reconnectNow({ restart: true });
+  } catch (err) {
+    proxyStatus(proxyErr(err.message), false);
+  } finally {
+    $('px-save').disabled = false;
+  }
+});
+
 // ---------- Подписка «Тайник Премиум» ----------
 // Оплата — криптовалютой через xRocket Pay: сервер выставляет счёт, пользователь платит
 // в Telegram (@xRocket), сервер узнаёт об оплате сам (вебхук) или по «Проверить оплату».
