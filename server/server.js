@@ -280,6 +280,11 @@ export function startServer({
     for (const c of onlineDevices(name)) send(c, { type: 'premium', ...p });
     broadcastPresence(name);
   }
+  /** Подарок оплачен: сказать дарителю и получателю (у них в чате появится отметка). */
+  function giftPaid(gift) {
+    for (const name of new Set([gift.from, gift.to])) for (const c of onlineDevices(name)) send(c, { type: 'gift', gift });
+  }
+  const GIFT_RECENT = 30 * 86400_000; // при входе устройство получает подарки за 30 дней
   const billingInfo = () => (billing ? { plans: billing.plans, currencies: billing.currencies, testnet: billing.testnet } : null);
 
   function deliverQueue(username, device) {
@@ -393,6 +398,7 @@ export function startServer({
           presenceHidden: store.getPresence(p.username)?.hidden || false,
           verified: store.getPresence(p.username)?.verified || false,
           premium: premiumOf(p.username),
+          gifts: store.giftsOf(p.username, Date.now() - GIFT_RECENT),
           billing: billingInfo(),
           blocks: store.blocksOf(p.username),
           vapidKey: vapid ? vapid.publicKey : null,
@@ -673,7 +679,15 @@ export function startServer({
         if (!billing) return error(conn, 'billing_disabled', { reqId: msg.reqId });
         if (!take(state.billing, RATE.billingPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
         try {
-          const inv = await billing.createInvoice(state.user, String(msg.plan || ''), msg.currency == null ? undefined : String(msg.currency));
+          // Подарок: получатель существует, это не вы сами, и он вас не заблокировал
+          let giftTo = null;
+          if (msg.giftTo != null && msg.giftTo !== '') {
+            giftTo = String(msg.giftTo).trim().replace(/^@/, '').toLowerCase();
+            if (giftTo === state.user) giftTo = null; // себе — обычная покупка
+            else if (!USERNAME_RE.test(giftTo) || !store.getUser(giftTo)) return error(conn, 'gift_unknown_user', { reqId: msg.reqId });
+            else if (store.hasBlocked(giftTo, state.user)) return error(conn, 'gift_unavailable', { reqId: msg.reqId });
+          }
+          const inv = await billing.createInvoice(state.user, String(msg.plan || ''), msg.currency == null ? undefined : String(msg.currency), giftTo);
           return send(conn, { type: 'premium-invoice', reqId: msg.reqId, ...inv });
         } catch (e) {
           const known = ['bad_plan', 'bad_currency', 'no_rate', 'billing_unavailable'];
@@ -825,7 +839,7 @@ export function startServer({
   });
 
   const billing = billingOpts?.token
-    ? createBilling({ ...billingOpts, store, say, onPaid: (name) => premiumChanged(name) })
+    ? createBilling({ ...billingOpts, store, say, onPaid: (name, until, gift) => (premiumChanged(name), gift && giftPaid(gift)) })
     : null;
   if (billing) say(`подписка включена (xRocket Pay${billing.testnet ? ', тестовая сеть' : ''}${billing.webhook ? '' : ', без вебхука — только опрос'})`);
 

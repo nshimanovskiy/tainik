@@ -386,3 +386,57 @@ test('подписка: оплата в TRX и Gram по курсу xRocket', as
   await webhook(paidEvent(inv));
   await on;
 });
+
+test('подписка в подарок: платит один, получает другой; отметка в чате у обоих', async (t) => {
+  const { srv, x, mk, webhook, paidEvent } = await setup(t);
+  const [alice, bob, carol] = [mk(), mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  await carol.register('carol');
+
+  // Проверки получателя
+  await assert.rejects(alice.buyPremium('30d', 'USDT', 'nobody_here'), (e) => e.code === 'gift_unknown_user');
+  await carol.setBlocked('alice', true);
+  await assert.rejects(alice.buyPremium('30d', 'USDT', 'carol'), (e) => e.code === 'gift_unavailable');
+  // Себе через «подарок» — обычная покупка
+  assert.equal((await alice.buyPremium('30d', 'USDT', '@Alice')).giftTo, null);
+
+  // Bob у Алисы в контактах нет — подарить всё равно можно
+  const inv = await alice.buyPremium('30d', 'USDT', '@Bob');
+  assert.equal(inv.giftTo, 'bob');
+  assert.notEqual(inv.id, (await alice.buyPremium('30d')).id, 'счёт себе и подарок — разные');
+  assert.equal((await alice.buyPremium('30d', 'USDT', 'bob')).id, inv.id, 'неоплаченный подарок выдаётся повторно');
+  const req = x.calls.filter((c) => c.method === 'POST').find((c) => c.body.clientInvoiceId === inv.id);
+  assert.match(req.body.description, /подарок/);
+  assert.ok(!JSON.stringify(req.body).includes('bob') && !JSON.stringify(req.body).includes('alice'), 'юзернеймы не уходят в xRocket');
+
+  const bobGift = waitFor(bob, 'gift');
+  const bobPremium = waitFor(bob, 'premium', (p) => p.active);
+  const aliceGift = waitFor(alice, 'gift');
+  assert.equal((await webhook(paidEvent(x.invoices.get(inv.id)))).status, 200);
+  const [g] = await Promise.all([bobGift, bobPremium, aliceGift]);
+  assert.deepEqual([g.from, g.to, g.days], ['alice', 'bob', 30]);
+  assert.ok(bob.isPremium());
+  assert.equal(srv.store.premiumUntil('alice'), 0, 'дарителю подписка не добавилась');
+
+  // Отметка в чате: у получателя чат с дарителем появляется сам
+  const bobChat = (await bob.messages('alice')).filter((m) => m.content?.t === 'gift');
+  assert.equal(bobChat.length, 1);
+  assert.ok(!(await bob.contacts()).alice.hidden);
+  assert.equal((await bob.contacts()).alice.unread, 1);
+  assert.equal((await alice.messages('bob')).filter((m) => m.content?.t === 'gift').length, 1);
+
+  // Новое устройство получателя узнаёт о подарке при входе; повторно отметка не появляется
+  let gotCode;
+  const codeP = new Promise((r) => (gotCode = r));
+  const bob2 = mk();
+  const { done } = bob2.linkAsNewDevice({ deviceName: 'Второе', onCode: ({ code }) => gotCode(code) });
+  const b2Gift = waitFor(bob2, 'gift');
+  await bob.linkDevice(await codeP);
+  await done;
+  assert.equal((await b2Gift).id, inv.id);
+  bob.disconnect();
+  bob.connect();
+  await sleep(500);
+  assert.equal((await bob.messages('alice')).filter((m) => m.content?.t === 'gift').length, 1);
+});

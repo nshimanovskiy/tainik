@@ -291,6 +291,15 @@
           <div class="set-row set-static"><span class="set-ico" aria-hidden="true">⭐</span><span class="set-label">Звезда рядом с именем</span></div>
           <div class="set-row set-static"><span class="set-ico" aria-hidden="true">✨</span><span class="set-label">Новые возможности — по мере появления</span></div>
         </div>
+        <div class="prem-curs prem-for" id="prem-for" role="radiogroup" aria-label="Для кого">
+          <button type="button" class="prem-cur active" data-for="me" role="radio" aria-checked="true">Себе</button>
+          <button type="button" class="prem-cur" data-for="gift" role="radio" aria-checked="false">🎁 В подарок</button>
+        </div>
+        <div class="set-group set-pad prem-gift" id="prem-gift" hidden>
+          <label class="small" for="prem-gift-to">Кому подарить</label>
+          <input id="prem-gift-to" type="text" placeholder="юзернейм" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="33">
+          <p class="small muted">Подписка включится у получателя сразу после оплаты, а если она уже есть — продлится. Получатель увидит в чате, что подарок от вас.</p>
+        </div>
         <h3 class="set-sub" id="prem-plans-title">Оплатить</h3>
         <div class="prem-curs" id="prem-curs" role="radiogroup" aria-label="Валюта оплаты"></div>
         <div class="set-group" id="prem-plans"></div>
@@ -523,6 +532,7 @@
         <div class="set-group">
           <button type="button" class="set-row pf-info" id="pf-username-row" title="Скопировать"><span class="set-ico" aria-hidden="true">@</span><span class="pf-info-text"><b id="pf-username"></b><span class="small muted">Юзернейм</span></span></button>
           <div class="set-row set-static pf-info" id="pf-bio-row" hidden><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="pf-bio" class="pf-bio"></span><span class="small muted">О себе</span></span></div>
+          <button type="button" class="set-row" id="pf-gift" hidden><span class="set-ico" aria-hidden="true">🎁</span><span class="set-label">Подарить Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
           <button type="button" class="set-row pf-info" id="pf-key-row"><span class="set-ico" aria-hidden="true">🔑</span><span class="pf-info-text"><span id="pf-key"></span><span class="small muted">Код безопасности</span></span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="pf-tabs" role="tablist">

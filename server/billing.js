@@ -123,7 +123,7 @@ const ALIASES = { TON: ['TONCOIN'], TONCOIN: ['TON'], GRAM: ['GRAMCOIN'], TRX: [
  * @param {string[]}[o.currencies]    из parseCurrencies(): первая — валюта цен тарифов
  * @param {string}  [o.publicUrl]     https://домен — тогда адрес вебхука передаётся в каждом счёте
  * @param {Function}[o.fetch]
- * @param {Function}[o.onPaid]        (user, until) — подписка продлена
+ * @param {Function}[o.onPaid]        (user, until, gift) — подписка продлена; gift — { id, from, to, days, at }, если это подарок
  */
 export function createBilling({ store, token, webhookSecret = null, testnet = false, apiUrl = null, plans = parsePlans(), currencies = null, publicUrl = null, fetch: fetchImpl = globalThis.fetch, onPaid = () => {}, say = () => {} }) {
   if (!token) return null;
@@ -223,7 +223,7 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
       const res = store.markPaymentPaid(pay.id);
       if (res) {
         say('оплата: подписка продлена');
-        if (res.until) onPaid(res.user, res.until);
+        if (res.until) onPaid(res.user, res.until, res.gift || null);
       }
       return res;
     }
@@ -256,27 +256,31 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
     testnet: !!testnet,
     webhook: !!webhookSecret,
 
-    /** Счёт на оплату тарифа в выбранной валюте: { id, url, days, price, currency, expiresAt }. */
-    async createInvoice(user, planId, currency = base) {
+    /**
+     * Счёт на оплату тарифа в выбранной валюте: { id, url, days, price, currency, expiresAt, giftTo }.
+     * giftTo — юзернейм получателя подарка (проверяет вызывающий); платит user.
+     */
+    async createInvoice(user, planId, currency = base, giftTo = null) {
       const plan = plans.find((p) => p.id === planId);
       if (!plan) throw new BillingError('bad_plan');
       currency = String(currency || base).toUpperCase();
       if (!payWith.includes(currency)) throw new BillingError('bad_currency');
       const now = Date.now();
-      const open = store.openPayment(user, plan.id, currency, now + REUSE_MIN);
-      if (open?.url) return { id: open.id, url: open.url, days: open.days, price: open.amount, currency: open.currency, expiresAt: open.expiresAt };
+      giftTo = giftTo || null;
+      const open = store.openPayment(user, plan.id, currency, now + REUSE_MIN, giftTo);
+      if (open?.url) return { id: open.id, url: open.url, days: open.days, price: open.amount, currency: open.currency, expiresAt: open.expiresAt, giftTo };
 
       // Цена в другой валюте — по текущему курсу xRocket, с округлением вверх
       const amount = currency === base ? plan.price : convertPrice(plan.price, await rateOf(currency));
       if (!amount) throw new BillingError('no_rate', currency);
       const id = 'tk' + randomBytes(12).toString('hex');
-      store.addPayment({ id, user, plan: plan.id, days: plan.days, amount, currency, expiresAt: now + INVOICE_TTL, now });
+      store.addPayment({ id, user, plan: plan.id, days: plan.days, amount, currency, expiresAt: now + INVOICE_TTL, giftTo, now });
       const body = {
         priceAmount: amount,
         priceCurrency: currency,
         numPayments: 1,
         clientInvoiceId: id,
-        description: `Тайник Премиум — ${plan.days} дн.`,
+        description: `Тайник Премиум — ${plan.days} дн.${giftTo ? ' (подарок)' : ''}`, // без юзернеймов
         expiresIn: INVOICE_TTL,
       };
       if (callbackUrl) body.callback = { callbackUrl };
@@ -299,7 +303,7 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
       }
       const expiresAt = inv.expiresAt ? Date.parse(inv.expiresAt) || now + INVOICE_TTL : now + INVOICE_TTL;
       store.setPaymentInvoice(id, inv.id != null ? String(inv.id) : null, url, expiresAt);
-      return { id, url, days: plan.days, price: amount, currency, expiresAt };
+      return { id, url, days: plan.days, price: amount, currency, expiresAt, giftTo };
     },
 
     /** «Проверить оплату»: сверить неоплаченные счета пользователя. */

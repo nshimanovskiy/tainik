@@ -128,6 +128,7 @@ function paymentRow(r) {
     createdAt: r.created_at,
     expiresAt: r.expires_at,
     paidAt: r.paid_at || null,
+    giftTo: r.gift_to || null,
   };
 }
 
@@ -152,6 +153,10 @@ export class Store {
     const dcols = this.db.prepare("SELECT name FROM pragma_table_info('devices')").all().map((r) => r.name);
     if (!dcols.includes('last_ip')) this.db.exec('ALTER TABLE devices ADD COLUMN last_ip TEXT'); // последний IP устройства
     if (!dcols.includes('app_version')) this.db.exec('ALTER TABLE devices ADD COLUMN app_version TEXT'); // версия приложения при последнем входе
+    // Подарок: счёт оплачивает user, подписку получает gift_to
+    const pcols = this.db.prepare("SELECT name FROM pragma_table_info('payments')").all().map((r) => r.name);
+    if (!pcols.includes('gift_to')) this.db.exec('ALTER TABLE payments ADD COLUMN gift_to TEXT');
+    this.db.exec('CREATE INDEX IF NOT EXISTS payments_gift ON payments(gift_to, paid_at)');
     this.limits = { maxOpks, maxQueue, maxDevices };
     const q = (sql) => this.db.prepare(sql);
     this.s = {
@@ -203,13 +208,14 @@ export class Store {
       premiumEnded: q('SELECT user FROM premium WHERE until > ? AND until <= ?'),
       premiumActive: q('SELECT COUNT(*) AS n FROM premium WHERE until > ?'),
       addPayment: q(
-        'INSERT INTO payments(id, user, plan, days, amount, currency, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO payments(id, user, plan, days, amount, currency, status, created_at, expires_at, gift_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ),
       getPayment: q('SELECT * FROM payments WHERE id = ?'),
       setPaymentInvoice: q('UPDATE payments SET invoice_id = ?, url = ?, expires_at = ? WHERE id = ?'),
       setPaymentStatus: q('UPDATE payments SET status = ? WHERE id = ? AND status = ?'),
       markPaid: q("UPDATE payments SET status = 'paid', paid_at = ? WHERE id = ? AND status <> 'paid'"),
-      openPaymentOf: q("SELECT * FROM payments WHERE user = ? AND plan = ? AND currency = ? AND status = 'active' AND url IS NOT NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1"),
+      openPaymentOf: q("SELECT * FROM payments WHERE user = ? AND plan = ? AND currency = ? AND gift_to IS ? AND status = 'active' AND url IS NOT NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1"),
+      giftsOf: q("SELECT * FROM payments WHERE status = 'paid' AND gift_to IS NOT NULL AND paid_at > ? AND (user = ? OR gift_to = ?) ORDER BY paid_at DESC LIMIT ?"),
       pendingOf: q("SELECT * FROM payments WHERE user = ? AND status = 'active' AND expires_at > ? ORDER BY created_at DESC LIMIT ?"),
       pendingAll: q("SELECT * FROM payments WHERE status = 'active' AND expires_at > ? ORDER BY created_at LIMIT ?"),
       recentPayments: q('SELECT * FROM payments ORDER BY created_at DESC LIMIT ?'),
@@ -461,8 +467,8 @@ export class Store {
   }
 
   // ----- счета на оплату -----
-  addPayment({ id, user, plan, days, amount, currency, expiresAt, now = Date.now() }) {
-    this.s.addPayment.run(id, user, plan, days, String(amount), currency, 'active', now, expiresAt);
+  addPayment({ id, user, plan, days, amount, currency, expiresAt, giftTo = null, now = Date.now() }) {
+    this.s.addPayment.run(id, user, plan, days, String(amount), currency, 'active', now, expiresAt, giftTo);
   }
   getPayment(id) {
     return paymentRow(this.s.getPayment.get(String(id)));
@@ -482,13 +488,20 @@ export class Store {
     return this.tx(() => {
       const p = this.getPayment(id);
       if (!p || !this.s.markPaid.run(now, p.id).changes) return null;
-      if (!this.s.user.get(p.user)) return { user: p.user, until: 0 }; // аккаунт удалён — платёж учтён, продлевать некого
-      return { user: p.user, until: this._extend(p.user, p.days, now) };
+      // Подарок — получателю; если его аккаунт успели удалить — дни достаются тому, кто платил
+      let user = p.giftTo && this.s.user.get(p.giftTo) ? p.giftTo : p.user;
+      const gift = user !== p.user ? { id: p.id, from: p.user, to: user, days: p.days, at: now } : null;
+      if (!this.s.user.get(user)) return { user, until: 0, gift: null }; // аккаунт удалён — платёж учтён, продлевать некого
+      return { user, until: this._extend(user, p.days, now), gift };
     });
   }
-  /** Неистёкший счёт этого пользователя на этот тариф (чтобы не плодить новые). */
-  openPayment(user, plan, currency, validAfter) {
-    return paymentRow(this.s.openPaymentOf.get(user, plan, currency, validAfter));
+  /** Неистёкший счёт этого пользователя на этот тариф (чтобы не плодить новые); giftTo — для подарка. */
+  openPayment(user, plan, currency, validAfter, giftTo = null) {
+    return paymentRow(this.s.openPaymentOf.get(user, plan, currency, giftTo, validAfter));
+  }
+  /** Оплаченные подарки, где user — даритель или получатель, после since: [{ id, from, to, days, at }]. */
+  giftsOf(user, since, limit = 20) {
+    return this.s.giftsOf.all(since, user, user, limit).map((r) => ({ id: r.id, from: r.user, to: r.gift_to, days: r.days, at: r.paid_at }));
   }
   pendingPayments(user = null, now = Date.now(), limit = 10) {
     const rows = user ? this.s.pendingOf.all(user, now, limit) : this.s.pendingAll.all(now, limit);

@@ -225,7 +225,7 @@ function renderBilling(b, now) {
     const tr = el('tr', p.status === 'paid' ? 'on' : '');
     tr.append(
       el('td', 'muted small', fullFmt.format(p.createdAt)),
-      el('td', 'name', p.user),
+      el('td', 'name', p.giftTo ? `${p.user} → 🎁 ${p.giftTo}` : p.user),
       el('td', '', `${p.days} дн.`),
       el('td', 'num', `${p.amount} ${p.currency}`),
       el('td', 'small', PAY_STATUS[p.status] || p.status),

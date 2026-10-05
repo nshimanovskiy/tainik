@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на 5 октября 2026, версия **0.28.0** (`main`): голосовые и квадратные видеосообщения (запись удержанием с закреплением, перемотка, смена камеры), статус «в сети» только когда приложение на экране; до этого — прокси в приложениях (SOCKS5/HTTP с паролем), исправление самообновления, групповые чаты, громкость и выбор устройств в звонке, подписка «Тайник Премиум» (xRocket Pay), версия приложения у устройств, страница проверки сети `/diag.html`. Сервер работает на `https://chat.sdsds.top`.
+Состояние на 5 октября 2026, версия **0.29.0** (`main`): Премиум в подарок; голосовые и квадратные видеосообщения (запись удержанием с закреплением, перемотка, смена камеры), статус «в сети» только когда приложение на экране; до этого — прокси в приложениях (SOCKS5/HTTP с паролем), исправление самообновления, групповые чаты, громкость и выбор устройств в звонке, подписка «Тайник Премиум» (xRocket Pay), версия приложения у устройств, страница проверки сети `/diag.html`. Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано и что известно плохого. Подробности для пользователей — в `README.md` / `README.ru.md`, развёртывание — в `DEPLOY.md`, выпуски — в `RELEASING.md`, история — в `CHANGELOG.md`.
 
@@ -109,14 +109,14 @@
   - `list-devices`, `unlink-device`, `provision-open`, `provision-send`;
   - `presence-subscribe`, `set-presence-visibility`, `set-active` (приложение на экране или в фоне; «в сети» — только если хоть одно подключение активно, `conn.meta.active`; то же поле `active` есть в `auth`);
   - `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`;
-  - `premium-buy` (счёт на тариф), `premium-check` (сверить оплату).
-  - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}` и `billing {plans, testnet}`), `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
+  - `premium-buy` (счёт на тариф; `giftTo` — подарок другому: получатель должен существовать и не блокировать дарителя), `premium-check` (сверить оплату).
+  - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}`, `gifts` — оплаченные подарки за 30 дней, где вы даритель или получатель, и `billing {plans, testnet}`), `gift {gift: {id, from, to, days, at}}` сразу после оплаты подарка — обоим; `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
 - `store.js` — SQLite (`node:sqlite`), файл `data/tainik.db`. Таблицы:
   - `users` (с колонками `presence_hidden`, `verified`);
   - `devices` (с `last_ip`, `app_version`);
   - `opks`, `queue`, `meta`, `push_subs`;
   - `blobs`, `ip_bans`, `blocks`;
-  - `premium` (user → until, каскадно с аккаунтом), `payments` (счета xRocket: наш id = clientInvoiceId, тариф, сумма-строка, статус; не удаляются с аккаунтом).
+  - `premium` (user → until, каскадно с аккаунтом), `payments` (счета xRocket: наш id = clientInvoiceId, тариф, сумма-строка, статус, `gift_to` — получатель подарка; не удаляются с аккаунтом). Подарок: `markPaymentPaid` продлевает `gift_to` (если его аккаунт удалён — плательщика). Клиент (`_onGifts`) кладёт в чат служебную запись `{t:'gift'}` один раз — id подарков помнит в `gifts-seen`.
   - Миграции — через `ALTER TABLE … ADD COLUMN` при старте.
 - `blobs.js` — вложения.
   - `blob-new` (WS) выдаёт `{id, token, chunk}`.
@@ -258,7 +258,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test`. На 0.27.0 — **87 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
+- **Тесты:** `npm test`. На 0.29.0 — **88 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
 - **Локально:** `npm start` → главная `http://localhost:8080`, мессенджер `/app`. Чтобы проверить вдвоём, откройте обычное окно и окно инкогнито.
 - **CI:** каждый push в `main` запускает `build.yml`: test, docker, desktop×3, android. Статус:
   `curl -s "https://api.github.com/repos/nshimanovskiy/tainik/actions/runs?branch=main&per_page=1"`
@@ -323,6 +323,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.19 | Юзернейм и имя, «о себе», профиль собеседника, ссылка на главную в «О Тайнике» |
 | 0.20 | Подписка «Тайник Премиум» через xRocket Pay, фото профиля, звезда ★, подписка в админке |
 | 0.21 | Версия приложения у устройств (список устройств, админка); повторный запрос профиля, если фото потерялось |
+| 0.29 | Премиум в подарок (профиль собеседника или «Тайник Премиум» → «В подарок») |
 | 0.28 | Запись удержанием (вверх — закрепить, влево — отмена), перемотка голосовых и видеосообщений, смена камеры |
 | 0.27 | Голосовые и квадратные видеосообщения; «в сети» только когда приложение на экране (Android в фоне — не в сети) |
 | 0.26 | Прокси в приложениях (SOCKS5/HTTP с паролем); самообновление находит версию новее уже скачанной |

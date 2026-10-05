@@ -157,6 +157,11 @@ input, textarea {
 .prem-curs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 2px 10px; }
 .prem-cur { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: inherit; font-weight: 600; font-size: 13px; }
 .prem-cur.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.prem-for { margin-top: 14px; }
+.prem-gift { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; }
+.prem-gift[hidden] { display: none; }
+.prem-gift p { margin: 0; }
+.msg.sys.gift .bubble { background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13.5px; border-radius: 14px; padding: 7px 14px; }
 .prem-real { color: inherit; }
 .prem-link { display: inline-block; text-decoration: none; padding: 8px 16px; border-radius: 10px; }
 

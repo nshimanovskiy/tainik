@@ -186,6 +186,8 @@ export const ERROR_TEXT = {
   bad_currency: t('Этой валютой оплатить нельзя'),
   no_rate: t('Не удалось узнать курс валюты, попробуйте позже или выберите другую'),
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
+  gift_unknown_user: t('Нет пользователя с таким юзернеймом'),
+  gift_unavailable: t('Этому пользователю нельзя сделать подарок'),
   group_too_big: t('В группе может быть не больше 50 участников'),
   group_name: t('Введите название группы'),
   group_not_admin: t('Менять группу могут только её администраторы'),
@@ -700,6 +702,7 @@ export class MessengerClient extends Emitter {
         this.billing = msg.billing && Array.isArray(msg.billing.plans) ? msg.billing : null;
         this._send({ type: 'set-active', active: this.active }); // мог смениться, пока шёл вход
         this._setPremium(msg.premium);
+        if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._setStatus('online');
         this._subscribePresence().catch(() => {});
@@ -722,6 +725,9 @@ export class MessengerClient extends Emitter {
         return;
       case 'premium':
         this._setPremium(msg);
+        return;
+      case 'gift':
+        this._serial(() => this._onGifts([msg.gift])).catch(() => {});
         return;
       case 'prekey-count':
         this._maintainPrekeys(msg.count).catch((e) => console.error('prekeys', e));
@@ -902,9 +908,47 @@ export class MessengerClient extends Emitter {
    * Счёт на оплату тарифа: { id, url, days, price, currency, expiresAt }; url — оплата в @xRocket.
    * currency — одна из billing.currencies (по умолчанию основная); не в основной валюте сумма — по курсу.
    */
-  async buyPremium(planId, currency) {
-    const r = await this._request({ type: 'premium-buy', plan: String(planId), ...(currency ? { currency: String(currency) } : {}) });
-    return { id: r.id, url: r.url, days: r.days, price: r.price, currency: r.currency, expiresAt: r.expiresAt };
+  async buyPremium(planId, currency, giftTo = null) {
+    const req = { type: 'premium-buy', plan: String(planId) };
+    if (currency) req.currency = String(currency);
+    if (giftTo) req.giftTo = String(giftTo).trim().replace(/^@/, '').toLowerCase();
+    const r = await this._request(req);
+    return { id: r.id, url: r.url, days: r.days, price: r.price, currency: r.currency, expiresAt: r.expiresAt, giftTo: r.giftTo || null };
+  }
+
+  /**
+   * Оплаченные подарки Премиума (от сервера: при входе — за 30 дней, и сразу после оплаты).
+   * Каждый показывается один раз: отметка в чате дарителя и получателя и событие 'gift'.
+   */
+  async _onGifts(list) {
+    const me = this.account?.username;
+    if (!me) return;
+    const seen = new Set((await this.storage.get('gifts-seen')) || []);
+    const fresh = [];
+    for (const g of list) {
+      if (!g || typeof g.id !== 'string' || !/^tk[0-9a-f]{24}$/.test(g.id) || seen.has(g.id)) continue;
+      if (typeof g.from !== 'string' || typeof g.to !== 'string' || g.from === g.to || (g.from !== me && g.to !== me)) continue;
+      const days = Number.isInteger(g.days) && g.days > 0 ? g.days : 0;
+      const at = Number.isFinite(g.at) ? g.at : Date.now();
+      if (!days) continue;
+      const peer = g.from === me ? g.to : g.from;
+      const all = await this.contacts();
+      const c = await this._ensureContact(all, peer).catch(() => null);
+      if (!c) continue;
+      if (g.to === me) {
+        delete c.hidden; // подарок от незнакомого — чат с дарителем появляется в списке
+        c.unread = (c.unread || 0) + 1;
+      }
+      c.lastTs = Math.max(c.lastTs || 0, at);
+      await this._saveContacts(all);
+      const gift = { id: g.id, from: g.from, to: g.to, days, at };
+      await this._appendMsg(peer, { id: 'gift-' + g.id, dir: 'sys', ts: at, content: { t: 'gift', ...gift } });
+      seen.add(g.id);
+      fresh.push(gift);
+    }
+    if (!fresh.length) return;
+    await this.storage.set('gifts-seen', [...seen].slice(-200));
+    for (const gift of fresh) this.emit('gift', gift);
   }
 
   /** Спросить сервер, не пришла ли оплата. Возвращает состояние подписки. */

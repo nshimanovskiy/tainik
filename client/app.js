@@ -198,6 +198,7 @@ function previewOf(m) {
   if (!m) return t('Нет сообщений');
   if (m.dir === 'sys' && m.content?.t === 'call') return callText(m.content);
   if (m.dir === 'sys' && m.content?.t === 'group') return groupEventText(m.content);
+  if (m.dir === 'sys' && m.content?.t === 'gift') return giftText(m.content);
   if (m.dir === 'sys') return t('Служебное сообщение');
   const body = textOf(m.content);
   const who = m.dir === 'out' ? t('Вы: ') : m.from ? `${nameOf(m.from)}: ` : '';
@@ -625,6 +626,11 @@ function messageNode(m) {
   if (m.dir === 'sys' && m.content?.t === 'call') {
     const li = el('li', 'msg sys call' + (m.content.result === 'missed' ? ' missed' : ''));
     li.append(el('div', 'bubble', `${callText(m.content)} · ${timeFmt.format(new Date(m.ts))}`));
+    return li;
+  }
+  if (m.dir === 'sys' && m.content?.t === 'gift') {
+    const li = el('li', 'msg sys gift');
+    li.append(el('div', 'bubble', giftText(m.content)));
     return li;
   }
   if (m.dir === 'sys' && m.content?.t === 'group') {
@@ -1996,6 +2002,30 @@ function planName(days) {
   if (days % 30 === 0) return days === 30 ? t('1 месяц') : t('{0} мес.', days / 30);
   return t('{0} дн.', days);
 }
+let premFor = 'me'; // 'me' — себе, 'gift' — в подарок
+/** Отметка о подарке в чате дарителя и получателя. */
+function giftText(g) {
+  return g.from === client.account?.username
+    ? t('🎁 Вы подарили {0} Премиум на {1}', nameOf(g.to), planName(g.days))
+    : t('🎁 {0} дарит вам Премиум на {1}', nameOf(g.from), planName(g.days));
+}
+/** Открыть «Тайник Премиум» в режиме подарка для name. */
+function giftPremium(name) {
+  premFor = 'gift';
+  $('prem-gift-to').value = name || '';
+  if ($('profile-dialog').open) $('profile-dialog').close();
+  openSettings('premium');
+}
+$('menu-dialog').addEventListener('close', () => (premFor = 'me')); // в следующий раз — снова «Себе»
+for (const b of document.querySelectorAll('#prem-for .prem-cur')) {
+  b.addEventListener('click', () => {
+    if (premFor === b.dataset.for) return;
+    premFor = b.dataset.for;
+    invoice = null;
+    fillPremium();
+    if (premFor === 'gift' && !$('prem-gift-to').value) $('prem-gift-to').focus();
+  });
+}
 function fillPremiumRow() {
   $('row-premium-group').hidden = !client.billing && !client.isPremium();
   $('set-premium-value').textContent = client.isPremium() && client.premium.until ? t('до {0}', dateShort.format(client.premium.until)) : '';
@@ -2010,8 +2040,13 @@ function fillPremium() {
       ? t('Подписка не оформлена')
       : t('На этом сервере подписка пока не продаётся');
   const plans = client.billing?.plans || [];
-  $('prem-plans-title').textContent = on ? t('Продлить') : t('Оплатить');
-  $('prem-plans-title').hidden = $('prem-plans').hidden = $('prem-note').hidden = !plans.length;
+  $('prem-plans-title').textContent = premFor === 'gift' ? t('Подарить') : on ? t('Продлить') : t('Оплатить');
+  $('prem-plans-title').hidden = $('prem-plans').hidden = $('prem-note').hidden = $('prem-for').hidden = !plans.length;
+  for (const b of document.querySelectorAll('#prem-for .prem-cur')) {
+    b.classList.toggle('active', b.dataset.for === premFor);
+    b.setAttribute('aria-checked', String(b.dataset.for === premFor));
+  }
+  $('prem-gift').hidden = !plans.length || premFor !== 'gift';
   // На основной сети xRocket — напоминание, что оплата настоящая
   $('prem-real').hidden = !plans.length || !!client.billing?.testnet;
   // Валюта оплаты: цены тарифов — в основной (первой), в остальных — по курсу на момент счёта
@@ -2048,14 +2083,25 @@ function fillPremium() {
 function showInvoice() {
   $('prem-pay').hidden = !invoice;
   if (!invoice) return;
-  $('prem-pay-text').textContent = t('Счёт: {0} — {1} {2}. Откройте его в Telegram и оплатите в боте @xRocket.', planName(invoice.days), invoice.price, invoice.currency);
+  $('prem-pay-text').textContent = invoice.giftTo
+    ? t('Подарок для {0}: {1} — {2} {3}. Откройте счёт в Telegram и оплатите в боте @xRocket.', '@' + invoice.giftTo, planName(invoice.days), invoice.price, invoice.currency)
+    : t('Счёт: {0} — {1} {2}. Откройте его в Telegram и оплатите в боте @xRocket.', planName(invoice.days), invoice.price, invoice.currency);
   $('prem-link').href = invoice.url;
 }
 async function buyPlan(plan, btn) {
+  const giftTo = premFor === 'gift' ? $('prem-gift-to').value.trim().replace(/^@/, '').toLowerCase() : null;
+  if (premFor === 'gift' && !giftTo) {
+    toast(t('Введите юзернейм получателя подарка'));
+    return $('prem-gift-to').focus();
+  }
+  if (giftTo && giftTo === client.account?.username) {
+    toast(t('Это ваш юзернейм. Чтобы купить подписку себе, выберите «Себе»'));
+    return;
+  }
   btn.disabled = true;
   try {
     invoiceBase = client.premium.until || 0;
-    invoice = await client.buyPremium(plan.id, premCurrency);
+    invoice = await client.buyPremium(plan.id, premCurrency, giftTo);
     showInvoice();
   } catch (err) {
     // Причина от xRocket (например, минимальная сумма) — тоже показываем
@@ -2089,8 +2135,21 @@ $('prem-check').addEventListener('click', async () => {
     $('prem-check').disabled = false;
   }
 });
+client.on('gift', (g) => {
+  const me = client.account?.username;
+  if (g.from === me) {
+    if (invoice?.id === g.id) {
+      invoice = null;
+      stopPremPoll();
+      if (setPage === 'premium') showInvoice();
+    }
+    if (Date.now() - g.at < 86400_000) toast(t('Подарок оплачен: {0} получает Премиум на {1} 🎁', nameOf(g.to), planName(g.days)), 6000);
+  } else if (Date.now() - g.at < 86400_000) {
+    toast(t('🎁 {0} дарит вам Премиум на {1}!', nameOf(g.from), planName(g.days)), 8000);
+  }
+});
 client.on('premium', (p) => {
-  if (invoice && p.active && (p.until || 0) > invoiceBase) {
+  if (invoice && !invoice.giftTo && p.active && (p.until || 0) > invoiceBase) {
     invoice = null;
     stopPremPoll();
     toast(t('Подписка Премиум оформлена — спасибо! ⭐'), 6000);
@@ -3490,6 +3549,7 @@ async function renderProfile() {
   const noCall = !c || !!c.keyChanged || client.isBlocked(name) || client.status !== 'online' || !window.RTCPeerConnection;
   $('pf-call').disabled = noCall;
   $('pf-video').disabled = noCall;
+  $('pf-gift').hidden = !client.billing?.plans?.length || client.isBlocked(name);
   const blocked = client.isBlocked(name);
   $('pf-block').classList.toggle('danger', !blocked);
   $('pf-block').replaceChildren(el('span', 'set-ico', blocked ? '✓' : '🚫'), el('span', 'set-label', blocked ? t('Разблокировать') : t('Заблокировать')));
@@ -3588,6 +3648,7 @@ $('pf-key-row').addEventListener('click', async () => {
   if (current !== name) await openChat(name);
   openSafety();
 });
+$('pf-gift').addEventListener('click', () => profileFor && giftPremium(profileFor));
 $('pf-block').addEventListener('click', () => {
   const name = profileFor;
   if (client.isBlocked(name)) return setBlocked(name, false);
