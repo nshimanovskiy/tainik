@@ -1277,18 +1277,37 @@ function recTick(r) {
   if (sec >= max) stopRec(true);
 }
 
+/** Вид поля ввода во время записи: удержание (подсказка, замок) или закреплённая запись (✕, ➤). */
 function showRec(r) {
-  $('composer').hidden = !!r;
-  $('rec-bar').hidden = !r;
-  $('rec-bar').classList.toggle('starting', !!r && !r.t0);
-  $('rec-wave').style.visibility = r?.as === 'voice' ? 'visible' : 'hidden';
+  const c = $('composer');
+  c.classList.toggle('recording', !!r);
+  c.classList.toggle('locked', !!r?.locked);
+  c.classList.toggle('starting', !!r && !r.t0);
+  c.classList.toggle('rec-note', r?.as === 'note');
+  for (const id of ['voice-btn', 'note-btn']) $(id).classList.toggle('active', !!r && id === (r.as === 'note' ? 'note-btn' : 'voice-btn'));
+  $('rec-hint').textContent = t('‹ Влево — отмена');
+  if (r && !r.locked) {
+    const b = $(r.as === 'note' ? 'note-btn' : 'voice-btn');
+    $('rec-lock').style.left = b.offsetLeft + (b.offsetWidth - 40) / 2 + 'px';
+    $('rec-lock').style.setProperty('--dy', '0');
+  }
   $('note-preview').hidden = r?.as !== 'note';
-  $('note-preview').style.setProperty('--p', '0');
   if (!r) {
+    $('note-preview').style.setProperty('--p', '0');
     $('note-video').srcObject = null;
+    $('note-flip').hidden = true;
+    $('rec-time').textContent = '0:00';
     updateComposer();
   }
-  $('rec-time').textContent = '0:00';
+}
+
+/** Закрепить запись: дальше палец можно убрать, отправка — кнопкой ➤. */
+function lockRec() {
+  if (!rec || rec.locked) return;
+  rec.locked = true;
+  hold = null;
+  showRec(rec);
+  navigator.vibrate?.(15);
 }
 
 function releaseRec(r) {
@@ -1299,11 +1318,11 @@ function releaseRec(r) {
   r.ac?.close().catch(() => {});
 }
 
-async function startRec(as) {
+async function startRec(as, locked = false) {
   if (rec || !current || !client.account || $(as === 'note' ? 'note-btn' : 'voice-btn').disabled) return;
   if (!REC_OK || (as === 'note' && !NOTE_OK)) return toast(t('Это устройство не умеет записывать сообщения'));
   stopPlay();
-  const r = { as, chat: current, levels: [], chunks: [], t0: 0 };
+  const r = { as, chat: current, levels: [], chunks: [], t0: 0, locked, facing: 'user' };
   rec = r;
   showRec(r);
   try {
@@ -1332,7 +1351,12 @@ async function startRec(as) {
   if (as === 'note') {
     const v = $('note-video');
     v.srcObject = r.stream;
+    $('note-preview').classList.add('mirror');
     await v.play().catch(() => {});
+    navigator.mediaDevices.enumerateDevices().then((list) => {
+      r.cams = list.filter((d) => d.kind === 'videoinput');
+      if (rec === r) $('note-flip').hidden = r.cams.length < 2;
+    }, () => {});
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = NOTE_SIZE;
     const g = canvas.getContext('2d');
@@ -1365,7 +1389,7 @@ async function startRec(as) {
   r.mr.onstop = () => finishRec(r);
   r.mr.start(1000);
   r.t0 = performance.now();
-  $('rec-bar').classList.remove('starting');
+  $('composer').classList.remove('starting');
   r.tick = setInterval(() => recTick(r), 100);
 }
 
@@ -1403,14 +1427,116 @@ function finishRec(r) {
   queueFile(r.chat, file, '', r.replyTo, meta);
 }
 
-$('voice-btn').addEventListener('click', () => startRec('voice'));
-$('note-btn').addEventListener('click', () => startRec('note'));
+/** Сменить камеру во время видеосообщения: передняя ↔ задняя (на компьютере — следующая по списку). */
+async function flipCamera() {
+  const r = rec;
+  if (!r || r.as !== 'note' || r.flipping || !r.stream) return;
+  r.flipping = true;
+  $('note-flip').disabled = true;
+  const old = r.stream.getVideoTracks()[0];
+  const size = { width: { ideal: 640 }, height: { ideal: 640 } };
+  let next = null;
+  let facing = r.facing;
+  try {
+    // На телефоне — по направлению камеры; где его нет (компьютер) — по списку устройств
+    if (old?.getSettings?.().facingMode) {
+      facing = r.facing === 'user' ? 'environment' : 'user';
+      old.stop(); // некоторые телефоны не открывают вторую камеру, пока занята первая
+      next = await navigator.mediaDevices.getUserMedia({ video: { ...size, facingMode: { exact: facing } } });
+    } else if (r.cams?.length > 1) {
+      const i = r.cams.findIndex((c) => c.deviceId === old?.getSettings?.().deviceId);
+      const cam = r.cams[(i + 1) % r.cams.length];
+      next = await navigator.mediaDevices.getUserMedia({ video: { ...size, deviceId: { exact: cam.deviceId } } });
+      facing = facing === 'user' ? 'environment' : 'user';
+    }
+  } catch {
+    // Не получилось — пробуем вернуть прежнюю камеру
+    try {
+      if (old?.readyState === 'ended') next = await navigator.mediaDevices.getUserMedia({ video: { ...size, facingMode: r.facing } });
+    } catch {}
+    facing = r.facing;
+    if (!next) toast(t('Не удалось переключить камеру'));
+  }
+  r.flipping = false;
+  $('note-flip').disabled = false;
+  if (!next) return;
+  if (rec !== r) return next.getTracks().forEach((tr) => tr.stop());
+  const track = next.getVideoTracks()[0];
+  if (old && old !== track) {
+    old.stop();
+    r.stream.removeTrack(old);
+  }
+  r.stream.addTrack(track);
+  r.facing = track.getSettings?.().facingMode || facing;
+  $('note-preview').classList.toggle('mirror', r.facing !== 'environment');
+  const v = $('note-video');
+  v.srcObject = new MediaStream(r.stream.getVideoTracks());
+  v.play().catch(() => {});
+}
+
+// Удержание кнопки: отпустили — отправить, потянули вверх — закрепить, влево — отменить.
+// С клавиатуры (Enter/Пробел) запись сразу закреплённая.
+const LOCK_DY = 70;
+const CANCEL_DX = 110;
+let hold = null; // { id: pointerId, x0, y0, t0 }
+
+function onRecDown(e, as) {
+  if (e.button !== 0 || rec || e.currentTarget.disabled) return;
+  e.preventDefault();
+  hold = { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now() };
+  try {
+    e.currentTarget.setPointerCapture(e.pointerId);
+  } catch {}
+  startRec(as);
+}
+function onRecMove(e) {
+  if (!hold || e.pointerId !== hold.id || !rec) return;
+  const dy = Math.max(0, hold.y0 - e.clientY);
+  const dx = Math.max(0, hold.x0 - e.clientX);
+  $('rec-lock').style.setProperty('--dy', String(Math.min(dy, LOCK_DY)));
+  $('rec-hint').style.transform = `translateX(${-Math.min(dx, CANCEL_DX)}px)`;
+  $('rec-hint').style.opacity = String(1 - Math.min(dx, CANCEL_DX) / CANCEL_DX / 1.5);
+  if (dy >= LOCK_DY && dy > dx) lockRec();
+  else if (dx >= CANCEL_DX && dx > dy) {
+    hold = null;
+    stopRec(false);
+  }
+}
+function onRecUp(e) {
+  if (!hold || e.pointerId !== hold.id) return;
+  const short = performance.now() - hold.t0 < 400;
+  hold = null;
+  $('rec-hint').style.transform = '';
+  $('rec-hint').style.opacity = '';
+  if (!rec || rec.locked) return;
+  if (e.type === 'pointercancel') return lockRec(); // жест перехватила система — не теряем запись
+  if (short) {
+    stopRec(false);
+    return toast(t('Удерживайте кнопку, чтобы записать. Потяните вверх — запись закрепится'), 4000);
+  }
+  stopRec(true);
+}
+for (const [id, as] of [['voice-btn', 'voice'], ['note-btn', 'note']]) {
+  const b = $(id);
+  b.addEventListener('pointerdown', (e) => onRecDown(e, as));
+  b.addEventListener('contextmenu', (e) => e.preventDefault()); // долгое нажатие на Android
+  b.addEventListener('keydown', (e) => {
+    if ((e.key !== 'Enter' && e.key !== ' ') || e.repeat) return;
+    e.preventDefault();
+    e.stopPropagation(); // иначе тот же Enter сразу отправит запись
+    startRec(as, true);
+  });
+}
+window.addEventListener('pointermove', onRecMove);
+window.addEventListener('pointerup', onRecUp);
+window.addEventListener('pointercancel', onRecUp);
 $('rec-cancel').addEventListener('click', () => stopRec(false));
 $('rec-send').addEventListener('click', () => stopRec(true));
+$('note-flip').addEventListener('click', flipCamera);
 document.addEventListener('keydown', (e) => {
   if (!rec) return;
   if (e.key === 'Escape') (e.preventDefault(), stopRec(false));
-  else if (e.key === 'Enter' && !e.isComposing) (e.preventDefault(), stopRec(true));
+  else if (e.key === 'Enter' && !e.isComposing && rec.locked && e.target.id !== 'note-flip' && e.target.id !== 'rec-cancel') (e.preventDefault(), stopRec(true));
 });
 
 // Воспроизведение в ленте: одно сообщение за раз
@@ -1424,7 +1550,6 @@ function voiceNode(f) {
   btn.dataset.act = 'vplay';
   btn.setAttribute('aria-label', t('Воспроизвести голосовое сообщение'));
   const wave = el('span', 'vwave');
-  wave.dataset.act = 'vseek';
   wave.append(...decodeWave(f.wave).map((v) => {
     const i = el('i');
     i.style.height = Math.round(v * 100) + '%';
@@ -1449,7 +1574,9 @@ function noteNode(f) {
     th.src = f.thumb;
     box.append(th);
   }
-  box.append(el('span', 'play', '▶'), el('span', 'media-meta', fmtClock(f.dur || 0)), el('span', 'note-bar'), el('span', 'ring'));
+  const seek = el('span', 'note-seek'); // полоска перемотки — видна во время воспроизведения
+  seek.append(el('span', 'note-bar'));
+  box.append(el('span', 'play', '▶'), el('span', 'media-meta', fmtClock(f.dur || 0)), seek, el('span', 'ring'));
   if (playing?.f.id === f.id) requestAnimationFrame(paintPlay);
   return box;
 }
@@ -1459,7 +1586,7 @@ const playNodes = (id) => document.querySelectorAll(`#messages [data-media-id="$
 function paintPlay() {
   const p = playing;
   if (!p) return;
-  const d = Number.isFinite(p.el.duration) && p.el.duration > 0 ? p.el.duration : p.f.dur || 1;
+  const d = durOf(p);
   const frac = Math.min(1, p.el.currentTime / d);
   for (const n of playNodes(p.f.id)) {
     n.classList.toggle('playing', p.f.as === 'note' || !p.el.paused);
@@ -1471,6 +1598,7 @@ function paintPlay() {
       n.querySelector('.vtime').textContent = `${fmtClock(p.el.currentTime)} / ${fmtClock(p.f.dur || d)}`;
     } else {
       n.style.setProperty('--pos', String(frac * 100));
+      n.querySelector('.media-meta').textContent = fmtClock(p.el.currentTime);
       if (p.el.parentNode !== n) n.prepend(p.el); // ленту перерисовали — переносим видео в новый узел
     }
   }
@@ -1484,8 +1612,21 @@ function resetPlayNodes(p) {
       n.querySelector('.vplay').textContent = '▶';
       n.querySelectorAll('.vwave i').forEach((b) => b.classList.remove('on'));
       n.querySelector('.vtime').textContent = fmtClock(p.f.dur || 0);
-    } else n.style.setProperty('--pos', '0');
+    } else {
+      n.style.setProperty('--pos', '0');
+      n.querySelector('.media-meta').textContent = fmtClock(p.f.dur || 0);
+    }
   }
+}
+
+/** Длительность: у записей webm браузер узнаёт её не сразу — до этого берём из описания. */
+const durOf = (p) => (Number.isFinite(p.el.duration) && p.el.duration > 0 ? p.el.duration : p.f.dur || 1);
+
+/** Перемотка на долю frac (0…1); если файл ещё грузится — после загрузки. */
+function seekTo(p, frac) {
+  if (p.el.readyState >= 1) p.el.currentTime = Math.min(frac * durOf(p), Math.max(0, durOf(p) - 0.05));
+  else p.pendingAt = frac;
+  paintPlay();
 }
 
 function stopPlay() {
@@ -1502,9 +1643,9 @@ function stopPlay() {
 async function togglePlay(id, at = null) {
   if (rec) return;
   if (playing?.id === id && playing.el) {
-    if (at !== null) playing.el.currentTime = at * (Number.isFinite(playing.el.duration) ? playing.el.duration : playing.f.dur || 0);
+    if (at !== null) return seekTo(playing, at); // перемотка не меняет «пауза/играет»
     if (playing.el.paused) playing.el.play().catch(() => {});
-    else if (at === null) playing.el.pause();
+    else playing.el.pause();
     return;
   }
   stopPlay();
@@ -1532,16 +1673,43 @@ async function togglePlay(id, at = null) {
     toast(t('Это устройство не может воспроизвести файл. Сохраните его и откройте в другом приложении.'), 6000);
   };
   node.src = entry.url;
-  if (at !== null) node.addEventListener('loadedmetadata', () => (node.currentTime = at * (Number.isFinite(node.duration) ? node.duration : 0)), { once: true });
+  if (at !== null) p.pendingAt = at;
+  node.addEventListener('loadedmetadata', () => p.pendingAt != null && (seekTo(p, p.pendingAt), (p.pendingAt = null)), { once: true });
+  node.onseeked = paintPlay;
   if (f.as === 'note') playNodes(f.id)[0]?.prepend(node);
   node.play().catch(() => {});
 }
 
-function seekPlay(id, wave, e) {
-  const r = wave.getBoundingClientRect();
-  const at = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-  togglePlay(id, at);
-}
+// Перемотка: нажать или вести пальцем по волне голосового / по полоске видеосообщения
+$('messages').addEventListener('pointerdown', (e) => {
+  const bar = e.target.closest('.vwave, .note-seek');
+  if (!bar || e.button !== 0) return;
+  const id = msgId(bar);
+  if (!id) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const rect = bar.getBoundingClientRect();
+  const frac = (ev) => Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+  try {
+    bar.setPointerCapture(e.pointerId);
+  } catch {}
+  togglePlay(id, frac(e));
+  let raf = 0;
+  const move = (ev) => {
+    if (ev.pointerId !== e.pointerId) return;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => playing?.id === id && seekTo(playing, frac(ev)));
+  };
+  const up = (ev) => {
+    if (ev.pointerId !== e.pointerId) return;
+    bar.removeEventListener('pointermove', move);
+    bar.removeEventListener('pointerup', up);
+    bar.removeEventListener('pointercancel', up);
+  };
+  bar.addEventListener('pointermove', move);
+  bar.addEventListener('pointerup', up);
+  bar.addEventListener('pointercancel', up);
+});
 
 // ---------- Код безопасности ----------
 async function openSafety() {
@@ -3206,6 +3374,7 @@ $('messages').addEventListener('click', (e) => {
     target.classList.add('flash');
     return;
   }
+  if (e.target.closest('.vwave, .note-seek')) return; // перемотка — в pointerdown
   const act = e.target.closest('[data-act]');
   if (!act) return;
   if (act.dataset.act === 'cancel-upload') return cancelUpload(act.dataset.up);
@@ -3215,7 +3384,6 @@ $('messages').addEventListener('click', (e) => {
   if (act.dataset.act === 'reply') return replyTo(id);
   if (act.dataset.act === 'open') return openMedia(id);
   if (act.dataset.act === 'vplay') return togglePlay(id);
-  if (act.dataset.act === 'vseek') return seekPlay(id, act, e);
   if (act.dataset.act === 'menu') {
     const r = act.getBoundingClientRect();
     openMenu(id, r.left, r.bottom + 4);
