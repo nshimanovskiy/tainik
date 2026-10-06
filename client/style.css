@@ -917,10 +917,13 @@ dialog.sheet[open] { animation: sheet-up .18s ease-out; }
 .sheet-handle { width: 40px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 6px; flex: none; }
 .as-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .as-page[hidden] { display: none; }
-.as-grid { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 0 3px 3px; align-content: start; }
+.as-grid { flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; gap: 3px; padding: 0 3px 3px; align-content: start; touch-action: pan-y; }
 .as-grid[hidden] { display: none; }
-.as-cell { position: relative; aspect-ratio: 1; padding: 0; border-radius: 4px; overflow: hidden; background: var(--line); }
-.as-cell img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .12s; }
+/* Квадратные плитки одного размера: высота = ширина (padding-трюк — надёжнее aspect-ratio в
+   WebView, где сетка внутри панели сжимала все снимки в один экран) */
+.as-cell { position: relative; display: block; width: 100%; height: 0; min-height: 0; padding: 0 0 100%; border-radius: 4px; overflow: hidden; background: var(--line); flex: none; }
+.as-cell > * { position: absolute; }
+.as-cell img { inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .12s; }
 .as-cell.selected img { transform: scale(.88); border-radius: 6px; }
 .as-check {
   position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 50%;
@@ -929,7 +932,9 @@ dialog.sheet[open] { animation: sheet-up .18s ease-out; }
 }
 .as-cell.selected .as-check { background: var(--accent); border-color: #fff; }
 .as-dur { position: absolute; left: 5px; bottom: 5px; padding: 1px 6px; border-radius: 6px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 11.5px; }
-.as-action { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; background: var(--accent-soft); color: var(--accent); }
+.as-action { background: var(--accent-soft); color: var(--accent); }
+.as-action-ico { top: 30%; left: 0; right: 0; text-align: center; }
+.as-action-label { top: 62%; left: 0; right: 0; text-align: center; }
 .as-action-ico { font-size: 26px; }
 .as-action-label { font-size: 12.5px; font-weight: 600; }
 .as-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; }
