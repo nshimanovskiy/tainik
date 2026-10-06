@@ -29,6 +29,14 @@ const android = desktop?.platform === 'android';
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
 document.addEventListener('touchmove', (e) => e.scale !== undefined && e.scale !== 1 && e.preventDefault(), { passive: false });
 document.addEventListener('wheel', (e) => e.ctrlKey && e.preventDefault(), { passive: false });
+// iPhone: двойное касание приближает страницу даже с touch-action — гасим второе касание подряд
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 300 && e.touches.length === 0 && !e.target.closest('input, textarea, [contenteditable]')) e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('touchstart', (e) => e.touches.length > 1 && e.preventDefault(), { passive: false });
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && ['+', '=', '-', '_', '0'].includes(e.key)) e.preventDefault();
 });
