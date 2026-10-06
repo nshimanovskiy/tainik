@@ -49,7 +49,7 @@
     try {
       list = JSON.parse(N.takePendingReplies() || '[]');
     } catch {}
-    for (const r of Array.isArray(list) ? list : []) replyHandler(String(r?.chat ?? ''), String(r?.text ?? ''));
+    for (const r of Array.isArray(list) ? list : []) replyHandler(String(r?.chat ?? ''), String(r?.text ?? ''), String(r?.msg ?? ''));
   }
 
   const api = {
@@ -71,6 +71,7 @@
           call: !!n?.call,
           force: !!n?.force, // сообщение другому аккаунту — показать, даже если окно открыто
           reply: !!n?.reply, // кнопка «Ответить» с полем ввода в уведомлении
+          msg: String(n?.msg ?? '').slice(0, 64), // на какое сообщение отвечаем
         })
       ),
     dismissNotice: (n) => N.dismissNotice(JSON.stringify({ call: !!n?.call, chat: String(n?.chat ?? '') })),
@@ -78,7 +79,7 @@
       openChatHandler = handler;
       deliver();
     },
-    // Ответ, набранный в уведомлении: handler(chat, text)
+    // Ответ, набранный в уведомлении: handler(chat, text, msg) — msg: id сообщения из уведомления
     onReply: (handler) => {
       replyHandler = handler;
       deliverReplies();

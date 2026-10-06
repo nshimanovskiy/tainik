@@ -266,11 +266,18 @@ test('десктоп (Linux): закрытие окна — уход в трей
   assert.equal(d.log.notices.length, before);
   // Группы и каналы тоже открываются; ответ из уведомления (macOS) уходит странице
   w.hide();
-  d.ipcOn.notify(d.ours, { title: 'Дача', body: 'привет', chat: '#' + 'a'.repeat(24) + '@main', reply: true });
+  d.ipcOn.notify(d.ours, { title: 'Дача', body: 'привет', chat: '#' + 'a'.repeat(24) + '@main', reply: true, msg: 'abc+/=' });
   d.log.notices.at(-1).emit('click');
   assert.deepEqual(w.sent.at(-1), ['open-chat', '#' + 'a'.repeat(24) + '@main']);
   d.log.notices.at(-1).emit('reply', {}, '  и тебе  ');
-  assert.deepEqual(w.sent.at(-1), ['notice-reply', { chat: '#' + 'a'.repeat(24) + '@main', text: 'и тебе' }]);
+  assert.deepEqual(w.sent.at(-1), ['notice-reply', { chat: '#' + 'a'.repeat(24) + '@main', text: 'и тебе', msg: 'abc+/=' }]);
+  // Служебный чат «Тайник» тоже открывается из уведомления; мусорный id сообщения отбрасывается
+  w.hide();
+  d.ipcOn.notify(d.ours, { title: 'Тайник', body: 'x', chat: '~tainik', reply: true, msg: '<script>' });
+  d.log.notices.at(-1).emit('click');
+  assert.deepEqual(w.sent.at(-1), ['open-chat', '~tainik']);
+  d.log.notices.at(-1).emit('reply', {}, 'ок');
+  assert.deepEqual(w.sent.at(-1), ['notice-reply', { chat: '~tainik', text: 'ок', msg: '' }]);
   // мусор в имени чата не пропускаем
   w.hide();
   d.ipcOn.notify(d.ours, { title: 'z', body: 'b', chat: '../../x' });

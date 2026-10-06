@@ -95,7 +95,7 @@ test('android-мост: уведомления, звонок и открытие
   d.dismissNotice({ call: true });
   d.callActive(true, 'bob');
   assert.deepEqual(sync.slice(1, 4), [
-    ['notify', { title: 'bob', body: 'текст', chat: 'bob', call: true, force: false, reply: false }],
+    ['notify', { title: 'bob', body: 'текст', chat: 'bob', call: true, force: false, reply: false, msg: '' }],
     ['dismiss', { call: true, chat: '' }],
     ['call', true, 'bob'],
   ]);
@@ -114,16 +114,17 @@ test('android-мост: уведомления, звонок и открытие
 test('android-мост: ответ из уведомления доходит до страницы, в том числе набранный до её загрузки', () => {
   const { win, sync, addReply } = load();
   const d = win.desktop;
-  d.notify({ title: 'bob', body: 'привет', chat: 'bob', reply: 1 });
+  d.notify({ title: 'bob', body: 'привет', chat: 'bob', reply: 1, msg: 'm1' });
   assert.equal(sync.at(-1)[1].reply, true);
+  assert.equal(sync.at(-1)[1].msg, 'm1', 'id сообщения уходит в уведомление');
   const got = [];
-  addReply({ chat: 'bob', text: 'ответ до загрузки' });
-  d.onReply((chat, text) => got.push([chat, text]));
-  assert.deepEqual(got, [['bob', 'ответ до загрузки']]);
+  addReply({ chat: 'bob', text: 'ответ до загрузки', msg: 'm1' });
+  d.onReply((chat, text, msg) => got.push([chat, text, msg]));
+  assert.deepEqual(got, [['bob', 'ответ до загрузки', 'm1']], 'ответ — на сообщение из уведомления');
   addReply({ chat: '#' + 'a'.repeat(24), text: 'в группу' });
   win.__tainikNative.deliverReplies();
   win.__tainikNative.deliverReplies();
-  assert.deepEqual(got.at(-1), ['#' + 'a'.repeat(24), 'в группу']);
+  assert.deepEqual(got.at(-1), ['#' + 'a'.repeat(24), 'в группу', '']);
   assert.equal(got.length, 2, 'каждый ответ — один раз');
 });
 

@@ -340,7 +340,7 @@ function setBackground(on) {
 // Уведомления: по одному на чат (новое заменяет старое); ссылки держим, иначе сборщик мусора
 // уберёт объект и клик по уведомлению перестанет работать.
 const notices = new Map();
-function showNotice({ title, body, chat, call, reply }) {
+function showNotice({ title, body, chat, call, reply, msg = '' }) {
   if (!Notification.isSupported()) return;
   const key = (call ? 'call:' : 'msg:') + chat;
   notices.get(key)?.close();
@@ -361,8 +361,8 @@ function showNotice({ title, body, chat, call, reply }) {
     if (chat) win?.webContents.send('open-chat', chat);
   });
   n.on('reply', (_e, text) => {
-    const msg = String(text || '').trim().slice(0, 20000);
-    if (msg && chat) win?.webContents.send('notice-reply', { chat, text: msg });
+    text = String(text || '').trim().slice(0, 20000);
+    if (text && chat) win?.webContents.send('notice-reply', { chat, text, msg });
   });
   n.on('close', () => notices.get(key) === n && notices.delete(key));
   notices.set(key, n);
@@ -453,8 +453,9 @@ function registerIpc() {
     // force — сообщение другому аккаунту: в окне его не видно, показываем и при открытом окне
     if (!n.force && win && win.isVisible() && win.isFocused()) return;
     // Чат: юзернейм, группа '#…' или канал '!…' (у другого аккаунта — с '@id')
-    const chat = /^([a-z0-9_]{3,32}|#[0-9a-f]{24}|![0-9a-f]{32})(@(main|a[0-9a-f]{8}))?$/.test(n.chat) ? n.chat : '';
-    showNotice({ title: String(n.title || t('Тайник')).slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call, reply: !!n.reply });
+    const chat = /^([a-z0-9_]{3,32}|#[0-9a-f]{24}|![0-9a-f]{32}|~tainik)(@(main|a[0-9a-f]{8}))?$/.test(n.chat) ? n.chat : '';
+    const msg = typeof n.msg === 'string' && /^[A-Za-z0-9+/=_-]{1,64}$/.test(n.msg) ? n.msg : '';
+    showNotice({ title: String(n.title || t('Тайник')).slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call, reply: !!n.reply, msg });
     if (win) {
       // Входящий звонок: показываем окно из трея (без перехвата фокуса), иначе мигаем на панели задач
       if (n.call && !win.isVisible()) win.showInactive();

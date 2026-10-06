@@ -66,7 +66,7 @@ class WebHost(private val app: TainikApp) {
     var pendingChat: String? = null
 
     /** Ответы, набранные в уведомлениях: (чат, текст). Страница забирает их сама, когда готова. */
-    val pendingReplies = ArrayList<Pair<String, String>>()
+    val pendingReplies = ArrayList<Triple<String, String, String>>() // чат, текст, id сообщения из уведомления
 
     var activity: MainActivity? = null
         private set
@@ -165,9 +165,9 @@ class WebHost(private val app: TainikApp) {
     }
 
     /** Ответ из уведомления — в страницу (она отправит его от нужного аккаунта). */
-    fun sendReply(chat: String, text: String) {
+    fun sendReply(chat: String, text: String, msg: String = "") {
         synchronized(pendingReplies) {
-            if (pendingReplies.size < 50) pendingReplies.add(chat to text)
+            if (pendingReplies.size < 50) pendingReplies.add(Triple(chat, text, msg))
         }
         if (!destroyed && bridgeReady) webView.evaluateJavascript("window.__tainikNative && __tainikNative.deliverReplies && __tainikNative.deliverReplies()", null)
     }

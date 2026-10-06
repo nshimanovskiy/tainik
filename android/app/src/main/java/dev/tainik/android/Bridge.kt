@@ -22,6 +22,9 @@ import java.util.concurrent.Executors
  * для нашей страницы (https://appassets.androidplatform.net/): переход на чужие
  * адреса в WebView запрещён, а здесь это проверяется ещё раз.
  */
+/** id сообщения, на которое отвечают из уведомления (base64 или p123 / n5 / gift-…). */
+private val MSG_ID = Regex("^[A-Za-z0-9+/=_-]{1,64}$")
+
 class Bridge(private val app: TainikApp, private val host: WebHost) {
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "tainik-store") }
     private val main = Handler(Looper.getMainLooper())
@@ -117,6 +120,7 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
             Notifier.show(
                 app, n.optString("title", "Тайник"), n.optString("body"), n.optString("chat"),
                 n.optBoolean("call"), n.optBoolean("force"), n.optBoolean("reply"),
+                n.optString("msg").takeIf { MSG_ID.matches(it) }.orEmpty(),
             )
         }
     }
@@ -164,7 +168,7 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
         if (!ours()) return "[]"
         val out = JSONArray()
         synchronized(host.pendingReplies) {
-            for ((chat, text) in host.pendingReplies) out.put(JSONObject().put("chat", chat).put("text", text))
+            for ((chat, text, msg) in host.pendingReplies) out.put(JSONObject().put("chat", chat).put("text", text).put("msg", msg))
             host.pendingReplies.clear()
         }
         return out.toString()

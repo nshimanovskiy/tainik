@@ -67,12 +67,13 @@ object Notifier {
     const val KEY_REPLY = "reply"
 
     /** Кнопка «Ответить» с полем ввода прямо в уведомлении — ответ получает ReplyReceiver. */
-    private fun replyAction(ctx: Context, chat: String, title: String): Notification.Action {
+    private fun replyAction(ctx: Context, chat: String, title: String, msg: String): Notification.Action {
         val label = I18n.tr(ctx, "Ответить", "Reply")
         val i = Intent(ctx, ReplyReceiver::class.java)
             .setAction(ReplyReceiver.ACTION)
             .putExtra(ReplyReceiver.EXTRA_CHAT, chat)
             .putExtra(ReplyReceiver.EXTRA_TITLE, title)
+            .putExtra(ReplyReceiver.EXTRA_MSG, msg) // ответ станет ответом именно на это сообщение
         // Поле ввода дописывает текст в Intent — поэтому PendingIntent изменяемый (Intent явный)
         val pi = PendingIntent.getBroadcast(ctx, (chat.hashCode() and 0x3fffffff), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
         val input = RemoteInput.Builder(KEY_REPLY).setLabel(I18n.tr(ctx, "Сообщение", "Message")).build()
@@ -101,7 +102,7 @@ object Notifier {
         nm.notify("msg:$chat", ID_MESSAGE, n)
     }
 
-    fun show(app: TainikApp, title: String, body: String, chat: String, call: Boolean, force: Boolean = false, reply: Boolean = false) {
+    fun show(app: TainikApp, title: String, body: String, chat: String, call: Boolean, force: Boolean = false, reply: Boolean = false, msg: String = "") {
         if (!canPost(app)) return
         // Окно открыто и в фокусе — о сообщениях не напоминаем (страница и так их показывает).
         // force — сообщение другому аккаунту: на экране его не видно, показываем.
@@ -136,7 +137,7 @@ object Notifier {
             nm.notify(TAG_CALL, ID_CALL, n)
         } else {
             b.setCategory(Notification.CATEGORY_MESSAGE)
-            if (reply && chat.isNotEmpty()) b.addAction(replyAction(app, chat, title))
+            if (reply && chat.isNotEmpty()) b.addAction(replyAction(app, chat, title, msg))
             nm.notify("msg:$chat", ID_MESSAGE, b.build())
         }
     }

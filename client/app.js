@@ -635,8 +635,11 @@ async function openChat(name) {
   clearChatNotices(name);
   await renderChat();
   await renderContacts();
-  $('text').focus();
+  // На телефоне не открываем клавиатуру сразу при входе в чат — только по нажатию на поле
+  if (!touchUI()) $('text').focus();
 }
+/** Сенсорный экран без мыши (телефон, планшет): клавиатура экранная. */
+const touchUI = () => matchMedia('(hover: none) and (pointer: coarse)').matches;
 
 // Уведомления о сообщениях чата больше не нужны: он прочитан здесь или на другом устройстве
 async function clearChatNotices(chat) {
@@ -3277,9 +3280,9 @@ function serviceWorker() {
   return swReady;
 }
 
-async function showNotice({ title, body, chat, tag, call = false, force = false, reply = false }) {
+async function showNotice({ title, body, chat, tag, call = false, force = false, reply = false, msg = '' }) {
   if (!(await notifPrefs()).enabled) return;
-  if (desktop) return desktop.notify({ title, body, chat, call, force, reply });
+  if (desktop) return desktop.notify({ title, body, chat, call, force, reply, msg });
   const opts = { body, tag, renotify: true, icon: '/icon-192.png', badge: '/badge-72.png', data: { chat }, requireInteraction: call };
   const reg = await serviceWorker();
   try {
@@ -3296,7 +3299,7 @@ async function notifyMessage(contact, message) {
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
   // Группа: в заголовке — название, в тексте — кто написал
   const who = message.from ? `${nameOf(message.from)}: ` : '';
-  await showNotice({ title: nameOf(contact), body: who + (text || t('Новое сообщение')), chat: contact, tag: 'msg:' + contact, reply: await canReplyTo(client, contact) });
+  await showNotice({ title: nameOf(contact), body: who + (text || t('Новое сообщение')), chat: contact, tag: 'msg:' + contact, reply: await canReplyTo(client, contact), msg: message.id });
 }
 
 /** Можно ли ответить в этот чат прямо из уведомления. */
@@ -3312,7 +3315,8 @@ async function canReplyTo(c, chat) {
  * Ответ из уведомления (Android, macOS): chat — как в уведомлении (для другого аккаунта —
  * «чат@id»). Отправляется от нужного аккаунта, чат отмечается прочитанным.
  */
-async function replyFromNotice(chatRaw, text) {
+/** msg — id сообщения из уведомления: ответ уйдёт ответом на него (с цитатой). */
+async function replyFromNotice(chatRaw, text, msg = '') {
   text = String(text ?? '').trim();
   let chat = String(chatRaw ?? '');
   if (!text || !chat) return;
@@ -3331,13 +3335,15 @@ async function replyFromNotice(chatRaw, text) {
   }
   if (!target?.account) return;
   try {
-    await target.sendText(chat, text.slice(0, 20000));
+    // Ответ с цитатой — если сообщение есть в чате (у канала — нет ответов)
+    const orig = msg && !isChannelChat(chat) ? (await target.messages(chat)).find((m) => m.id === msg && m.dir === 'in') : null;
+    await target.sendText(chat, text.slice(0, 20000), { replyTo: orig ? msg : null });
     await target.markRead(chat);
   } catch (err) {
     showNotice({ title: t('Ответ не отправлен'), body: err.message, chat: chatRaw, tag: 'reply-error', force: true });
   }
 }
-if (desktop?.onReply) desktop.onReply((chat, text) => replyFromNotice(chat, text));
+if (desktop?.onReply) desktop.onReply((chat, text, msg) => replyFromNotice(chat, text, msg));
 
 let pendingNoticeChat = null;
 async function openChatFromNotice(chat) {
@@ -5230,6 +5236,7 @@ async function notifyOther(acc, contact, message) {
     tag: `msg:${acc.id}:${contact}`,
     force: true,
     reply: await canReplyTo(others.get(acc.id)?.client || client, contact),
+    msg: message.id,
   });
 }
 

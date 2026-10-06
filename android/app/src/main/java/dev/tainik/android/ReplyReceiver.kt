@@ -15,6 +15,7 @@ class ReplyReceiver : BroadcastReceiver() {
         const val ACTION = "dev.tainik.android.REPLY"
         const val EXTRA_CHAT = "chat"
         const val EXTRA_TITLE = "title"
+        const val EXTRA_MSG = "msg"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -27,7 +28,8 @@ class ReplyReceiver : BroadcastReceiver() {
             return
         }
         val app = context.applicationContext as TainikApp
-        app.host.sendReply(chat, text.take(20_000))
+        val msg = intent.getStringExtra(EXTRA_MSG)?.takeIf { it.length <= 64 }.orEmpty()
+        app.host.sendReply(chat, text.take(20_000), msg)
         Notifier.replied(context, chat, title, text.take(200))
         // Пока страница загружается и отправляет, процесс должен жить: без работы в фоне его держит
         // только этот обработчик — даём ему несколько секунд

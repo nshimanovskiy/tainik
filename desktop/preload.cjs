@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('desktop', {
       call: !!n?.call,
       force: !!n?.force,
       reply: !!n?.reply, // можно ответить прямо из уведомления (macOS)
+      msg: String(n?.msg ?? '').slice(0, 64), // на какое сообщение отвечаем
     }),
   dismissNotice: (n) => ipcRenderer.send('dismiss-notice', { chat: String(n?.chat ?? ''), call: !!n?.call }),
   onOpenChat: (handler) => {
@@ -39,7 +40,7 @@ contextBridge.exposeInMainWorld('desktop', {
   // Ответ, набранный в уведомлении: handler(chat, text)
   onReply: (handler) => {
     ipcRenderer.removeAllListeners('notice-reply');
-    ipcRenderer.on('notice-reply', (_e, r) => handler(String(r?.chat ?? ''), String(r?.text ?? '')));
+    ipcRenderer.on('notice-reply', (_e, r) => handler(String(r?.chat ?? ''), String(r?.text ?? ''), String(r?.msg ?? '')));
   },
   // Счётчик непрочитанных: значок в доке/панели задач и подсказка у значка в трее
   setBadge: (n) => ipcRenderer.send('badge', Number(n) || 0),
