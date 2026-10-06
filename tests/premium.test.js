@@ -596,7 +596,9 @@ test('служебный чат «Тайник»: монеты, Премиум, 
 
   // Кто зарегистрировался позже, не получает старые общие сообщения
   const carol = mk();
+  const carolWelcome = notice(carol, 'welcome');
   await carol.register('carol');
+  await carolWelcome;
   await sleep(300);
   assert.deepEqual((await notices(carol)).map((n) => n.kind), ['welcome']);
   assert.ok(srv.store.noticesOf('carol').length === 1);
@@ -606,6 +608,15 @@ test('служебный чат «Тайник»: монеты, Премиум, 
   assert.equal(cleanNotice({ id: 2, kind: 'premium-gift', data: { from: '<b>', days: 30 } }), null);
   assert.deepEqual(cleanNotice({ id: 3, kind: 'verified', data: { on: true, extra: 1 } }), { t: 'notice', kind: 'verified', on: true });
 });
+
+async function until(fn, ms = 8000) {
+  const end = Date.now() + ms;
+  for (;;) {
+    if (await fn()) return;
+    if (Date.now() > end) throw new Error('timeout');
+    await sleep(50);
+  }
+}
 
 async function linkDevice(newClient, existing) {
   let gotCode;
@@ -621,8 +632,7 @@ test('синхронизация уведомлений между устрой�
   await alice.register('alice');
   await bob.register('bob');
   // Приветствие у нового аккаунта — непрочитанное
-  await sleep(200);
-  assert.equal((await alice.contacts())[SYSTEM_CHAT]?.unread, 1);
+  await until(async () => (await alice.contacts())[SYSTEM_CHAT]?.unread === 1);
   await alice.markRead(SYSTEM_CHAT);
 
   // Второе устройство: старое в «Тайнике» (в том числе «вход с нового устройства» о нём самом) — прочитано и тихо
@@ -632,12 +642,12 @@ test('синхронизация уведомлений между устрой�
   const devNotice = waitFor(alice, 'message', (d) => d.contact === SYSTEM_CHAT && d.message.content.kind === 'device');
   await linkDevice(alice2, alice);
   await devNotice;
-  await sleep(300);
+  await until(async () => (await alice2.messages(SYSTEM_CHAT)).length === 2);
   assert.deepEqual((await alice2.messages(SYSTEM_CHAT)).map((m) => m.content.kind), ['welcome', 'device']);
   assert.equal((await alice2.contacts())[SYSTEM_CHAT].unread, 0);
   assert.deepEqual(loud, [], 'без всплывающих уведомлений');
   // А первое устройство о входе узнало
-  assert.equal((await alice.contacts())[SYSTEM_CHAT].unread, 1);
+  await until(async () => (await alice.contacts())[SYSTEM_CHAT].unread === 1);
 
   // Сообщение приходит на оба устройства; прочитали на одном — на другом счётчик (и уведомление) снимаются
   await bob.addContact('alice');
@@ -663,8 +673,9 @@ test('синхронизация уведомлений между устрой�
 
   // Устройство было не в сети: уведомление и «прочитано» придут при входе, счётчик — 0
   alice2.disconnect();
+  const onFirst = waitFor(alice, 'message', (d) => d.contact === SYSTEM_CHAT && d.message.content.body === 'пока офлайн');
   await adminApi('notice', { name: 'alice', text: 'пока офлайн' });
-  await sleep(200);
+  await onFirst;
   await alice.markRead(SYSTEM_CHAT);
   const back = waitFor(alice2, 'read-sync', (d) => d.contact === SYSTEM_CHAT && d.unread === 0);
   await alice2.connect();

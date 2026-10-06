@@ -699,7 +699,7 @@ export function startServer({
         const list = (Array.isArray(msg.groups) ? msg.groups : [])
           .filter((g) => g && GROUP_ID_RE.test(String(g.id)))
           .slice(0, GROUPS_SYNC_MAX)
-          .map((g) => ({ id: String(g.id), members: g.members }));
+          .map((g) => ({ id: String(g.id), members: g.members, admin: g.admin === true }));
         return send(conn, { type: 'group-sync', reqId: msg.reqId, verified: store.syncGroups(state.user, list) });
       }
 

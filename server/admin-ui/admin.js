@@ -367,8 +367,8 @@ function renderChats() {
     actions.append(verifyButton('группу', g, 'группа ' + g.uid));
     tr.append(
       name,
-      el('td', '', g.owner),
-      el('td', 'num', `${g.members} · на сервере ${g.registered}`),
+      el('td', '', g.owner || '—'),
+      el('td', 'num', g.members ? `${g.members} · на сервере ${g.registered}` : `на сервере ${g.registered}`),
       el('td', 'muted small', dateFmt.format(g.createdAt)),
       el('td', 'muted small', ago(g.activeAt, data.now)),
       actions

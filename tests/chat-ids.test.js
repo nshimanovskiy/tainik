@@ -116,8 +116,8 @@ test('каналы и группы: номера, вкладка в панели
   // Чужой id и неверный запрос
   assert.equal((await adminApi('chat-verify', { id: 'f'.repeat(24), verified: true })).status, 400);
   assert.equal((await adminApi('chat-verify', { id: 'xx', verified: true })).status, 400);
-  // Первым о группе сообщил создатель — чужой клиент владельца не сменит
-  srv.store.syncGroups('bob', [{ id: grp.slice(1), members: 99 }]);
+  // Владелец — администратор группы; участник не администратор — владельца и число не сменит
+  srv.store.syncGroups('bob', [{ id: grp.slice(1), members: 99, admin: false }]);
   assert.equal(srv.store.getGroup(grp.slice(1)).owner, 'alice');
   assert.equal(srv.store.getGroup(grp.slice(1)).members, 3);
 });

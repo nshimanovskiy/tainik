@@ -1337,7 +1337,7 @@ export class MessengerClient extends Emitter {
   _groupsSig(all) {
     return Object.values(all)
       .filter((c) => c.group && !c.group.left)
-      .map((c) => `${c.group.id}:${c.group.members.length}`)
+      .map((c) => `${c.group.id}:${c.group.members.length}:${c.group.admins.includes(this.account?.username) ? 1 : 0}`)
       .sort()
       .join(',');
   }
@@ -1352,7 +1352,7 @@ export class MessengerClient extends Emitter {
     const sig = this._groupsSig(all);
     const groups = Object.values(all)
       .filter((c) => c.group && !c.group.left)
-      .map((c) => ({ id: c.group.id, members: c.group.members.length }));
+      .map((c) => ({ id: c.group.id, members: c.group.members.length, admin: c.group.admins.includes(this.account.username) }));
     const r = await this._request({ type: 'group-sync', groups });
     this._groupsSynced = sig;
     await this._setGroupsVerified(new Set((Array.isArray(r.verified) ? r.verified : []).map((id) => groupKey(String(id)))));

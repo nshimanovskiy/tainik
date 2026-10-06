@@ -667,7 +667,7 @@ export default {
   'Пока не с кем: добавьте участников по юзернейму.': 'No one yet: add members by username.',
   'Покинуть группу': 'Leave group',
   'Создать': 'Create',
-  'Сообщения в группе шифруются отдельно для каждого участника, сервер не знает ни состава, ни названия. До 50 участников.': 'Group messages are encrypted separately for each member; the server knows neither the members nor the name. Up to 50 members.',
+  "Сообщения в группе шифруются отдельно для каждого участника — сервер не видит ни их, ни названия группы. Серверу известны только номер группы и её участники (ради галочки). До 50 участников.": "Group messages are encrypted separately for each member — the server sees neither them nor the group name. The server knows only the group number and its members (for the checkmark). Up to 50 members.",
   'Сохранить название': 'Save name',
   'Участники': 'Members',
   'Юзернейм участника': 'Member\'s username',

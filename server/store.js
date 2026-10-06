@@ -175,7 +175,8 @@ CREATE INDEX IF NOT EXISTS notices_user ON notices(user, id);
 CREATE INDEX IF NOT EXISTS notices_time ON notices(created_at);
 -- Группы: переписка в них сквозная (сервер не видит ни названия, ни сообщений). Устройства сами
 -- сообщают, в каких группах состоит их пользователь, — ради номера группы в панели и галочки.
--- owner — кто первым сообщил о группе (её создатель), members — сколько участников он назвал.
+-- owner — администратор группы, первым сообщивший о ней (обычно создатель), members — сколько
+-- участников назвал администратор.
 CREATE TABLE IF NOT EXISTS groups (
   id          TEXT PRIMARY KEY,
   uid         INTEGER UNIQUE,
@@ -636,9 +637,9 @@ export class Store {
 
   // ----- группы (только номер, участники и галочка; содержимое сервер не видит) -----
   /**
-   * Устройство user сообщило свои группы: [{ id, members }]. Новые регистрируются (создатель —
-   * кто сообщил первым), участие в остальных (из которых вышли) снимается. Возвращает id групп
-   * с галочкой из этого списка.
+   * Устройство user сообщило свои группы: [{ id, members, admin }]. Новые регистрируются; владелец —
+   * первый сообщивший администратор группы, число участников обновляют администраторы. Участие
+   * в остальных группах (из которых вышли) снимается. Возвращает id групп user с галочкой.
    */
   syncGroups(user, list, now = Date.now()) {
     return this.tx(() => {
@@ -647,9 +648,11 @@ export class Store {
         const n = Math.max(1, Math.min(10_000, Math.floor(Number(g.members) || 1)));
         const r = this.db.prepare('SELECT owner FROM groups WHERE id = ?').get(g.id);
         if (!r) {
-          this.db.prepare('INSERT INTO groups(id, uid, owner, members, created_at, active_at) VALUES (?, ?, ?, ?, ?, ?)').run(g.id, this._nextChatUid(), user, n, now, now);
-        } else if (r.owner === user) {
-          this.db.prepare('UPDATE groups SET members = ?, active_at = ? WHERE id = ?').run(n, now, g.id);
+          this.db
+            .prepare('INSERT INTO groups(id, uid, owner, members, created_at, active_at) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(g.id, this._nextChatUid(), g.admin ? user : '', g.admin ? n : 0, now, now);
+        } else if (g.admin) {
+          this.db.prepare("UPDATE groups SET owner = CASE WHEN owner = '' THEN ? ELSE owner END, members = ?, active_at = ? WHERE id = ?").run(user, n, now, g.id);
         } else {
           this.db.prepare('UPDATE groups SET active_at = ? WHERE id = ?').run(now, g.id);
         }
