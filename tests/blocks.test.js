@@ -190,3 +190,60 @@ test('архив: только у себя, синхронизируется м�
   assert.equal(await alice._applyArchive(await alice.contacts(), 'bob', true, 1), false);
   assert.equal(alice.isArchived('bob'), false);
 });
+
+test('закреплённые чаты и папки: только у себя, синхронизация и перенос на новое устройство', async (t) => {
+  const { mk } = await setup(t);
+  const [alice, bob, carol] = [mk(), mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  await carol.register('carol');
+  const alice2 = mk();
+  await link(alice2, alice);
+  await bob.addContact('alice');
+  await carol.addContact('alice');
+  const hi1 = incoming(alice2, 'привет от bob');
+  const hi2 = incoming(alice2, 'привет от carol');
+  await bob.sendText('alice', 'привет от bob');
+  await carol.sendText('alice', 'привет от carol');
+  await Promise.all([hi1, hi2]);
+
+  // Закрепление
+  const pinned = waitFor(alice2, 'contacts', (all) => !!all.bob?.top);
+  await alice.setChatPinned('bob', true);
+  assert.equal(alice.isChatPinned('bob'), true);
+  await pinned;
+  assert.equal(alice2.isChatPinned('bob'), true);
+  assert.equal(bob.isChatPinned('alice'), false, 'собеседник о закреплении не знает');
+
+  // Папки: создание, синхронизация, мусор отбрасывается
+  const synced = waitFor(alice2, 'folders', (l) => l.length === 1);
+  const saved = await alice.setFolders([
+    { id: 'work', name: '  Работа  ', chats: ['bob', 'bob', 'carol'] },
+    { id: 'bad id!', name: 'x', chats: [] },
+    { id: 'empty', name: '   ', chats: [] },
+  ]);
+  assert.deepEqual(saved, [{ id: 'work', name: 'Работа', chats: ['bob', 'carol'] }]);
+  await synced;
+  assert.deepEqual(await alice2.folders(), saved);
+  await assert.rejects(alice.setFolders(Array.from({ length: 11 }, (_, i) => ({ id: 'f' + i, name: 'П' + i, chats: [] }))), (e) => e.code === 'folders_max');
+
+  // Новое устройство получает и закрепление, и папки
+  const alice3 = mk();
+  await link(alice3, alice);
+  assert.equal(alice3.isChatPinned('bob'), true);
+  assert.deepEqual(await alice3.folders(), saved);
+
+  // Открепили и переименовали папку на втором — на первом тоже
+  const unpinned = waitFor(alice, 'contacts', (all) => !all.bob?.top);
+  await alice2.setChatPinned('bob', false);
+  await unpinned;
+  const renamed = waitFor(alice, 'folders', (l) => l[0]?.name === 'Дела');
+  await alice2.setFolders([{ id: 'work', name: 'Дела', chats: ['carol'] }]);
+  await renamed;
+
+  // Не больше 10 закреплённых (чаты-заглушки прямо в хранилище — без лишних регистраций)
+  const all = await alice.contacts();
+  for (let i = 0; i < 10; i++) all['#' + String(i).padStart(24, '0')] = { username: '#' + String(i).padStart(24, '0'), group: { id: String(i).padStart(24, '0'), name: 'g', members: ['alice'], admins: ['alice'], v: 1 }, unread: 0, lastTs: 1, pending: [], top: i + 1 };
+  await alice.storage.set('contacts', all);
+  await assert.rejects(alice.setChatPinned('carol', true), (e) => e.code === 'pinned_chats_max');
+});

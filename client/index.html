@@ -106,6 +106,7 @@
         <button type="button" id="new-channel-btn" class="icon-btn" title="Каналы: найти или создать" aria-label="Каналы">📢</button>
       </form>
       <p id="add-error" class="error small" role="alert"></p>
+      <div id="folder-tabs" class="folder-tabs" role="tablist" aria-label="Папки" hidden></div>
       <div id="notif-offer" class="notif-offer" hidden>
         <span>🔔 Включить уведомления о новых сообщениях и звонках?</span>
         <span class="notif-offer-actions">
@@ -121,6 +122,7 @@
         </span>
       </div>
       <ul id="contacts" class="contacts"></ul>
+      <p id="folder-empty" class="muted empty-side" hidden>В этой папке пока нет чатов. Добавьте их: меню чата → «📁 Папки…» или долгое нажатие на вкладку папки.</p>
       <p id="no-contacts" class="muted empty-side">Пока никого. Добавьте собеседника по юзернейму — он должен быть зарегистрирован.</p>
     </aside>
 
@@ -583,6 +585,9 @@
     <button type="button" data-act="profile" role="menuitem">👤 Профиль</button>
     <button type="button" data-act="group" role="menuitem">👥 О группе</button>
     <button type="button" data-act="channel" role="menuitem">📢 О канале</button>
+    <button type="button" data-act="top" role="menuitem">📌 Закрепить</button>
+    <button type="button" data-act="untop" role="menuitem">📌 Открепить</button>
+    <button type="button" data-act="folders" role="menuitem">📁 Папки…</button>
     <button type="button" data-act="archive" role="menuitem">📦 В архив</button>
     <button type="button" data-act="unarchive" role="menuitem">📤 Из архива</button>
     <button type="button" data-act="leave" role="menuitem" class="danger">🚪 Покинуть группу</button>
@@ -809,6 +814,35 @@
       <div class="dialog-actions">
         <button value="cancel" class="ghost">Отмена</button>
         <button value="delete" class="danger-btn">Удалить чат</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Папка: название и чаты -->
+  <dialog id="folder-dialog">
+    <form class="dialog-body" id="fd-form" autocomplete="off">
+      <h2 id="fd-title">Новая папка</h2>
+      <input id="fd-name" maxlength="24" placeholder="Название папки" aria-label="Название папки">
+      <h3>Чаты в папке</h3>
+      <ul id="fd-list" class="pick-list"></ul>
+      <p id="fd-error" class="error small" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="fd-delete" class="ghost danger-text" hidden>Удалить папку</button>
+        <button type="button" id="fd-cancel" class="ghost">Отмена</button>
+        <button type="submit" class="primary">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Чат → в какие папки -->
+  <dialog id="chat-folders-dialog">
+    <form class="dialog-body" id="cf-form">
+      <h2 id="cf-title">Папки</h2>
+      <ul id="cf-list" class="pick-list"></ul>
+      <button type="button" id="cf-new" class="ghost-link">＋ Новая папка</button>
+      <div class="dialog-actions">
+        <button type="button" id="cf-cancel" class="ghost">Отмена</button>
+        <button type="submit" class="primary">Готово</button>
       </div>
     </form>
   </dialog>

@@ -80,6 +80,27 @@ export function cleanProfileText(s, max) {
     .trim()
     .slice(0, max);
 }
+// ---------- Закреплённые чаты и папки ----------
+export const PINNED_CHATS_MAX = 10;
+export const FOLDERS_MAX = 10;
+export const FOLDER_NAME_MAX = 24;
+const FOLDER_CHATS_MAX = 500;
+/** Папки: [{ id, name, chats }] — только известные поля, разумные размеры. */
+function cleanFolders(list) {
+  const out = [];
+  const ids = new Set();
+  for (const f of Array.isArray(list) ? list : []) {
+    if (out.length >= FOLDERS_MAX) break;
+    const id = typeof f?.id === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(f.id) && !ids.has(f.id) ? f.id : null;
+    const name = cleanProfileText(f?.name, FOLDER_NAME_MAX).replace(/\n/g, ' ');
+    if (!id || !name) continue;
+    ids.add(id);
+    const chats = [...new Set((Array.isArray(f.chats) ? f.chats : []).filter((c) => typeof c === 'string' && c.length <= 40))].slice(0, FOLDER_CHATS_MAX);
+    out.push({ id, name, chats });
+  }
+  return out;
+}
+
 /** Каналов в профиле — не больше этого (свои каналы, как в Telegram «личный канал»). */
 export const PROFILE_CHANNELS_MAX = 2;
 /** Каналы профиля: [{ ref, title }] — ref: '@имя' (публичный) или 'id.ключ' (приватный, по приглашению). */
@@ -314,6 +335,8 @@ const AUTH_CONTEXT = 'tainik/v3/auth';
 
 export const ERROR_TEXT = {
   bad_backup: t('Это не файл переписки Тайника или он повреждён'),
+  pinned_chats_max: t('Закрепить можно не больше 10 чатов'),
+  folders_max: t('Папок может быть не больше 10'),
   profile_channels_max: t('В профиль можно прикрепить не больше двух каналов'),
   backup_version: t('Файл создан более новой версией Тайника — обновите приложение'),
   wrong_account: t('Это переписка другого аккаунта — импортировать её можно только в тот аккаунт, из которого она выгружена'),
@@ -648,6 +671,10 @@ export class MessengerClient extends Emitter {
     for (const chat of Array.isArray(p.archived) ? p.archived.slice(0, 5000) : []) {
       if (typeof chat === 'string' && contacts[chat]) Object.assign(contacts[chat], { archived: true, archivedTs: 1 });
     }
+    for (const [chat, ts] of Array.isArray(p.top) ? p.top.slice(0, PINNED_CHATS_MAX) : []) {
+      if (typeof chat === 'string' && contacts[chat] && Number.isFinite(ts)) Object.assign(contacts[chat], { top: ts, topTs: 1 });
+    }
+    if (Array.isArray(p.folders)) await this.storage.set('folders', { v: 1, list: cleanFolders(p.folders) });
     await this.storage.set('contacts', contacts);
     this._indexNames(contacts);
     this.profile = cleanProfile(p.profile) || { name: '', bio: '', v: 0 };
@@ -688,7 +715,11 @@ export class MessengerClient extends Emitter {
     const archived = Object.values(await this.contacts())
       .filter((c) => c.archived)
       .map((c) => c.username);
-    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, groups, channels, archived, profile: this.profile };
+    const top = Object.values(await this.contacts())
+      .filter((c) => c.top)
+      .map((c) => [c.username, c.top]);
+    const folders = await this.folders();
+    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, groups, channels, archived, top, folders, profile: this.profile };
     let sealed;
     try {
       sealed = await sealProvision(link, payload);
@@ -1421,10 +1452,12 @@ export class MessengerClient extends Emitter {
     this._avatars.clear();
     (this._verifiedChats ||= new Set()).clear();
     (this._archived ||= new Set()).clear();
+    (this._top ||= new Set()).clear();
     (this._official ||= new Set()).clear();
     for (const c of Object.values(all || {})) {
       if ((c.group && c.verifiedMark) || c.channel?.verified) this._verifiedChats.add(c.username);
       if (c.archived) this._archived.add(c.username);
+      if (c.top) this._top.add(c.username);
       if (c.channel?.owner === NEWS_OWNER) this._official.add(c.username);
       if (c.group) this._names.set(c.username, c.group.name);
       if (c.system) this._names.set(c.username, t('Тайник'));
@@ -1669,6 +1702,67 @@ export class MessengerClient extends Emitter {
       await this.storage.set('outbox', outbox);
     });
     this._pumpOutbox();
+  }
+
+  // ---------- Закреплённые чаты ----------
+  // Закреплённый чат стоит в начале списка (последний закреплённый — первым). Только для вас,
+  // синхронизируется между вашими устройствами.
+
+  /** Закрепить чат вверху списка (on) или открепить. Не больше PINNED_CHATS_MAX. */
+  async setChatPinned(chat, on) {
+    const ts = Date.now();
+    await this._serial(async () => {
+      const all = await this.contacts();
+      if (on && !all[chat]?.top && Object.values(all).filter((c) => c.top).length >= PINNED_CHATS_MAX) throw errorOf('pinned_chats_max');
+      if (!(await this._applyChatPin(all, chat, !!on, ts))) return;
+      await this._queueToSelf({ t: 'sync-top', chat, on: !!on, ts });
+    });
+    this._pumpOutbox();
+  }
+
+  isChatPinned(chat) {
+    return this._top?.has(chat) || false;
+  }
+
+  async _applyChatPin(all, chat, on, ts) {
+    const c = all[chat];
+    if (!c || !Number.isFinite(ts) || (c.topTs && c.topTs >= ts)) return false;
+    c.topTs = ts;
+    if (on) c.top = ts;
+    else delete c.top;
+    await this._saveContacts(all);
+    return true;
+  }
+
+  // ---------- Папки чатов ----------
+  // Свои вкладки над списком чатов («Работа», «Семья»…): название и какие чаты в ней. Только для
+  // вас, одинаковые на всех ваших устройствах (последнее изменение побеждает).
+
+  /** [{ id, name, chats: [ключи чатов] }] */
+  async folders() {
+    return (await this.storage.get('folders'))?.list || [];
+  }
+
+  /** Сохранить папки целиком (создать, переименовать, изменить состав, удалить, поменять порядок). */
+  async setFolders(list) {
+    const clean = cleanFolders(list);
+    if (Array.isArray(list) && list.length > FOLDERS_MAX) throw errorOf('folders_max');
+    const v = Date.now();
+    await this._serial(async () => {
+      await this.storage.set('folders', { v, list: clean });
+      await this._queueToSelf({ t: 'sync-folders', v, list: clean });
+    });
+    this.emit('folders', clean);
+    this._pumpOutbox();
+    return clean;
+  }
+
+  async _applyFolders(v, list) {
+    const cur = await this.storage.get('folders');
+    if (!Number.isFinite(v) || (cur?.v && cur.v >= v)) return;
+    const clean = cleanFolders(list);
+    await this.storage.set('folders', { v, list: clean });
+    this.emit('folders', clean);
   }
 
   // ---------- Архив ----------
@@ -2928,6 +3022,14 @@ export class MessengerClient extends Emitter {
       }
       if (c?.t === 'sync-delete-chat' && typeof c.chat === 'string') {
         await this._clearChat(c.chat, true);
+        return ack(false);
+      }
+      if (c?.t === 'sync-top' && typeof c.chat === 'string') {
+        await this._applyChatPin(await this.contacts(), c.chat, c.on === true, c.ts);
+        return ack(false);
+      }
+      if (c?.t === 'sync-folders') {
+        await this._applyFolders(c.v, c.list);
         return ack(false);
       }
       if (c?.t === 'sync-archive' && typeof c.chat === 'string') {

@@ -568,16 +568,26 @@ $('link-copy').addEventListener('click', async () => {
 // перерисовку — иначе вызовы перемешиваются и в списке появляются дубли.
 let contactsGen = 0;
 let showArchive = false; // в списке — архив, а не обычные чаты
+let folderId = null; // открытая папка (null — «Все чаты»)
+try {
+  folderId = localStorage.getItem('tainik:folder') || null;
+} catch {}
+let folderList = [];
 async function renderContacts() {
   const gen = ++contactsGen;
-  // Удалённые чаты не показываем (ключ собеседника хранится — чат вернётся с новым сообщением)
+  folderList = await client.folders();
+  if (folderId && !folderList.some((f) => f.id === folderId)) folderId = null;
+  const folder = folderList.find((f) => f.id === folderId) || null;
+  // Удалённые чаты не показываем (ключ собеседника хранится — чат вернётся с новым сообщением).
+  // Закреплённые — сверху (последний закреплённый — первым), остальные — по времени.
   const visible = Object.values(await client.contacts())
     .filter((c) => !c.hidden || c.username === current)
-    .sort((a, b) => b.lastTs - a.lastTs);
-  // Архив: отдельный список; в обычном — строка «Архив» сверху
+    .sort((a, b) => (b.top || 0) - (a.top || 0) || b.lastTs - a.lastTs);
+  renderFolderTabs(visible);
+  // Архив: отдельный список; в обычном — строка «Архив» сверху. В папке — только её чаты.
   const archived = visible.filter((c) => c.archived);
-  if (showArchive && !archived.length) showArchive = false;
-  const all = visible.filter((c) => !!c.archived === showArchive);
+  if (showArchive && (!archived.length || folder)) showArchive = false;
+  const all = folder ? visible.filter((c) => folder.chats.includes(c.username)) : visible.filter((c) => !!c.archived === showArchive);
   const lasts = [];
   for (const c of all) {
     const msgs = await client.messages(c.username);
@@ -597,7 +607,7 @@ async function renderContacts() {
     });
     li.append(b);
     frag.append(li);
-  } else if (archived.length) {
+  } else if (archived.length && !folder) {
     const li = el('li');
     const b = el('button', 'archive-row');
     b.type = 'button';
@@ -631,6 +641,7 @@ async function renderContacts() {
     if (client.isBlocked(c.username)) top.append(el('span', 'shield warn', t('🚫 заблокирован')));
     else if (c.keyChanged) top.append(el('span', 'shield warn', t('⚠ ключ изменён')));
     else if (c.verified) top.append(el('span', 'shield', t('✔ проверен')));
+    if (c.top) top.append(el('span', 'c-pin', '📌'));
     body.append(top, el('div', 'c-preview', previewOf(lasts[i])));
     btn.append(avWrap, body);
     if (c.unread && c.username !== current) btn.append(el('span', 'badge', String(c.unread)));
@@ -641,9 +652,167 @@ async function renderContacts() {
   });
   $('contacts').replaceChildren(frag);
   $('no-contacts').hidden = visible.length > 0;
+  $('folder-empty').hidden = !folder || all.length > 0;
   ownUnread = visible.reduce((n, c) => n + (c.unread || 0), 0);
   setUnread(ownUnread + othersUnread());
 }
+
+// ---------- Папки (вкладки под поиском) ----------
+function renderFolderTabs(visible) {
+  const box = $('folder-tabs');
+  box.hidden = !folderList.length;
+  if (!folderList.length) return box.replaceChildren();
+  const unreadOf = (chats) => visible.reduce((n, c) => n + (chats.includes(c.username) && c.username !== current ? c.unread || 0 : 0), 0);
+  const tab = (id, name, unread) => {
+    const b = el('button', 'folder-tab' + ((folderId || null) === id ? ' on' : ''));
+    b.type = 'button';
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String((folderId || null) === id));
+    b.append(el('span', '', name));
+    if (unread) b.append(el('span', 'badge', String(unread)));
+    if (id) b.dataset.folder = id;
+    b.addEventListener('click', () => selectFolder(id));
+    return b;
+  };
+  const add = el('button', 'folder-tab add', '＋');
+  add.type = 'button';
+  add.title = t('Новая папка');
+  add.setAttribute('aria-label', t('Новая папка'));
+  add.addEventListener('click', () => openFolderEdit(null));
+  box.replaceChildren(tab(null, t('Все'), 0), ...folderList.map((f) => tab(f.id, f.name, unreadOf(f.chats))), add);
+  box.querySelector('.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+function selectFolder(id) {
+  folderId = id;
+  showArchive = false;
+  try {
+    if (id) localStorage.setItem('tainik:folder', id);
+    else localStorage.removeItem('tainik:folder');
+  } catch {}
+  renderContacts();
+}
+// Правый клик или долгое нажатие на вкладку — изменить папку
+$('folder-tabs').addEventListener('contextmenu', (e) => {
+  const b = e.target.closest('[data-folder]');
+  if (!b) return;
+  e.preventDefault();
+  openFolderEdit(b.dataset.folder);
+});
+let folderPress = null;
+$('folder-tabs').addEventListener('touchstart', (e) => {
+  const b = e.target.closest('[data-folder]');
+  if (!b) return;
+  folderPress = setTimeout(() => {
+    folderPress = 'fired';
+    openFolderEdit(b.dataset.folder);
+  }, 500);
+}, { passive: true });
+for (const ev of ['touchend', 'touchmove', 'touchcancel']) {
+  $('folder-tabs').addEventListener(ev, (e) => {
+    if (folderPress === 'fired' && ev === 'touchend') e.preventDefault();
+    clearTimeout(folderPress);
+    folderPress = null;
+  });
+}
+
+// Окно папки: название и какие чаты в ней (новая — id null)
+let folderEditing = null;
+async function openFolderEdit(id, preselect = null) {
+  const f = folderList.find((x) => x.id === id) || null;
+  folderEditing = id;
+  $('fd-title').textContent = f ? t('Папка «{0}»', f.name) : t('Новая папка');
+  $('fd-name').value = f ? f.name : '';
+  $('fd-delete').hidden = !f;
+  $('fd-error').textContent = '';
+  const chosen = new Set(f ? f.chats : preselect ? [preselect] : []);
+  const chats = Object.values(await client.contacts())
+    .filter((c) => !c.hidden)
+    .sort((a, b) => b.lastTs - a.lastTs);
+  $('fd-list').replaceChildren(
+    ...chats.map((c) => {
+      const li = el('li');
+      const label = el('label', 'pick');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.value = c.username;
+      cb.checked = chosen.has(c.username);
+      const av = el('span', 'avatar');
+      paintAvatar(av, c.username);
+      label.append(cb, av, el('span', 'p-name', nameOf(c.username)));
+      li.append(label);
+      return li;
+    })
+  );
+  $('folder-dialog').showModal();
+  if (!f) $('fd-name').focus();
+}
+$('fd-cancel').addEventListener('click', () => $('folder-dialog').close());
+$('fd-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('fd-name').value.trim();
+  if (!name) return ($('fd-error').textContent = t('Введите название папки'));
+  const chats = [...$('fd-list').querySelectorAll('input:checked')].map((x) => x.value);
+  const list = folderList.map((f) => ({ ...f }));
+  if (folderEditing) {
+    const f = list.find((x) => x.id === folderEditing);
+    if (f) Object.assign(f, { name, chats });
+  } else {
+    list.push({ id: Math.random().toString(36).slice(2, 12), name, chats });
+  }
+  try {
+    const saved = await client.setFolders(list);
+    $('folder-dialog').close();
+    if (!folderEditing) selectFolder(saved[saved.length - 1]?.id || null);
+  } catch (err) {
+    $('fd-error').textContent = err.message;
+  }
+});
+$('fd-delete').addEventListener('click', async () => {
+  if (!folderEditing) return;
+  await client.setFolders(folderList.filter((f) => f.id !== folderEditing));
+  $('folder-dialog').close();
+  toast(t('Папка удалена — чаты остались в списке'));
+});
+client.on('folders', () => renderContacts());
+
+// Чат → папки: отметить, в каких папках он есть (или создать новую с ним)
+let pickFoldersFor = null;
+function openChatFolders(chat) {
+  if (!folderList.length) return openFolderEdit(null, chat);
+  pickFoldersFor = chat;
+  $('cf-title').textContent = t('Папки для «{0}»', nameOf(chat));
+  $('cf-list').replaceChildren(
+    ...folderList.map((f) => {
+      const li = el('li');
+      const label = el('label', 'pick');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.value = f.id;
+      cb.checked = f.chats.includes(chat);
+      label.append(cb, el('span', 'p-name', '📁 ' + f.name));
+      li.append(label);
+      return li;
+    })
+  );
+  $('chat-folders-dialog').showModal();
+}
+$('cf-cancel').addEventListener('click', () => $('chat-folders-dialog').close());
+$('cf-new').addEventListener('click', () => {
+  $('chat-folders-dialog').close();
+  openFolderEdit(null, pickFoldersFor);
+});
+$('cf-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const on = new Set([...$('cf-list').querySelectorAll('input:checked')].map((x) => x.value));
+  const chat = pickFoldersFor;
+  const list = folderList.map((f) => ({ ...f, chats: on.has(f.id) ? [...new Set([...f.chats, chat])] : f.chats.filter((c) => c !== chat) }));
+  try {
+    await client.setFolders(list);
+    $('chat-folders-dialog').close();
+  } catch (err) {
+    toast(err.message);
+  }
+});
 
 $('add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -5037,6 +5206,9 @@ function openChatMenu(name, x, y) {
   menu.querySelector('[data-act="group"]').hidden = !group;
   menu.querySelector('[data-act="channel"]').hidden = !chan;
   menu.querySelector('[data-act="leave"]').hidden = !group;
+  const pinned = client.isChatPinned(name);
+  menu.querySelector('[data-act="top"]').hidden = pinned;
+  menu.querySelector('[data-act="untop"]').hidden = !pinned;
   const arch = client.isArchived(name);
   menu.querySelector('[data-act="archive"]').hidden = arch;
   menu.querySelector('[data-act="unarchive"]').hidden = !arch;
@@ -5091,6 +5263,11 @@ $('chat-menu').addEventListener('click', (e) => {
   const name = chatMenuFor;
   closeChatMenu();
   if (b.dataset.act === 'unblock') return setBlocked(name, false);
+  if (b.dataset.act === 'top' || b.dataset.act === 'untop') {
+    client.setChatPinned(name, b.dataset.act === 'top').catch((err) => toast(err.message));
+    return;
+  }
+  if (b.dataset.act === 'folders') return openChatFolders(name);
   if (b.dataset.act === 'archive' || b.dataset.act === 'unarchive') {
     const on = b.dataset.act === 'archive';
     client.setArchived(name, on).then(() => {
