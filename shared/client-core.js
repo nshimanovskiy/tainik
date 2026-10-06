@@ -493,6 +493,9 @@ export class MessengerClient extends Emitter {
     username = String(username).trim().toLowerCase();
     const identity = await generateIdentity();
     await this.storage.clear();
+    // Новый аккаунт: уведомления «Тайника» с первого входа — обычные (с приветствием).
+    // У привязанного устройства отметки нет: всё, что было до него, ляжет прочитанным и без всплывающих.
+    await this.storage.set('notice-last', 0);
     this.account = this._makeAccount(username, identity, deviceName);
     const keys = await this._newDeviceKeys(identity);
     return this._firstLogin({ register: { ...keys, deviceName } }, timeout);
@@ -1168,8 +1171,9 @@ export class MessengerClient extends Emitter {
 
   /**
    * Служебные уведомления → сообщения в чате «Тайник». Каждое — один раз (по id). При первом
-   * получении на устройстве старые уведомления (у нового устройства — за 30 дней) ложатся
-   * прочитанными и без всплывающих уведомлений.
+   * получении на привязанном устройстве всё, что пришло до него (за 30 дней, включая «вход с
+   * нового устройства» о нём самом), ложится прочитанным и без всплывающих уведомлений.
+   * Время сообщения — время сервера: одинаковое на всех устройствах (по нему сверяется «прочитано»).
    */
   async _onNotices(list) {
     if (!this.account || !Array.isArray(list)) return;
@@ -1183,9 +1187,8 @@ export class MessengerClient extends Emitter {
       maxId = n.id;
       const content = cleanNotice(n);
       if (!content) continue;
-      const ts = Number.isFinite(n.at) ? Math.min(n.at, now) : now;
-      // При первом получении свежим считаем только только что случившееся (например, «Добро пожаловать»)
-      fresh.push({ m: { id: 'n' + n.id, dir: 'in', ts, content }, quiet: first && now - ts > 10 * 60_000 });
+      const ts = Number.isFinite(n.at) && n.at > 0 ? n.at : now;
+      fresh.push({ m: { id: 'n' + n.id, dir: 'in', ts, content }, quiet: first });
     }
     if (maxId !== last) await this.storage.set('notice-last', maxId);
     if (!fresh.length) return;

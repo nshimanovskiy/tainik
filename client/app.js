@@ -3201,6 +3201,7 @@ client.on('message', async ({ contact, message, quiet }) => {
 // Вернулись в окно — открытый чат прочитан
 window.addEventListener('focus', async () => {
   if (!current || !client.account) return;
+  clearChatNotices(current); // уведомления открытого чата больше не нужны
   const c = (await client.contacts())[current];
   if (c?.unread) {
     await client.markRead(current);
@@ -3294,7 +3295,20 @@ async function showNotice({ title, body, chat, tag, call = false, force = false,
   }
 }
 
+// Сразу после подключения приходит накопившееся: сообщения, а следом — отметки «прочитано»
+// с других ваших устройств. Чтобы не всплывало уже прочитанное, уведомления в это время
+// чуть придерживаем и показываем, только если чат всё ещё не прочитан.
+const CATCHUP_MS = 4000;
+let onlineAt = 0;
+client.on('status', (st) => st === 'online' && (onlineAt = Date.now()));
+async function stillUnread(c, contact, since = onlineAt) {
+  if (Date.now() - since > CATCHUP_MS) return true;
+  await new Promise((r) => setTimeout(r, 1500));
+  return !!(await c.contacts())[contact]?.unread;
+}
+
 async function notifyMessage(contact, message) {
+  if (!(await stillUnread(client, contact))) return;
   const { preview } = await notifPrefs();
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
   // Группа: в заголовке — название, в тексте — кто написал
@@ -4303,6 +4317,8 @@ $('delete-dialog').addEventListener('close', async () => {
 });
 
 client.on('deleted', async ({ contact, ids, chat }) => {
+  // Непрочитанных не осталось (удалили у всех или весь чат) — уведомление о них тоже не нужно
+  if (!(await client.contacts())[contact]?.unread) clearChatNotices(contact);
   if (contact === current) renderPin();
   if (reply && ids.includes(reply.id) && contact === current) setReply(null);
   // Чат удалён (здесь или на другом своём устройстве) — закрываем его
@@ -5226,6 +5242,15 @@ $('account-add').addEventListener('click', () => {
 });
 client.on('status', () => $('accounts-dialog').open && renderAccounts());
 
+/** Убрать уведомления чата другого (неактивного) аккаунта. */
+async function clearOtherNotices(accId, contact) {
+  if (desktop?.dismissNotice) return desktop.dismissNotice({ chat: `${contact}@${accId}` });
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration('/');
+    for (const n of (await reg?.getNotifications({ tag: `msg:${accId}:${contact}` })) || []) n.close();
+  } catch {}
+}
+
 async function notifyOther(acc, contact, message) {
   const { preview } = await notifPrefs();
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
@@ -5261,11 +5286,17 @@ async function startOthers() {
       renderAccountsBadge();
     };
     c.on('contacts', recount);
-    c.on('status', () => $('accounts-dialog').open && renderAccounts());
-    c.on('message', ({ contact, message }) => {
-      recount();
-      if (message.dir === 'in') notifyOther(acc, contact, message);
+    c.on('status', (st) => {
+      if (st === 'online') item.onlineAt = Date.now();
+      if ($('accounts-dialog').open) renderAccounts();
     });
+    c.on('message', async ({ contact, message, quiet }) => {
+      recount();
+      if (message.dir === 'in' && !quiet && (await stillUnread(c, contact, item.onlineAt || 0))) notifyOther(acc, contact, message);
+    });
+    // Прочитано на другом устройстве этого аккаунта (или сообщения удалены) — убрать его уведомление
+    c.on('read-sync', ({ contact, unread }) => !unread && clearOtherNotices(acc.id, contact));
+    c.on('deleted', async ({ contact }) => !(await c.contacts())[contact]?.unread && clearOtherNotices(acc.id, contact));
     // Звонок на неактивный аккаунт: принять его можно только в активном — подсказываем
     c.on('call-signal', ({ from, data }) => {
       if (data?.kind !== 'offer') return;
