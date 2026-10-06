@@ -159,7 +159,7 @@ function verifiedBadge() {
   titleEl.textContent = t('Официальный аккаунт');
   const bg = document.createElementNS(NS, 'path');
   bg.setAttribute('class', 'official-bg');
-  bg.setAttribute('d', 'M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1-2.6-1.9 1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z');
+  bg.setAttribute('d', 'M12 1.5a10.5 10.5 0 1 0 0 21a10.5 10.5 0 1 0 0-21z'); // круг
   const ck = document.createElementNS(NS, 'path');
   ck.setAttribute('class', 'official-check');
   ck.setAttribute('d', 'M7.6 12.3l3 3 5.8-6.2');
@@ -1396,6 +1396,42 @@ function asTab(tab) {
 for (const b of document.querySelectorAll('#attach-sheet [data-as-tab]')) b.addEventListener('click', () => asTab(b.dataset.asTab));
 // Нажатие на затемнение вокруг меню закрывает его
 $('attach-sheet').addEventListener('click', (e) => e.target === $('attach-sheet') && closeAttachSheet());
+// Свайп вниз закрывает меню: за «ручку» сверху или по галерее, прокрученной до начала
+{
+  const sheet = $('attach-sheet');
+  let drag = null;
+  sheet.addEventListener('touchstart', (e) => {
+    drag = null;
+    if (e.touches.length !== 1) return;
+    const grid = e.target.closest('.as-grid');
+    if (grid && grid.scrollTop > 0) return;
+    drag = { y: e.touches[0].clientY, x: e.touches[0].clientX, dy: 0, t: Date.now() };
+  }, { passive: true });
+  sheet.addEventListener('touchmove', (e) => {
+    if (!drag) return;
+    const dy = e.touches[0].clientY - drag.y;
+    if (dy < 0 || Math.abs(e.touches[0].clientX - drag.x) > dy) return;
+    drag.dy = dy;
+    sheet.style.transition = 'none';
+    sheet.style.transform = `translateY(${dy}px)`;
+    if (e.cancelable && dy > 8) e.preventDefault(); // не прокручивать галерею, пока тянем меню
+  }, { passive: false });
+  sheet.addEventListener('touchend', () => {
+    if (!drag) return;
+    const { dy, t: t0 } = drag;
+    drag = null;
+    sheet.style.transition = 'transform .18s ease-out';
+    const fast = dy > 40 && Date.now() - t0 < 250;
+    if (dy > 110 || fast) {
+      sheet.style.transform = 'translateY(100%)';
+      setTimeout(() => {
+        closeAttachSheet();
+        sheet.style.transform = '';
+        sheet.style.transition = '';
+      }, 170);
+    } else sheet.style.transform = '';
+  });
+}
 
 async function fillGallery(reset) {
   const grid = $('as-grid');
@@ -2676,7 +2712,7 @@ client.on('premium', (p) => {
 
 $('menu-dialog').addEventListener('close', async () => {
   const v = $('menu-dialog').returnValue;
-  if (v === 'devices') return openDevices();
+  if (v === 'devices') return openDevices(true);
   if (v === 'accounts') return openAccounts();
   if (v === 'blocked') return openBlocked();
   if (v !== 'reset') return;
@@ -2738,7 +2774,9 @@ async function renderDevices() {
   );
 }
 
-async function openDevices() {
+let devicesFromSettings = false;
+async function openDevices(fromSettings = false) {
+  devicesFromSettings = fromSettings;
   $('link-form-error').textContent = '';
   $('link-input').value = '';
   $('devices-dialog').showModal();
@@ -2951,7 +2989,14 @@ $('devices-close').addEventListener('click', () => {
   stopScan();
   $('devices-dialog').close();
 });
-$('devices-dialog').addEventListener('close', stopScan);
+$('devices-dialog').addEventListener('close', () => {
+  stopScan();
+  // Открыли из настроек — туда и возвращаемся, а не к списку чатов
+  if (devicesFromSettings) {
+    devicesFromSettings = false;
+    openSettings('main');
+  }
+});
 client.on('devices-changed', () => {
   if ($('devices-dialog').open) renderDevices();
 });

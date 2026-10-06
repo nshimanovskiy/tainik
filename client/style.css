@@ -193,7 +193,7 @@ input, textarea {
 .c-top { display: flex; align-items: center; gap: 6px; }
 .c-name { font-weight: 600; }
 /* Официальная галочка */
-.official { width: 1.05em; height: 1.05em; flex: none; vertical-align: -.17em; margin-left: .25em; }
+.official { width: 1.05em; height: 1.05em; min-width: 1.05em; aspect-ratio: 1; flex: none; display: inline-block; vertical-align: -.17em; margin-left: .25em; }
 .official-bg { fill: #3d95e6; }
 .official-check { fill: none; stroke: #fff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .me-name, .peer-name, .c-name { display: inline-flex; align-items: center; min-width: 0; }
