@@ -592,7 +592,7 @@ function createWindow(forceShow = false) {
 // Запрещаем любые переходы и новые окна; https-ссылки открываем в браузере
 app.on('web-contents-created', (_e, contents) => {
   contents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https://')) shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
   contents.on('will-navigate', (event, url) => {

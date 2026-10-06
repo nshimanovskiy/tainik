@@ -6,6 +6,7 @@ import config from './config.js';
 import { CallManager, CALL_RESULT_TEXT } from './call.js';
 import { t, LANG, LOCALE, setLang, translateDom } from '/shared/i18n.js';
 import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
+import { linkify } from '/shared/linkify.js';
 import { VERSION } from '/shared/version.js';
 
 const $ = (id) => document.getElementById(id);
@@ -668,6 +669,33 @@ const REJECT_TEXT = {
   unknown_spk: t('Не удалось расшифровать: сообщение слишком старое (ключ уже удалён)'),
   no_session: t('Не удалось расшифровать: нет сессии. Попросите собеседника написать ещё раз'),
 };
+// Текст со ссылками: только узлы DOM (никакого innerHTML), ссылки — http(s)
+function linkNodes(parent, text) {
+  for (const p of linkify(text)) {
+    if (!p.href) {
+      parent.append(document.createTextNode(p.text));
+      continue;
+    }
+    const a = el('a', 'lnk', p.text);
+    a.href = p.href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    if (p.ch) a.dataset.ch = p.href;
+    parent.append(a);
+  }
+  return parent;
+}
+// Ссылка на канал Тайника открывается внутри приложения, остальные — в браузере
+document.addEventListener('click', (e) => {
+  const a = e.target.closest?.('a.lnk');
+  if (!a) return;
+  e.stopPropagation();
+  if (a.dataset.ch && client.account) {
+    e.preventDefault();
+    openChannels(a.dataset.ch.slice(a.dataset.ch.indexOf('#ch=')));
+  }
+});
+
 function messageNode(m) {
   if (m.dir === 'sys' && m.content?.t === 'call') {
     const li = el('li', 'msg sys call' + (m.content.result === 'missed' ? ' missed' : ''));
@@ -719,9 +747,9 @@ function messageNode(m) {
     bubble.classList.add('has-media');
     if (m.content.file.as === 'note') bubble.classList.add('has-note');
     bubble.append(mediaNode(m.content.file));
-    if (m.content.body) bubble.append(el('div', 'caption', m.content.body));
+    if (m.content.body) bubble.append(linkNodes(el('div', 'caption'), m.content.body));
   } else {
-    bubble.append(document.createTextNode(m.content?.body ?? ''));
+    linkNodes(bubble, m.content?.body ?? '');
   }
   li.append(bubble);
   const acts = el('div', 'msg-actions');
@@ -4156,7 +4184,8 @@ async function renderProfile() {
   $('pf-status').classList.toggle('online', !!client.presenceOf(name)?.online && !client.isBlocked(name));
   $('pf-username').textContent = '@' + name;
   $('pf-bio-row').hidden = !prof?.bio;
-  $('pf-bio').textContent = prof?.bio || '';
+  $('pf-bio').replaceChildren();
+  linkNodes($('pf-bio'), prof?.bio || '');
   $('pf-key').textContent = c?.keyChanged ? t('⚠ ключ изменился — сверьте код') : c?.verified ? t('✔ ключ проверен') : t('🔒 ключ не проверен');
   const noCall = !c || !!c.keyChanged || client.isBlocked(name) || client.status !== 'online' || !window.RTCPeerConnection;
   $('pf-call').disabled = noCall;
@@ -4403,7 +4432,8 @@ async function cnSearch() {
     $('cn-pv-avatar').textContent = [...(pre.title || '?')][0].toUpperCase();
     $('cn-pv-title').textContent = pre.title;
     $('cn-pv-sub').textContent = [pre.public ? '@' + pre.handle : t('приватный канал'), t('подписчиков: {0}', pre.subs)].join(' · ');
-    $('cn-pv-about').textContent = pre.about;
+    $('cn-pv-about').replaceChildren();
+    linkNodes($('cn-pv-about'), pre.about);
     $('cn-pv-about').hidden = !pre.about;
     $('cn-pv-posts').replaceChildren(...pre.posts.slice(-3).map((m) => el('li', '', textOf(m.content))));
     $('cn-join').textContent = pre.role ? t('Открыть') : t('Подписаться');
@@ -4464,7 +4494,8 @@ async function renderChannelInfo() {
   $('ci-name').textContent = ch.title;
   $('ci-sub').textContent = channelSubText(ch);
   $('ci-about-row').hidden = !ch.about;
-  $('ci-about').textContent = ch.about;
+  $('ci-about').replaceChildren();
+  linkNodes($('ci-about'), ch.about);
   const link = client.channelLink(ch, location.origin);
   $('ci-link').textContent = ch.public ? '@' + ch.handle : link;
   $('ci-link-label').textContent = ch.public ? t('Публичная ссылка — нажмите, чтобы скопировать') : t('Ссылка-приглашение — по ней можно читать канал. Нажмите, чтобы скопировать');

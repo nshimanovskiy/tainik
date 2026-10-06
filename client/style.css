@@ -967,3 +967,5 @@ dialog.sheet[open] { animation: sheet-up .18s ease-out; }
 #fw-search { margin: 4px 0 10px; }
 .fw-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 4px; text-align: left; color: inherit; border-radius: 10px; }
 .fw-item:hover { background: var(--accent-soft); }
+a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-word; }
+.msg.out .bubble a.lnk { color: inherit; }
