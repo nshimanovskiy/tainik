@@ -4758,6 +4758,33 @@ window.__tainikBack = () => {
   if ($('app').classList.contains('in-chat')) return $('back-btn').click(), true;
   return false;
 };
+// Жест «назад», как на Android: свайп от края экрана внутрь (слева направо или справа налево),
+// а в открытом чате — свайп вправо из любого места
+{
+  let sw = null;
+  document.addEventListener('touchstart', (e) => {
+    sw = null;
+    if (e.touches.length !== 1) return;
+    const tch = e.touches[0];
+    // Не мешаем перемотке, записи, выделению текста и полям ввода
+    if (e.target.closest('input, textarea, .vwave, .note-seek, .rec-btn, .as-grid, .viewer-body, #call')) return;
+    const edge = tch.clientX < 28 ? 'left' : tch.clientX > innerWidth - 28 ? 'right' : null;
+    const inChat = $('app').classList.contains('in-chat') && !document.querySelector('dialog[open]');
+    if (!edge && !inChat) return;
+    sw = { x: tch.clientX, y: tch.clientY, t: Date.now(), edge };
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    const s = sw;
+    sw = null;
+    if (!s || rec) return;
+    const tch = e.changedTouches[0];
+    const dx = tch.clientX - s.x;
+    const dy = tch.clientY - s.y;
+    if (Date.now() - s.t > 700 || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    const back = s.edge === 'right' ? dx < 0 : dx > 0; // внутрь от края; без края — только вправо
+    if (back && window.__tainikBack) window.__tainikBack();
+  }, { passive: true });
+}
 // Нажали на уведомление «Звонок: …» — развернуть звонок
 window.__tainikShowCall = () => expandCall();
 // Сеть вернулась или телефон проснулся: проверить соединение, при необходимости — переподключиться.

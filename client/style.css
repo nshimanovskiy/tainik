@@ -111,7 +111,7 @@ input, textarea {
 .brand p { margin: 0; font-size: 13.5px; }
 
 /* ---------- Приложение ---------- */
-#app { display: grid; grid-template-columns: 320px 1fr; }
+#app { display: grid; grid-template-columns: 320px minmax(0, 1fr); }
 #sidebar {
   background: var(--panel);
   border-right: 1px solid var(--line);
@@ -173,7 +173,10 @@ input, textarea {
 .prem-link { display: inline-block; text-decoration: none; padding: 8px 16px; border-radius: 10px; }
 
 .add-form { display: flex; gap: 8px; padding: 0 14px; }
-.add-form input { padding: 8px 12px; }
+.add-form input { padding: 8px 12px; flex: 1 1 auto; min-width: 0; width: auto; }
+.add-form > button { flex: none; }
+#add-form { gap: 4px; }
+#add-form .icon-btn { width: 36px; }
 #add-error { padding: 2px 16px 0; margin: 0; }
 
 .contacts { list-style: none; margin: 4px 0 0; padding: 0 8px 12px; overflow-y: auto; flex: 1; }
@@ -324,7 +327,7 @@ h3 { font-size: 15px; margin: 18px 0 4px; }
 
 /* ---------- Мобильная раскладка ---------- */
 @media (max-width: 720px) {
-  #app { grid-template-columns: 1fr; }
+  #app { grid-template-columns: minmax(0, 1fr); }
   #app.in-chat #sidebar { display: none; }
   #app:not(.in-chat) #chat { display: none; }
   .chat-head .back { display: grid; }
