@@ -122,3 +122,10 @@ button.ghost.tick.on { color: var(--muted); }
   th:nth-child(4), td:nth-child(4) { display: none; }
   th:nth-child(5), td:nth-child(5) { display: none; }
 }
+
+.tabs { display: flex; gap: 6px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.tabs .tab { background: transparent; color: var(--muted); border-radius: 10px 10px 0 0; padding: 8px 14px; font-weight: 600; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs .tab.on { color: var(--text); border-bottom-color: var(--accent); }
+h2.sub { font-size: 15px; margin: 18px 0 8px; }
+.tag.pub { background: transparent; border: 1px solid var(--line); color: var(--muted); }
+code.cid { font-size: 11px; color: var(--muted); }

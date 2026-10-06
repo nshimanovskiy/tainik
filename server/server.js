@@ -17,7 +17,7 @@ import { createBlobs } from './blobs.js';
 import { createBilling, parsePlans, parseCurrencies, parsePacks } from './billing.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
-import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
+import { edVerify, isKey32, te, aeadDecrypt } from '../shared/protocol/primitives.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
@@ -35,6 +35,8 @@ const AUTH_CONTEXT = 'tainik/v3/auth';
 const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 120, billingPerMin: 6, channelPerMin: 60 };
 // Каналы
 const CHANNEL_ID_RE = /^[0-9a-f]{32}$/;
+const GROUP_ID_RE = /^[0-9a-f]{24}$/;
+const GROUPS_SYNC_MAX = 500; // групп в одном сообщении group-sync
 const CHANNEL_HANDLE_RE = /^[a-z][a-z0-9_]{4,31}$/;
 const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 const CHANNEL_META_MAX = 8 * 1024; // символов base64: зашифрованные название и описание
@@ -342,7 +344,7 @@ export function startServer({
   /** Описание канала для пользователя user (роль своя у каждого). Ключ — только у публичного. */
   function channelInfo(c, user) {
     const role = c.owner === user ? 'owner' : store.isChannelAdmin(c.id, user) ? 'admin' : store.isSubscribed(c.id, user) ? 'sub' : null;
-    const info = { id: c.id, public: c.public, handle: c.handle, meta: c.meta, seq: c.seq, owner: c.owner, subs: store.subscriberCount(c.id), role };
+    const info = { id: c.id, public: c.public, handle: c.handle, meta: c.meta, seq: c.seq, owner: c.owner, subs: store.subscriberCount(c.id), role, verified: !!c.verified };
     if (c.public) info.key = c.key;
     if (role === 'owner') info.admins = store.channelAdmins(c.id);
     return info;
@@ -690,6 +692,17 @@ export function startServer({
       }
 
       // ----- присутствие -----
+      // Свои группы (id и число участников): сервер выдаёт им номера и сообщает, у каких есть галочка
+      case 'group-sync': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!take(state.channel, RATE.channelPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        const list = (Array.isArray(msg.groups) ? msg.groups : [])
+          .filter((g) => g && GROUP_ID_RE.test(String(g.id)))
+          .slice(0, GROUPS_SYNC_MAX)
+          .map((g) => ({ id: String(g.id), members: g.members }));
+        return send(conn, { type: 'group-sync', reqId: msg.reqId, verified: store.syncGroups(state.user, list) });
+      }
+
       case 'presence-subscribe': {
         if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
         const names = [...new Set((Array.isArray(msg.names) ? msg.names : []).map((n) => String(n).toLowerCase()))]
@@ -952,6 +965,28 @@ export function startServer({
 
   const startedAt = Date.now();
   // Данные для панели администратора: IP — только у открытых сейчас соединений
+  // Название публичного канала (его ключ у сервера) — для панели; приватные и группы зашифрованы
+  const titleCache = new Map(); // id → { meta, title }
+  async function publicTitle(c) {
+    if (!c.public || !c.key) return null;
+    const hit = titleCache.get(c.id);
+    if (hit?.meta === c.meta) return hit.title;
+    let title = null;
+    try {
+      const raw = Buffer.from(c.meta, 'base64');
+      const pt = await aeadDecrypt(Buffer.from(c.key, 'base64'), raw.subarray(0, 12), raw.subarray(12), te.encode('tainik/channel/' + c.id));
+      title = String(JSON.parse(Buffer.from(pt).toString('utf8'))?.title ?? '').slice(0, 64) || null;
+    } catch {}
+    titleCache.set(c.id, { meta: c.meta, title });
+    return title;
+  }
+  async function adminChats() {
+    const { channels, groups } = store.adminChats();
+    return {
+      channels: await Promise.all(channels.map(async ({ key, meta, ...c }) => ({ ...c, title: await publicTitle({ ...c, key, meta }) }))),
+      groups,
+    };
+  }
   function adminOverview() {
     const now = Date.now();
     let onlineUsers = 0;
@@ -979,6 +1014,7 @@ export function startServer({
       return { ...u, devices, online: isOn, lastSeen: Math.max(0, ...devices.map((d) => d.lastSeen || 0)) || null };
     });
     return {
+      chats: adminChats(), // промис — панель дожидается (названия публичных каналов расшифровываются)
       version: VERSION,
       now,
       startedAt,
@@ -1049,6 +1085,18 @@ export function startServer({
       if (name && (!USERNAME_RE.test(name) || !store.getUser(name))) throw new Error('Нет такого пользователя');
       notice(name || null, 'admin', { text });
       say(name ? 'администратор отправил уведомление' : 'администратор отправил уведомление всем');
+    },
+    // Галочка каналу или группе: id канала (32 hex) или группы (24 hex)
+    setChatVerified(id, on) {
+      id = String(id || '');
+      if (CHANNEL_ID_RE.test(id)) {
+        if (!store.setChannelVerified(id, !!on)) throw new Error('Нет такого канала');
+        channelMetaChanged(id);
+      } else if (GROUP_ID_RE.test(id)) {
+        if (!store.setGroupVerified(id, !!on)) throw new Error('Нет такой группы');
+        for (const user of store.groupMembers(id)) for (const c of onlineDevices(user)) send(c, { type: 'group-verified', id, verified: !!on });
+      } else throw new Error('Неверный id');
+      say(on ? 'администратор поставил галочку каналу или группе' : 'администратор снял галочку с канала или группы');
     },
     ban(ip, note = '') {
       ip = normIp(ip);

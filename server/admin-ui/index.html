@@ -28,6 +28,39 @@
       <div class="tile"><span>Файлы (зашифрованы)</span><b id="t-media">—</b></div>
     </section>
 
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab on" data-tab="users" role="tab" aria-selected="true">Пользователи <span id="tab-users-n" class="muted"></span></button>
+      <button type="button" class="tab" data-tab="chats" role="tab" aria-selected="false">Каналы и группы <span id="tab-chats-n" class="muted"></span></button>
+    </nav>
+
+    <div id="tab-chats" hidden>
+      <section class="toolbar">
+        <input id="chat-search" type="search" placeholder="Поиск по ID, @имени, названию или владельцу" spellcheck="false" autocomplete="off">
+        <label class="check"><input id="only-verified" type="checkbox"> только с галочкой</label>
+      </section>
+      <h2 class="sub">Каналы</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Канал</th><th>Владелец</th><th class="num">Подписчики</th><th class="num">Посты</th><th>Создан</th><th></th></tr></thead>
+          <tbody id="chan-rows"></tbody>
+        </table>
+        <p id="no-chans" class="muted center small" hidden>Каналов нет</p>
+      </div>
+      <h2 class="sub">Группы</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Группа</th><th>Создатель</th><th class="num">Участники</th><th>Создана</th><th>Активность</th><th></th></tr></thead>
+          <tbody id="group-rows"></tbody>
+        </table>
+        <p id="no-groups" class="muted center small" hidden>Групп нет</p>
+      </div>
+      <p class="note muted small">
+        Номер (ID) канала и группы выдаётся сервером и виден только здесь. Название приватного канала и группы, их посты и сообщения зашифрованы — сервер их не видит; у публичного канала название видно (его ключ у сервера).
+        Группы появляются здесь, когда приложения участников сообщают о них серверу (версия 0.39 и новее); «участники» — сколько назвал создатель, «на сервере» — сколько участников уже отметились. Галочка видна всем участникам и подписчикам сразу.
+      </p>
+    </div>
+
+    <div id="tab-users">
     <section class="toolbar">
       <input id="search" type="search" placeholder="Поиск по имени, устройству или IP" spellcheck="false" autocomplete="off">
       <label class="check"><input id="only-online" type="checkbox"> только в сети</label>
@@ -48,6 +81,7 @@
         <tbody id="rows"></tbody>
       </table>
       <p id="empty" class="muted center" hidden>Никого не найдено</p>
+    </div>
     </div>
 
     <section class="bans" id="billing" hidden>

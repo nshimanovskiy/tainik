@@ -173,6 +173,24 @@ CREATE TABLE IF NOT EXISTS notices (
 );
 CREATE INDEX IF NOT EXISTS notices_user ON notices(user, id);
 CREATE INDEX IF NOT EXISTS notices_time ON notices(created_at);
+-- Группы: переписка в них сквозная (сервер не видит ни названия, ни сообщений). Устройства сами
+-- сообщают, в каких группах состоит их пользователь, — ради номера группы в панели и галочки.
+-- owner — кто первым сообщил о группе (её создатель), members — сколько участников он назвал.
+CREATE TABLE IF NOT EXISTS groups (
+  id          TEXT PRIMARY KEY,
+  uid         INTEGER UNIQUE,
+  owner       TEXT NOT NULL,
+  members     INTEGER NOT NULL DEFAULT 0,
+  verified    INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL,
+  active_at   INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS group_members (
+  grp   TEXT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+  user  TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  PRIMARY KEY (grp, user)
+);
+CREATE INDEX IF NOT EXISTS group_members_user ON group_members(user);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -235,6 +253,15 @@ export class Store {
     if (!bcols.includes('pin')) this.db.exec('ALTER TABLE blobs ADD COLUMN pin TEXT');
     this.db.exec('CREATE INDEX IF NOT EXISTS blobs_pin ON blobs(pin)');
     if (!pcols.includes('coins')) this.db.exec('ALTER TABLE payments ADD COLUMN coins INTEGER'); // покупка монет: сколько
+    // Каналы: номер (виден в панели администратора) и официальная галочка
+    const ccols = this.db.prepare("SELECT name FROM pragma_table_info('channels')").all().map((r) => r.name);
+    if (!ccols.includes('verified')) this.db.exec('ALTER TABLE channels ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
+    if (!ccols.includes('uid')) this.db.exec('ALTER TABLE channels ADD COLUMN uid INTEGER');
+    this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS channels_uid ON channels(uid)');
+    // Номера каналов и групп — общий счётчик: номер однозначно указывает на канал или группу
+    for (const r of this.db.prepare('SELECT id FROM channels WHERE uid IS NULL ORDER BY created_at, rowid').all()) {
+      this.db.prepare('UPDATE channels SET uid = ? WHERE id = ?').run(this._nextChatUid(), r.id);
+    }
     this.db.exec('CREATE INDEX IF NOT EXISTS payments_gift ON payments(gift_to, paid_at)');
     this.limits = { maxOpks, maxQueue, maxDevices };
     const q = (sql) => this.db.prepare(sql);
@@ -581,16 +608,86 @@ export class Store {
   }
 
   // ----- каналы -----
+  /** Следующий номер канала или группы (не переиспользуется). */
+  _nextChatUid() {
+    const row = this.db.prepare("SELECT value FROM meta WHERE key = 'next_chat_uid'").get();
+    const uid = Number(row?.value || 1);
+    this.db.prepare("INSERT INTO meta(key, value) VALUES ('next_chat_uid', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(uid + 1));
+    return uid;
+  }
   createChannel({ id, owner, handle = null, isPublic, key = null, meta, now = Date.now() }) {
     this.tx(() => {
-      this.db.prepare('INSERT INTO channels(id, owner, handle, public, key, meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, owner, handle, isPublic ? 1 : 0, key, meta, now);
+      this.db
+        .prepare('INSERT INTO channels(id, owner, handle, public, key, meta, created_at, uid) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, owner, handle, isPublic ? 1 : 0, key, meta, now, this._nextChatUid());
       this.db.prepare('INSERT INTO channel_subs(channel, user, created_at) VALUES (?, ?, ?)').run(id, owner, now);
     });
   }
   /** { id, owner, handle, public, key, meta, seq, createdAt } или null; по id или по @имени. */
   getChannel({ id, handle }) {
     const r = id ? this.db.prepare('SELECT * FROM channels WHERE id = ?').get(String(id)) : this.db.prepare('SELECT * FROM channels WHERE handle = ?').get(String(handle));
-    return r ? { id: r.id, owner: r.owner, handle: r.handle || null, public: !!r.public, key: r.key || null, meta: r.meta, seq: r.seq, createdAt: r.created_at } : null;
+    return r
+      ? { id: r.id, uid: r.uid, owner: r.owner, handle: r.handle || null, public: !!r.public, key: r.key || null, meta: r.meta, seq: r.seq, verified: !!r.verified, createdAt: r.created_at }
+      : null;
+  }
+  setChannelVerified(id, on) {
+    return this.db.prepare('UPDATE channels SET verified = ? WHERE id = ?').run(on ? 1 : 0, String(id)).changes > 0;
+  }
+
+  // ----- группы (только номер, участники и галочка; содержимое сервер не видит) -----
+  /**
+   * Устройство user сообщило свои группы: [{ id, members }]. Новые регистрируются (создатель —
+   * кто сообщил первым), участие в остальных (из которых вышли) снимается. Возвращает id групп
+   * с галочкой из этого списка.
+   */
+  syncGroups(user, list, now = Date.now()) {
+    return this.tx(() => {
+      const ids = [];
+      for (const g of list) {
+        const n = Math.max(1, Math.min(10_000, Math.floor(Number(g.members) || 1)));
+        const r = this.db.prepare('SELECT owner FROM groups WHERE id = ?').get(g.id);
+        if (!r) {
+          this.db.prepare('INSERT INTO groups(id, uid, owner, members, created_at, active_at) VALUES (?, ?, ?, ?, ?, ?)').run(g.id, this._nextChatUid(), user, n, now, now);
+        } else if (r.owner === user) {
+          this.db.prepare('UPDATE groups SET members = ?, active_at = ? WHERE id = ?').run(n, now, g.id);
+        } else {
+          this.db.prepare('UPDATE groups SET active_at = ? WHERE id = ?').run(now, g.id);
+        }
+        this.db.prepare('INSERT OR IGNORE INTO group_members(grp, user) VALUES (?, ?)').run(g.id, user);
+        ids.push(g.id);
+      }
+      const keep = new Set(ids);
+      for (const r of this.db.prepare('SELECT grp FROM group_members WHERE user = ?').all(user)) {
+        if (!keep.has(r.grp)) this.db.prepare('DELETE FROM group_members WHERE grp = ? AND user = ?').run(r.grp, user);
+      }
+      return this.db.prepare('SELECT g.id FROM groups g JOIN group_members m ON m.grp = g.id WHERE m.user = ? AND g.verified = 1').all(user).map((r) => r.id);
+    });
+  }
+  getGroup(id) {
+    const r = this.db.prepare('SELECT * FROM groups WHERE id = ?').get(String(id));
+    return r ? { id: r.id, uid: r.uid, owner: r.owner, members: r.members, verified: !!r.verified, createdAt: r.created_at, activeAt: r.active_at } : null;
+  }
+  groupMembers(id) {
+    return this.db.prepare('SELECT user FROM group_members WHERE grp = ?').all(String(id)).map((r) => r.user);
+  }
+  setGroupVerified(id, on) {
+    return this.db.prepare('UPDATE groups SET verified = ? WHERE id = ?').run(on ? 1 : 0, String(id)).changes > 0;
+  }
+  /** Каналы и группы для панели администратора. */
+  adminChats() {
+    const channels = this.db
+      .prepare(
+        `SELECT c.*, (SELECT COUNT(*) FROM channel_subs s WHERE s.channel = c.id) AS subs,
+                (SELECT COUNT(*) FROM channel_posts p WHERE p.channel = c.id AND p.deleted_at IS NULL) AS posts
+         FROM channels c ORDER BY c.uid DESC`
+      )
+      .all()
+      .map((r) => ({ id: r.id, uid: r.uid, owner: r.owner, handle: r.handle || null, public: !!r.public, key: r.key || null, meta: r.meta, verified: !!r.verified, subs: r.subs, posts: r.posts, createdAt: r.created_at }));
+    const groups = this.db
+      .prepare('SELECT g.*, (SELECT COUNT(*) FROM group_members m WHERE m.grp = g.id) AS registered FROM groups g ORDER BY g.uid DESC')
+      .all()
+      .map((r) => ({ id: r.id, uid: r.uid, owner: r.owner, members: r.members, registered: r.registered, verified: !!r.verified, createdAt: r.created_at, activeAt: r.active_at }));
+    return { channels, groups };
   }
   channelsOwnedBy(user) {
     return this.db.prepare('SELECT COUNT(*) AS n FROM channels WHERE owner = ?').get(user).n;

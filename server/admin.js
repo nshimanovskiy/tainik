@@ -150,7 +150,7 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
     }
     // Действия: только с сессией, только JSON и только со своим заголовком — чужой сайт
     // не может отправить такой запрос из браузера администратора (CSRF).
-    const act = /^\/api\/(delete-user|ban|unban|verify|premium|coins|notice)$/.exec(sub);
+    const act = /^\/api\/(delete-user|ban|unban|verify|premium|coins|notice|chat-verify)$/.exec(sub);
     if (req.method === 'POST' && act) {
       const json = (status, obj) => send(res, status, JSON.stringify(obj), 'application/json; charset=utf-8');
       if (!authed) return json(401, { error: 'unauthorized' }), true;
@@ -165,6 +165,7 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
           else if (act[1] === 'premium') actions.setPremium(body.name, body.days);
           else if (act[1] === 'coins') actions.addCoins(body.name, body.delta);
           else if (act[1] === 'notice') actions.sendNotice(body.name, body.text);
+          else if (act[1] === 'chat-verify') actions.setChatVerified(body.id, body.verified === true);
           else if (act[1] === 'ban') actions.ban(body.ip, body.note);
           else actions.unban(body.ip);
           json(200, { ok: true });
@@ -182,7 +183,12 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
     }
     if (sub === '/api/overview') {
       if (!authed) send(res, 401, JSON.stringify({ error: 'unauthorized' }), 'application/json; charset=utf-8');
-      else send(res, 200, JSON.stringify(overview()), 'application/json; charset=utf-8');
+      else {
+        const o = overview();
+        Promise.resolve(o.chats)
+          .then((chats) => send(res, 200, JSON.stringify({ ...o, chats }), 'application/json; charset=utf-8'))
+          .catch(() => send(res, 500, JSON.stringify({ error: 'internal' }), 'application/json; charset=utf-8'));
+      }
       return true;
     }
     if (sub === '/' && !authed) {

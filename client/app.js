@@ -4604,6 +4604,7 @@ async function cnSearch() {
     paintAvatar($('cn-pv-avatar'), pre.chat);
     $('cn-pv-avatar').textContent = [...(pre.title || '?')][0].toUpperCase();
     $('cn-pv-title').textContent = pre.title;
+    if (pre.verified) $('cn-pv-title').append(verifiedBadge());
     $('cn-pv-sub').textContent = [pre.public ? '@' + pre.handle : t('приватный канал'), t('подписчиков: {0}', pre.subs)].join(' · ');
     $('cn-pv-about').replaceChildren();
     linkNodes($('cn-pv-about'), pre.about);
@@ -4664,7 +4665,7 @@ async function renderChannelInfo() {
   const owner = ch.role === 'owner' && !ch.gone;
   const admin = isChAdmin(ch);
   paintAvatar($('ci-avatar'), chat);
-  $('ci-name').textContent = ch.title;
+  setName($('ci-name'), chat, client.isVerified(chat));
   $('ci-sub').textContent = channelSubText(ch);
   $('ci-about-row').hidden = !ch.about;
   $('ci-about').replaceChildren();
@@ -4811,7 +4812,7 @@ async function renderGroup() {
   const me = client.account.username;
   const admin = !g.left && g.admins.includes(me);
   paintAvatar($('gd-avatar'), chat);
-  $('gd-name').textContent = g.name;
+  setName($('gd-name'), chat, client.isVerified(chat));
   $('gd-count').textContent = membersText(g);
   $('gd-rename').hidden = !admin;
   if (admin && document.activeElement !== $('gd-name-input')) $('gd-name-input').value = g.name;

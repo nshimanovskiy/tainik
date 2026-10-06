@@ -79,7 +79,7 @@ function verifiedBadge() {
   t.textContent = 'Официальный аккаунт';
   const bg = document.createElementNS(NS, 'path');
   bg.setAttribute('class', 'official-bg');
-  bg.setAttribute('d', 'M12 1.5l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.5l-2.6-1.9-3.2.2-1-3.1-2.6-1.9 1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z');
+  bg.setAttribute('d', 'M12 1.5a10.5 10.5 0 1 0 0 21a10.5 10.5 0 1 0 0-21z'); // круг, как в мессенджере
   const ck = document.createElementNS(NS, 'path');
   ck.setAttribute('class', 'official-check');
   ck.setAttribute('d', 'M7.6 12.3l3 3 5.8-6.2');
@@ -279,6 +279,7 @@ async function load() {
     data = await r.json();
     fetchedAt = Date.now();
     render();
+    renderChats();
   } catch {
     $('updated').textContent = 'нет связи с сервером';
   }
@@ -296,6 +297,90 @@ $('ban-form').addEventListener('submit', async (e) => {
     $('ban-error').textContent = err.message;
   }
 });
+// ---------- Вкладки: пользователи / каналы и группы ----------
+function showTab(name) {
+  for (const b of document.querySelectorAll('.tabs .tab')) {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+  $('tab-users').hidden = name !== 'users';
+  $('tab-chats').hidden = name !== 'chats';
+  try {
+    sessionStorage.setItem('admin-tab', name);
+  } catch {}
+}
+for (const b of document.querySelectorAll('.tabs .tab')) b.addEventListener('click', () => showTab(b.dataset.tab));
+try {
+  if (sessionStorage.getItem('admin-tab') === 'chats') showTab('chats');
+} catch {}
+
+function verifyButton(kind, item, label) {
+  const b = el('button', 'ghost tick' + (item.verified ? ' on' : ''), item.verified ? 'Снять галочку' : 'Поставить галочку');
+  b.type = 'button';
+  b.title = item.verified ? 'Убрать официальную галочку' : `Отметить ${kind} как официальный: галочка рядом с названием у всех`;
+  b.addEventListener('click', async () => {
+    if (item.verified && !confirm(`Снять галочку: ${label}?`)) return;
+    try {
+      await act('chat-verify', { id: item.id, verified: !item.verified });
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+  return b;
+}
+
+function renderChats() {
+  if (!data?.chats) return;
+  const { channels = [], groups = [] } = data.chats;
+  $('tab-users-n').textContent = data.totals ? String(data.totals.users) : '';
+  $('tab-chats-n').textContent = String(channels.length + groups.length);
+  const q = $('chat-search').value.trim().toLowerCase().replace(/^#/, '');
+  const onlyVer = $('only-verified').checked;
+  const hit = (x, extra = []) =>
+    (!onlyVer || x.verified) &&
+    (!q || String(x.uid) === q || x.id.startsWith(q) || (x.owner || '').includes(q) || extra.some((s) => (s || '').toLowerCase().includes(q.replace(/^@/, ''))));
+
+  const chans = channels.filter((c) => hit(c, [c.handle, c.title])).map((c) => {
+    const tr = el('tr');
+    const name = el('td', 'name');
+    const b = el('b', '', c.title || (c.public ? '(без названия)' : '🔒 приватный канал'));
+    if (c.verified) b.append(verifiedBadge());
+    name.append(el('span', 'tag uid', `ID ${c.uid ?? '—'}`), b);
+    if (c.handle) name.append(el('span', 'tag pub', '@' + c.handle));
+    name.append(el('br'), el('code', 'cid', c.id));
+    const actions = el('td', 'actions');
+    actions.append(verifyButton('канал', c, c.title || c.handle || 'канал ' + c.uid));
+    tr.append(name, el('td', '', c.owner), el('td', 'num', String(c.subs)), el('td', 'num', String(c.posts)), el('td', 'muted small', dateFmt.format(c.createdAt)), actions);
+    return tr;
+  });
+  $('chan-rows').replaceChildren(...chans);
+  $('no-chans').hidden = chans.length > 0;
+
+  const grps = groups.filter((g) => hit(g)).map((g) => {
+    const tr = el('tr');
+    const name = el('td', 'name');
+    const b = el('b', '', '👥 группа');
+    if (g.verified) b.append(verifiedBadge());
+    name.append(el('span', 'tag uid', `ID ${g.uid ?? '—'}`), b, el('br'), el('code', 'cid', g.id));
+    const actions = el('td', 'actions');
+    actions.append(verifyButton('группу', g, 'группа ' + g.uid));
+    tr.append(
+      name,
+      el('td', '', g.owner),
+      el('td', 'num', `${g.members} · на сервере ${g.registered}`),
+      el('td', 'muted small', dateFmt.format(g.createdAt)),
+      el('td', 'muted small', ago(g.activeAt, data.now)),
+      actions
+    );
+    return tr;
+  });
+  $('group-rows').replaceChildren(...grps);
+  $('no-groups').hidden = grps.length > 0;
+}
+$('chat-search').addEventListener('input', renderChats);
+$('only-verified').addEventListener('change', renderChats);
+
 $('search').addEventListener('input', render);
 $('only-online').addEventListener('change', render);
 load();

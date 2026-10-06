@@ -426,6 +426,7 @@ export class MessengerClient extends Emitter {
     // Свой профиль (имя, «о себе»). Сервер его не знает: он уходит собеседникам зашифрованным
     this.profile = { name: '', bio: '', v: 0 };
     this._names = new Map(); // имя собеседника по юзернейму — для интерфейса
+    this._verifiedChats = new Set(); // группы и каналы с галочкой (ключи чатов)
     this._avatars = new Map(); // фото профиля собеседника по юзернейму
     this._profileReplies = new Map(); // кому и когда повторно отправляли профиль по запросу
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
@@ -875,7 +876,9 @@ export class MessengerClient extends Emitter {
         if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
         if (Array.isArray(msg.notices)) this._serial(() => this._onNotices(msg.notices)).catch((e) => console.error('notices', e));
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
+        this._groupsSynced = null;
         this._setStatus('online');
+        this._syncGroups().catch(() => {});
         this._subscribePresence().catch(() => {});
         if (this._firstReady) {
           this._firstReady.resolve();
@@ -905,6 +908,9 @@ export class MessengerClient extends Emitter {
         return;
       case 'notice':
         this._serial(() => this._onNotices([msg.notice])).catch((e) => console.error('notices', e));
+        return;
+      case 'group-verified':
+        if (/^[0-9a-f]{24}$/.test(String(msg.id))) this._setGroupsVerified(null, { chat: groupKey(msg.id), on: msg.verified === true }).catch(() => {});
         return;
       case 'channel-post':
         this._serial(() => this._onChannelPost(String(msg.id), msg.post)).catch(() => {});
@@ -1080,6 +1086,7 @@ export class MessengerClient extends Emitter {
   /** Официальная галочка у собеседника (её ставит администратор сервера). */
   isVerified(username) {
     if (isSystemChat(username)) return true; // служебный чат «Тайник»
+    if (isGroupChat(username) || isChannelChat(username)) return this._verifiedChats.has(username); // галочку ставит администратор
     return !!this.presence.get(username)?.verified;
   }
 
@@ -1321,6 +1328,51 @@ export class MessengerClient extends Emitter {
     await this.storage.set('contacts', c);
     this._indexNames(c);
     this.emit('contacts', c);
+    this._maybeSyncGroups(c);
+  }
+
+  // ---------- Группы на сервере: номер и галочка ----------
+  // Сервер не знает групп (переписка в них сквозная). Устройство сообщает ему id своих групп и
+  // число участников — так у группы появляется номер в панели администратора и может быть галочка.
+  _groupsSig(all) {
+    return Object.values(all)
+      .filter((c) => c.group && !c.group.left)
+      .map((c) => `${c.group.id}:${c.group.members.length}`)
+      .sort()
+      .join(',');
+  }
+  _maybeSyncGroups(all) {
+    if (this.status !== 'online' || this._groupsSig(all) === this._groupsSynced) return;
+    clearTimeout(this._groupsTimer);
+    this._groupsTimer = setTimeout(() => this._syncGroups().catch(() => {}), 500);
+  }
+  async _syncGroups() {
+    if (this.status !== 'online') return;
+    const all = await this.contacts();
+    const sig = this._groupsSig(all);
+    const groups = Object.values(all)
+      .filter((c) => c.group && !c.group.left)
+      .map((c) => ({ id: c.group.id, members: c.group.members.length }));
+    const r = await this._request({ type: 'group-sync', groups });
+    this._groupsSynced = sig;
+    await this._setGroupsVerified(new Set((Array.isArray(r.verified) ? r.verified : []).map((id) => groupKey(String(id)))));
+  }
+  /** verified — множество ключей групп ('#id') с галочкой; null — поменять одну: { chat, on }. */
+  async _setGroupsVerified(verified, one = null) {
+    await this._serial(async () => {
+      const all = await this.contacts();
+      let changed = false;
+      for (const c of Object.values(all)) {
+        if (!c.group) continue;
+        const on = one ? (c.username === one.chat ? one.on : !!c.verifiedMark) : verified.has(c.username);
+        if (!!c.verifiedMark !== on) {
+          if (on) c.verifiedMark = true;
+          else delete c.verifiedMark;
+          changed = true;
+        }
+      }
+      if (changed) await this._saveContacts(all);
+    });
   }
 
   // ---------- Профиль: юзернейм (уникальный, @name) и имя (любое, как в Telegram) ----------
@@ -1330,7 +1382,9 @@ export class MessengerClient extends Emitter {
   _indexNames(all) {
     this._names.clear();
     this._avatars.clear();
+    (this._verifiedChats ||= new Set()).clear();
     for (const c of Object.values(all || {})) {
+      if ((c.group && c.verifiedMark) || c.channel?.verified) this._verifiedChats.add(c.username);
       if (c.group) this._names.set(c.username, c.group.name);
       if (c.system) this._names.set(c.username, t('Тайник'));
       if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
@@ -1656,6 +1710,7 @@ export class MessengerClient extends Emitter {
       seq: Number.isSafeInteger(info.seq) ? info.seq : c.channel.seq || 0,
       owner: typeof info.owner === 'string' ? info.owner : c.channel.owner || null,
       admins: Array.isArray(info.admins) ? info.admins.filter((a) => typeof a === 'string') : c.channel.admins || [],
+      verified: info.verified === true,
     });
     delete c.channel.gone;
     delete c.hidden;
@@ -1676,7 +1731,7 @@ export class MessengerClient extends Emitter {
       const content = cleanText(await channelOpen(key, info.id, p.data), p.ts);
       if (content) posts.push({ id: 'p' + p.seq, dir: 'in', ts: p.ts, content });
     }
-    return { chat: channelKey(info.id), id: info.id, key, ...cleanChannelMeta(meta), subs: info.subs, public: !!info.public, handle: info.handle || null, role: info.role, posts };
+    return { chat: channelKey(info.id), id: info.id, key, ...cleanChannelMeta(meta), subs: info.subs, public: !!info.public, handle: info.handle || null, role: info.role, verified: info.verified === true, posts };
   }
 
   /** Подписаться (ref — ссылка, @имя или результат channelPreview). Возвращает чат канала. */
