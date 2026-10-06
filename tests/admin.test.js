@@ -36,11 +36,12 @@ const login = (base, password, ip) =>
   });
 
 test('панель администратора: вход, сессия, пользователи и IP подключений', async (t) => {
-  const { base, mk } = await setup(t);
+  const { base, mk, srv } = await setup(t);
   const alice = mk();
   const bob = mk();
   await alice.register('alice');
   await bob.register('bob');
+  srv.store.extendPremium('bob', 30); // скрыть статус — с Премиум
   await bob.setPresenceVisible(false);
 
   // Без слэша — перенаправление, без сессии — страница входа, API закрыт
@@ -196,6 +197,7 @@ test('официальная галочка: у admin по умолчанию, �
   assert.equal(alice.verified, false);
 
   // Собеседник видит галочку admin, даже если тот скрыл статус «в сети»
+  srv.store.extendPremium('admin', 30); // скрыть статус — с Премиум
   await admin.setPresenceVisible(false);
   await bob.addContact('admin');
   await bob.addContact('alice');

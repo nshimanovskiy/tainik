@@ -554,7 +554,11 @@ export class Store {
   /** { hidden, verified, premium, lastSeen } или null, если пользователя нет */
   getPresence(name) {
     const r = this.s.presence.get(name);
-    return r ? { hidden: !!r.hidden, verified: !!r.verified, premium: (r.premium_until || 0) > Date.now(), lastSeen: r.last_seen || null } : null;
+    if (!r) return null;
+    const premium = (r.premium_until || 0) > Date.now();
+    // Скрыть статус «в сети» — возможность Премиум: без подписки скрытие не действует
+    // (выбор сохраняется и снова работает, когда подписка появится)
+    return { hidden: !!r.hidden && premium, hiddenChoice: !!r.hidden, verified: !!r.verified, premium, lastSeen: r.last_seen || null };
   }
   setVerified(name, on) {
     return this.s.setVerified.run(on ? 1 : 0, name).changes > 0;

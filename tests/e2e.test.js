@@ -427,7 +427,7 @@ test('ответы и удаление: у меня, у всех, синхрон
 });
 
 test('статус «в сети»: подписка, «был(а)», скрытие', async (t) => {
-  const { mk } = await setup(t);
+  const { mk, srv } = await setup(t);
   const alice = mk();
   const bob = mk();
   await alice.register('alice');
@@ -447,6 +447,9 @@ test('статус «в сети»: подписка, «был(а)», скрыт
   await bob.connect();
   await on;
 
+  // Скрыть статус — возможность Премиум: без подписки нельзя
+  await assert.rejects(bob.setPresenceVisible(false), (e) => e.code === 'premium_presence');
+  srv.store.extendPremium('bob', 30);
   // Боб скрывает статус
   const hid = waitFor(alice, 'presence', (q) => q.username === 'bob' && q.hidden);
   await bob.setPresenceVisible(false);
@@ -459,6 +462,13 @@ test('статус «в сети»: подписка, «был(а)», скрыт
   const again = waitFor(alice, 'presence', (q) => q.username === 'bob');
   await alice.connect();
   assert.equal((await again).hidden, true);
+  // Подписка закончилась — статус снова виден (выбор сохранится до новой подписки)
+  srv.store.revokePremium('bob');
+  alice.disconnect();
+  const visible = waitFor(alice, 'presence', (q) => q.username === 'bob');
+  await alice.connect();
+  assert.equal((await visible).hidden, false);
+  srv.store.extendPremium('bob', 30);
   await bob.setPresenceVisible(true);
 });
 

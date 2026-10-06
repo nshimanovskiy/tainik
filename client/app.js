@@ -96,9 +96,10 @@ let current = null;
 // окно в трее, свёрнутая вкладка) соединение остаётся — сообщения и звонки приходят.
 const pageActive = () => (android ? desktop.isActive?.() ?? true : document.visibilityState === 'visible');
 function applyActive() {
-  const a = pageActive();
-  client.setActive(a);
-  for (const o of others.values()) o.client.setActive(a);
+  client.setActive(pageActive());
+  // Остальные аккаунты на этом устройстве работают в фоне: сообщения приходят, но «в сети»
+  // показывается только тот, который сейчас открыт
+  for (const o of others.values()) o.client.setActive(false);
 }
 client.active = pageActive();
 document.addEventListener('visibilitychange', () => !android && applyActive());
@@ -2418,7 +2419,7 @@ $('menu-dialog').addEventListener('cancel', (e) => {
 async function fillSettings() {
   $('my-fp').textContent = await client.myFingerprint();
   $('my-server').textContent = client.url;
-  $('presence-visible').checked = !client.presenceHidden;
+  renderPresenceToggle();
   $('get-apps-row').hidden = !!desktop; // в вебе — ссылка на загрузки
   if (desktop?.version) {
     $('my-version').textContent = await desktop.version();
@@ -5197,6 +5198,14 @@ client.on('presence', ({ username }) => {
 });
 client.on('verified', (on) => client.account && setName($('me-name'), client.account.username, on));
 client.on('status', renderPresence);
+// Скрыть статус — возможность Премиум: без подписки статус виден, переключатель заблокирован
+function renderPresenceToggle() {
+  const premium = client.isPremium();
+  $('presence-visible').checked = !(client.presenceHidden && premium);
+  $('presence-visible').disabled = !premium;
+  $('presence-locked').hidden = premium;
+}
+client.on('premium', () => client.account && renderPresenceToggle());
 $('presence-visible').addEventListener('change', async (e) => {
   try {
     await client.setPresenceVisible(e.target.checked);
@@ -5401,7 +5410,7 @@ async function startOthers() {
   for (const acc of savedAccounts()) {
     if (acc.id === activeId || others.has(acc.id)) continue;
     const c = new MessengerClient({ url: acc.server || DEFAULT_SERVER, storage: storageFor(acc.id), appVersion: APP_VERSION });
-    c.active = pageActive();
+    c.active = false; // фоновый аккаунт: собеседники видят «был(а) …», а не «в сети»
     const item = { acc, client: c, unread: 0 };
     others.set(acc.id, item);
     try {

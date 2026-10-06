@@ -906,4 +906,6 @@ export default {
   "Удалить навсегда": "Delete forever",
   "Аккаунт": "Account",
   "будет удалён с сервера вместе с ключами, непрочитанными сообщениями, подпиской Премиум, монетами и вашими каналами. Все ваши устройства выйдут из аккаунта и сотрут переписку. Отменить это нельзя; юзернейм освободится.": "will be deleted from the server together with its keys, undelivered messages, Premium subscription, coins and your channels. All your devices will sign out and erase their chats. This can’t be undone; the username will become free.",
+  "Скрывать статус «в сети» можно с подпиской Премиум": "Hiding your online status requires Premium",
+  "⭐ Скрывать статус «в сети» — с подпиской Премиум": "⭐ Hide your online status — with Premium",
 };

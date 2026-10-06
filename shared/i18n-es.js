@@ -834,4 +834,6 @@ export default {
   "Удалить навсегда": "Eliminar para siempre",
   "Аккаунт": "La cuenta",
   "будет удалён с сервера вместе с ключами, непрочитанными сообщениями, подпиской Премиум, монетами и вашими каналами. Все ваши устройства выйдут из аккаунта и сотрут переписку. Отменить это нельзя; юзернейм освободится.": "se eliminará del servidor junto con sus claves, los mensajes pendientes, la suscripción Premium, las monedas y tus canales. Todos tus dispositivos cerrarán sesión y borrarán los chats. No se puede deshacer; el nombre de usuario quedará libre.",
+  "Скрывать статус «в сети» можно с подпиской Премиум": "Ocultar tu estado «en línea» requiere Premium",
+  "⭐ Скрывать статус «в сети» — с подпиской Премиум": "⭐ Oculta tu estado «en línea» — con Premium",
 };

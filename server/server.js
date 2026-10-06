@@ -769,6 +769,7 @@ export function startServer({
 
       case 'set-presence-visibility': {
         if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!msg.visible && !premiumOf(state.user).active) return error(conn, 'premium_presence', { reqId: msg.reqId });
         store.setPresenceHidden(state.user, !msg.visible);
         broadcastPresence(state.user);
         return send(conn, { type: 'presence-visibility', reqId: msg.reqId, visible: !!msg.visible });
