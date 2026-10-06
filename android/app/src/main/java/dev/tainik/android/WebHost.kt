@@ -64,6 +64,9 @@ class WebHost(private val app: TainikApp) {
     @Volatile
     var pendingChat: String? = null
 
+    /** Ответы, набранные в уведомлениях: (чат, текст). Страница забирает их сама, когда готова. */
+    val pendingReplies = ArrayList<Pair<String, String>>()
+
     var activity: MainActivity? = null
         private set
 
@@ -88,6 +91,12 @@ class WebHost(private val app: TainikApp) {
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
             setGeolocationEnabled(false)
+            // Размер интерфейса — как задуман: без увеличения шрифта системой (крупный шрифт в
+            // настройках Android ломал вёрстку) и без масштабирования щипком
+            textZoom = 100
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
             // Отладочная сборка подключается к серверу разработчика по ws:// (без TLS)
             mixedContentMode =
                 if (BuildConfig.DEBUG) WebSettings.MIXED_CONTENT_ALWAYS_ALLOW else WebSettings.MIXED_CONTENT_NEVER_ALLOW
@@ -152,6 +161,14 @@ class WebHost(private val app: TainikApp) {
     /** Развернуть свёрнутый звонок (нажали на уведомление «Звонок: …»). */
     fun showCall() {
         if (!destroyed && bridgeReady) webView.evaluateJavascript("window.__tainikShowCall && window.__tainikShowCall()", null)
+    }
+
+    /** Ответ из уведомления — в страницу (она отправит его от нужного аккаунта). */
+    fun sendReply(chat: String, text: String) {
+        synchronized(pendingReplies) {
+            if (pendingReplies.size < 50) pendingReplies.add(chat to text)
+        }
+        if (!destroyed && bridgeReady) webView.evaluateJavascript("window.__tainikNative && __tainikNative.deliverReplies && __tainikNative.deliverReplies()", null)
     }
 
     fun openChat(chat: String) {

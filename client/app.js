@@ -24,6 +24,15 @@ translateDom(); // статический текст страницы — на �
 // Android-приложение даёт тот же мост, что и десктоп, с platform: 'android'
 const android = desktop?.platform === 'android';
 
+// Интерфейс не масштабируется: Safari на iPhone не слушается user-scalable=no в viewport,
+// а в браузере на компьютере масштаб меняют Ctrl+колесо (и щипок тачпада) и Ctrl +/−
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (e) => e.scale !== undefined && e.scale !== 1 && e.preventDefault(), { passive: false });
+document.addEventListener('wheel', (e) => e.ctrlKey && e.preventDefault(), { passive: false });
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && ['+', '=', '-', '_', '0'].includes(e.key)) e.preventDefault();
+});
+
 if (!window.isSecureContext || !globalThis.crypto?.subtle || (!desktop && !window.indexedDB)) {
   $('unsupported').hidden = false;
   throw new Error(t('Небезопасный контекст: WebCrypto недоступен'));
@@ -2733,9 +2742,9 @@ function serviceWorker() {
   return swReady;
 }
 
-async function showNotice({ title, body, chat, tag, call = false, force = false }) {
+async function showNotice({ title, body, chat, tag, call = false, force = false, reply = false }) {
   if (!(await notifPrefs()).enabled) return;
-  if (desktop) return desktop.notify({ title, body, chat, call, force });
+  if (desktop) return desktop.notify({ title, body, chat, call, force, reply });
   const opts = { body, tag, renotify: true, icon: '/icon-192.png', badge: '/badge-72.png', data: { chat }, requireInteraction: call };
   const reg = await serviceWorker();
   try {
@@ -2752,8 +2761,48 @@ async function notifyMessage(contact, message) {
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
   // Группа: в заголовке — название, в тексте — кто написал
   const who = message.from ? `${nameOf(message.from)}: ` : '';
-  await showNotice({ title: nameOf(contact), body: who + (text || t('Новое сообщение')), chat: contact, tag: 'msg:' + contact });
+  await showNotice({ title: nameOf(contact), body: who + (text || t('Новое сообщение')), chat: contact, tag: 'msg:' + contact, reply: await canReplyTo(client, contact) });
 }
+
+/** Можно ли ответить в этот чат прямо из уведомления. */
+async function canReplyTo(c, chat) {
+  const x = (await c.contacts())[chat];
+  if (!x) return false;
+  if (x.channel) return !x.channel.gone && (x.channel.role === 'owner' || x.channel.role === 'admin');
+  if (x.group) return !x.group.left;
+  return !x.keyChanged && !c.isBlocked(chat);
+}
+
+/**
+ * Ответ из уведомления (Android, macOS): chat — как в уведомлении (для другого аккаунта —
+ * «чат@id»). Отправляется от нужного аккаунта, чат отмечается прочитанным.
+ */
+async function replyFromNotice(chatRaw, text) {
+  text = String(text ?? '').trim();
+  let chat = String(chatRaw ?? '');
+  if (!text || !chat) return;
+  let account = activeId;
+  const at = chat.lastIndexOf('@');
+  if (at > 0) {
+    account = chat.slice(at + 1);
+    chat = chat.slice(0, at);
+  }
+  const pick = () => (account === activeId ? client : others.get(account)?.client);
+  // Страница могла только что запуститься по ответу — ждём входа в аккаунт
+  let target = pick();
+  for (let i = 0; i < 300 && !target?.account; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    target = pick();
+  }
+  if (!target?.account) return;
+  try {
+    await target.sendText(chat, text.slice(0, 20000));
+    await target.markRead(chat);
+  } catch (err) {
+    showNotice({ title: t('Ответ не отправлен'), body: err.message, chat: chatRaw, tag: 'reply-error', force: true });
+  }
+}
+if (desktop?.onReply) desktop.onReply((chat, text) => replyFromNotice(chat, text));
 
 let pendingNoticeChat = null;
 async function openChatFromNotice(chat) {
@@ -4601,6 +4650,7 @@ async function notifyOther(acc, contact, message) {
     chat: `${contact}@${acc.id}`,
     tag: `msg:${acc.id}:${contact}`,
     force: true,
+    reply: await canReplyTo(others.get(acc.id)?.client || client, contact),
   });
 }
 

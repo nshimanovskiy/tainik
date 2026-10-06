@@ -109,7 +109,7 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
         main.post {
             Notifier.show(
                 app, n.optString("title", "Тайник"), n.optString("body"), n.optString("chat"),
-                n.optBoolean("call"), n.optBoolean("force"),
+                n.optBoolean("call"), n.optBoolean("force"), n.optBoolean("reply"),
             )
         }
     }
@@ -138,6 +138,18 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
     @JavascriptInterface
     fun setBadge(n: Int) {
         // Счётчик на значке Android рисует по уведомлениям сама система
+    }
+
+    /** Ответы из уведомлений, которые ещё не забрала страница: [{chat, text}]. */
+    @JavascriptInterface
+    fun takePendingReplies(): String {
+        if (!ours()) return "[]"
+        val out = JSONArray()
+        synchronized(host.pendingReplies) {
+            for ((chat, text) in host.pendingReplies) out.put(JSONObject().put("chat", chat).put("text", text))
+            host.pendingReplies.clear()
+        }
+        return out.toString()
     }
 
     @JavascriptInterface

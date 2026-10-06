@@ -44,6 +44,12 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; margin: 0; }
+/* Интерфейс не масштабируется: без двойного касания и без подстройки шрифта браузером */
+html { touch-action: manipulation; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+/* iPhone увеличивает страницу при фокусе на поле со шрифтом меньше 16px — на телефонах 16px */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px !important; }
+}
 /* iPhone в альбомной ориентации: не залезать под «чёлку» */
 body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 .ios-install {

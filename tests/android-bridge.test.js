@@ -13,6 +13,7 @@ function load() {
   const store = new Map();
   const saved = [];
   let pending = '';
+  let replies = [];
   const win = {};
   win.TainikNative = {
     hello: () => sync.push(['hello']),
@@ -41,9 +42,14 @@ function load() {
       pending = '';
       return c;
     },
+    takePendingReplies() {
+      const r = JSON.stringify(replies);
+      replies = [];
+      return r;
+    },
   };
   vm.runInNewContext(SRC, { window: win, JSON, Promise, Error, String, Number, Object, Map, btoa });
-  return { win, calls, sync, store, saved, setPending: (c) => (pending = c) };
+  return { win, calls, sync, store, saved, setPending: (c) => (pending = c), addReply: (r) => replies.push(r) };
 }
 
 test('android-мост: window.desktop с тем же интерфейсом, что у десктопа', async () => {
@@ -89,7 +95,7 @@ test('android-мост: уведомления, звонок и открытие
   d.dismissNotice({ call: true });
   d.callActive(true, 'bob');
   assert.deepEqual(sync.slice(1, 4), [
-    ['notify', { title: 'bob', body: 'текст', chat: 'bob', call: true, force: false }],
+    ['notify', { title: 'bob', body: 'текст', chat: 'bob', call: true, force: false, reply: false }],
     ['dismiss', { call: true, chat: '' }],
     ['call', true, 'bob'],
   ]);
@@ -103,6 +109,22 @@ test('android-мост: уведомления, звонок и открытие
   setPending('carol');
   win.__tainikNative.deliver();
   assert.deepEqual(opened, ['alice', 'carol']);
+});
+
+test('android-мост: ответ из уведомления доходит до страницы, в том числе набранный до её загрузки', () => {
+  const { win, sync, addReply } = load();
+  const d = win.desktop;
+  d.notify({ title: 'bob', body: 'привет', chat: 'bob', reply: 1 });
+  assert.equal(sync.at(-1)[1].reply, true);
+  const got = [];
+  addReply({ chat: 'bob', text: 'ответ до загрузки' });
+  d.onReply((chat, text) => got.push([chat, text]));
+  assert.deepEqual(got, [['bob', 'ответ до загрузки']]);
+  addReply({ chat: '#' + 'a'.repeat(24), text: 'в группу' });
+  win.__tainikNative.deliverReplies();
+  win.__tainikNative.deliverReplies();
+  assert.deepEqual(got.at(-1), ['#' + 'a'.repeat(24), 'в группу']);
+  assert.equal(got.length, 2, 'каждый ответ — один раз');
 });
 
 test('android-мост: хранилища аккаунтов разделены', async () => {

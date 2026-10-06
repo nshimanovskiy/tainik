@@ -5,6 +5,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.RemoteInput
+import android.graphics.drawable.Icon
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -62,7 +64,44 @@ object Notifier {
         return PendingIntent.getActivity(ctx, code, i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    fun show(app: TainikApp, title: String, body: String, chat: String, call: Boolean, force: Boolean = false) {
+    const val KEY_REPLY = "reply"
+
+    /** Кнопка «Ответить» с полем ввода прямо в уведомлении — ответ получает ReplyReceiver. */
+    private fun replyAction(ctx: Context, chat: String, title: String): Notification.Action {
+        val label = I18n.tr(ctx, "Ответить", "Reply")
+        val i = Intent(ctx, ReplyReceiver::class.java)
+            .setAction(ReplyReceiver.ACTION)
+            .putExtra(ReplyReceiver.EXTRA_CHAT, chat)
+            .putExtra(ReplyReceiver.EXTRA_TITLE, title)
+        // Поле ввода дописывает текст в Intent — поэтому PendingIntent изменяемый (Intent явный)
+        val pi = PendingIntent.getBroadcast(ctx, (chat.hashCode() and 0x3fffffff), i, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        val input = RemoteInput.Builder(KEY_REPLY).setLabel(I18n.tr(ctx, "Сообщение", "Message")).build()
+        return Notification.Action.Builder(Icon.createWithResource(ctx, R.drawable.ic_notification), label, pi)
+            .addRemoteInput(input)
+            .setAllowGeneratedReplies(false)
+            .build()
+    }
+
+    /** Ответ отправлен из уведомления — показываем его вместо поля ввода и тихо убираем. */
+    fun replied(ctx: Context, chat: String, title: String, text: String) {
+        if (!canPost(ctx)) return
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        val n = Notification.Builder(ctx, CH_MESSAGES)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(BRAND)
+            .setContentTitle(title)
+            .setContentText(I18n.tr(ctx, "Вы: ", "You: ") + text)
+            .setContentIntent(openIntent(ctx, chat))
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setTimeoutAfter(8_000)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setCategory(Notification.CATEGORY_MESSAGE)
+            .build()
+        nm.notify("msg:$chat", ID_MESSAGE, n)
+    }
+
+    fun show(app: TainikApp, title: String, body: String, chat: String, call: Boolean, force: Boolean = false, reply: Boolean = false) {
         if (!canPost(app)) return
         // Окно открыто и в фокусе — о сообщениях не напоминаем (страница и так их показывает).
         // force — сообщение другому аккаунту: на экране его не видно, показываем.
@@ -97,6 +136,7 @@ object Notifier {
             nm.notify(TAG_CALL, ID_CALL, n)
         } else {
             b.setCategory(Notification.CATEGORY_MESSAGE)
+            if (reply && chat.isNotEmpty()) b.addAction(replyAction(app, chat, title))
             nm.notify("msg:$chat", ID_MESSAGE, b.build())
         }
     }

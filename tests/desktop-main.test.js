@@ -45,7 +45,15 @@ function fakeElectron({ userData, appData, platform }) {
       this.sent = [];
       this.flash = null;
       this.overlay = undefined;
-      this.webContents = { send: (...a) => this.sent.push(a), getURL: () => 'app://app/index.html' };
+      const wc = new Emitter();
+      Object.assign(wc, {
+        send: (...a) => this.sent.push(a),
+        getURL: () => 'app://app/index.html',
+        zoom: 1,
+        setZoomFactor: (z) => (wc.zoom = z),
+        setVisualZoomLevelLimits: async () => {},
+      });
+      this.webContents = wc;
       log.windows.push(this);
     }
     static getAllWindows() {
@@ -256,11 +264,26 @@ test('десктоп (Linux): закрытие окна — уход в трей
   const before = d.log.notices.length;
   d.ipcOn.notify(d.ours, { title: 'bob', body: 'Новое сообщение', chat: 'bob' });
   assert.equal(d.log.notices.length, before);
+  // Группы и каналы тоже открываются; ответ из уведомления (macOS) уходит странице
+  w.hide();
+  d.ipcOn.notify(d.ours, { title: 'Дача', body: 'привет', chat: '#' + 'a'.repeat(24) + '@main', reply: true });
+  d.log.notices.at(-1).emit('click');
+  assert.deepEqual(w.sent.at(-1), ['open-chat', '#' + 'a'.repeat(24) + '@main']);
+  d.log.notices.at(-1).emit('reply', {}, '  и тебе  ');
+  assert.deepEqual(w.sent.at(-1), ['notice-reply', { chat: '#' + 'a'.repeat(24) + '@main', text: 'и тебе' }]);
   // мусор в имени чата не пропускаем
   w.hide();
   d.ipcOn.notify(d.ours, { title: 'z', body: 'b', chat: '../../x' });
   d.log.notices.at(-1).emit('click');
   assert.notDeepEqual(w.sent.at(-1), ['open-chat', '../../x']);
+
+  // Масштаб: Ctrl+колесо сбрасывается, Ctrl + «+» не доходит до страницы
+  w.webContents.zoom = 1.5;
+  w.webContents.emit('zoom-changed');
+  assert.equal(w.webContents.zoom, 1);
+  let blocked = false;
+  w.webContents.emit('before-input-event', { preventDefault: () => (blocked = true) }, { type: 'keyDown', control: true, key: '=' });
+  assert.ok(blocked);
 
   // Счётчик непрочитанных
   d.ipcOn.badge(d.ours, 3);

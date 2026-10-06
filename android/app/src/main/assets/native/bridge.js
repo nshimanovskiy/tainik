@@ -42,6 +42,15 @@
     const chat = N.takePendingChat();
     if (chat) openChatHandler(chat);
   }
+  let replyHandler = null;
+  function deliverReplies() {
+    if (!replyHandler) return;
+    let list = [];
+    try {
+      list = JSON.parse(N.takePendingReplies() || '[]');
+    } catch {}
+    for (const r of Array.isArray(list) ? list : []) replyHandler(String(r?.chat ?? ''), String(r?.text ?? ''));
+  }
 
   const api = {
     platform: 'android',
@@ -61,12 +70,18 @@
           chat: String(n?.chat ?? ''),
           call: !!n?.call,
           force: !!n?.force, // сообщение другому аккаунту — показать, даже если окно открыто
+          reply: !!n?.reply, // кнопка «Ответить» с полем ввода в уведомлении
         })
       ),
     dismissNotice: (n) => N.dismissNotice(JSON.stringify({ call: !!n?.call, chat: String(n?.chat ?? '') })),
     onOpenChat: (handler) => {
       openChatHandler = handler;
       deliver();
+    },
+    // Ответ, набранный в уведомлении: handler(chat, text)
+    onReply: (handler) => {
+      replyHandler = handler;
+      deliverReplies();
     },
     // На Android счётчик на значке рисует сама система по уведомлениям
     setBadge: (n) => N.setBadge(Number(n) || 0),
@@ -128,6 +143,7 @@
         else w.reject(new Error(text || 'Ошибка приложения'));
       },
       deliver,
+      deliverReplies,
       updState(text) {
         if (!updHandler) return;
         try {

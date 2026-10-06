@@ -29,11 +29,17 @@ contextBridge.exposeInMainWorld('desktop', {
       chat: String(n?.chat ?? ''),
       call: !!n?.call,
       force: !!n?.force,
+      reply: !!n?.reply, // можно ответить прямо из уведомления (macOS)
     }),
   dismissNotice: (n) => ipcRenderer.send('dismiss-notice', { chat: String(n?.chat ?? ''), call: !!n?.call }),
   onOpenChat: (handler) => {
     ipcRenderer.removeAllListeners('open-chat');
     ipcRenderer.on('open-chat', (_e, chat) => handler(String(chat)));
+  },
+  // Ответ, набранный в уведомлении: handler(chat, text)
+  onReply: (handler) => {
+    ipcRenderer.removeAllListeners('notice-reply');
+    ipcRenderer.on('notice-reply', (_e, r) => handler(String(r?.chat ?? ''), String(r?.text ?? '')));
   },
   // Счётчик непрочитанных: значок в доке/панели задач и подсказка у значка в трее
   setBadge: (n) => ipcRenderer.send('badge', Number(n) || 0),

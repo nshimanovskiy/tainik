@@ -340,13 +340,17 @@ function setBackground(on) {
 // Уведомления: по одному на чат (новое заменяет старое); ссылки держим, иначе сборщик мусора
 // уберёт объект и клик по уведомлению перестанет работать.
 const notices = new Map();
-function showNotice({ title, body, chat, call }) {
+function showNotice({ title, body, chat, call, reply }) {
   if (!Notification.isSupported()) return;
   const key = (call ? 'call:' : 'msg:') + chat;
   notices.get(key)?.close();
+  // Ответ прямо из уведомления — поле ввода есть у уведомлений macOS
+  const canReply = !!reply && !!chat && !call && isMac;
   const n = new Notification({
     title,
     body,
+    hasReply: canReply,
+    replyPlaceholder: canReply ? t('Ответить…') : undefined,
     silent: false,
     urgency: call ? 'critical' : 'normal',
     timeoutType: call ? 'never' : 'default',
@@ -355,6 +359,10 @@ function showNotice({ title, body, chat, call }) {
   n.on('click', () => {
     showWindow();
     if (chat) win?.webContents.send('open-chat', chat);
+  });
+  n.on('reply', (_e, text) => {
+    const msg = String(text || '').trim().slice(0, 20000);
+    if (msg && chat) win?.webContents.send('notice-reply', { chat, text: msg });
   });
   n.on('close', () => notices.get(key) === n && notices.delete(key));
   notices.set(key, n);
@@ -444,8 +452,9 @@ function registerIpc() {
     if (!fromApp(event) || !n || typeof n !== 'object') return;
     // force — сообщение другому аккаунту: в окне его не видно, показываем и при открытом окне
     if (!n.force && win && win.isVisible() && win.isFocused()) return;
-    const chat = /^[a-z0-9_]{3,32}(@(main|a[0-9a-f]{8}))?$/.test(n.chat) ? n.chat : '';
-    showNotice({ title: String(n.title || t('Тайник')).slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call });
+    // Чат: юзернейм, группа '#…' или канал '!…' (у другого аккаунта — с '@id')
+    const chat = /^([a-z0-9_]{3,32}|#[0-9a-f]{24}|![0-9a-f]{32})(@(main|a[0-9a-f]{8}))?$/.test(n.chat) ? n.chat : '';
+    showNotice({ title: String(n.title || t('Тайник')).slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call, reply: !!n.reply });
     if (win) {
       // Входящий звонок: показываем окно из трея (без перехвата фокуса), иначе мигаем на панели задач
       if (n.call && !win.isVisible()) win.showInactive();
@@ -542,6 +551,18 @@ function createWindow(forceShow = false) {
   });
   win.once('ready-to-show', () => {
     if (forceShow || !startHidden) win.show();
+  });
+  // Масштаб интерфейса всегда 100%: без Ctrl+колесо, Ctrl +/−/0 и щипка на тачпаде (раньше
+  // случайно увеличенный масштаб запоминался Chromium для страницы и оставался навсегда)
+  const wc = win.webContents;
+  const resetZoom = () => {
+    wc.setZoomFactor(1);
+    wc.setVisualZoomLevelLimits(1, 1).catch(() => {});
+  };
+  wc.on('did-finish-load', resetZoom);
+  wc.on('zoom-changed', resetZoom);
+  wc.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && (input.control || input.meta) && ['+', '=', '-', '_', '0', 'Add', 'Subtract', 'NumpadAdd', 'NumpadSubtract', 'Numpad0'].includes(input.key)) event.preventDefault();
   });
   win.on('focus', () => win.flashFrame(false));
   // Закрытие окна — уход в фон: соединение остаётся, сообщения и звонки приходят

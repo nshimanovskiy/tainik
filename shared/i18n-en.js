@@ -817,4 +817,5 @@ export default {
   'Юзернейм подписчика': 'Subscriber username',
   '📢 Публичный канал: посты может прочитать любой, кто его найдёт': '📢 Public channel: anyone who finds it can read the posts',
   '🔒 Посты зашифрованы ключом канала: прочитать их может только тот, у кого есть ссылка-приглашение': '🔒 Posts are encrypted with the channel key: only people with the invite link can read them',
+  'Ответ не отправлен': 'Reply not sent',
 };

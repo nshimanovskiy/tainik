@@ -5,6 +5,7 @@
 
 const EN = {
   'Тайник': 'Tainik',
+  'Ответить…': 'Reply…',
   'Системное хранилище ключей недоступно. Запуск невозможен.': 'The system keychain is unavailable. Tainik can’t start.',
   'Выйти': 'Quit',
   'Продолжить без защиты': 'Continue without protection',
