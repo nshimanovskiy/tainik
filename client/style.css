@@ -872,3 +872,8 @@ dialog.scanner[open] { display: flex; flex-direction: column; }
 .media.note .note-seek::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 5px; background: rgba(255, 255, 255, .3); }
 .media.note .note-bar { position: absolute; left: 0; bottom: 0; height: 5px; width: calc(var(--pos, 0) * 1%); background: var(--accent); }
 .media.note .note-bar::after { content: ''; position: absolute; right: -6px; bottom: -3.5px; width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 3px rgba(0, 0, 0, .5); }
+
+/* Фото профиля на весь экран */
+.avatar.zoomable { cursor: zoom-in; }
+.viewer-body .viewer-photo { width: min(92vw, calc(92vh - 60px), 640px); height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 12px; }
+.coins-balance { font-size: 30px; font-variant-numeric: tabular-nums; }

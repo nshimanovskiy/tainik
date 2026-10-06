@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, isGroupChat, GROUP_MAX } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, GROUP_MAX } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -100,6 +100,19 @@ const nameOf = (username) => (username && client.account ? client.nameOf(usernam
  */
 function paintAvatar(node, username, photo = username && client.account ? client.avatarOf(username) : null) {
   node.classList.toggle('photo', !!photo);
+  // Фото в профиле открывается на весь экран
+  if (node.id === 'pf-avatar' || node.id === 'prof-avatar') {
+    node.classList.toggle('zoomable', !!photo);
+    if (photo) {
+      node.setAttribute('role', 'button');
+      node.tabIndex = 0;
+      node.setAttribute('aria-label', t('Открыть фото профиля'));
+    } else {
+      node.removeAttribute('role');
+      node.removeAttribute('tabindex');
+      node.removeAttribute('aria-label');
+    }
+  }
   if (photo) {
     node.textContent = '';
     node.style.background = '';
@@ -884,12 +897,33 @@ $('viewer').addEventListener('close', () => viewing && closeViewer());
 $('viewer').addEventListener('click', (e) => e.target === $('viewer-body') && closeViewer());
 $('viewer-save').addEventListener('click', () => viewing && saveMedia(viewing));
 
+/** Фото профиля на весь экран (большое, если владелец его прислал). */
+async function openPhoto(username) {
+  const photo = username && (await client.photoOf(username));
+  if (!photo) return;
+  viewing = null;
+  $('viewer-save').hidden = true;
+  $('viewer-name').textContent = nameOf(username);
+  const img = el('img', 'viewer-photo');
+  img.alt = t('Фото профиля');
+  img.src = photo; // только проверенный data:-URL (validPhoto / validAvatar)
+  $('viewer-body').replaceChildren(img);
+  if (!$('viewer').open) $('viewer').showModal();
+}
+// Нажатие на фото в профиле собеседника и в своём профиле
+$('pf-avatar').addEventListener('click', () => openPhoto(profileFor));
+$('prof-avatar').addEventListener('click', () => pendingAvatar === undefined && openPhoto(client.account?.username));
+for (const id of ['pf-avatar', 'prof-avatar']) {
+  $(id).addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), $(id).click()));
+}
+
 async function openMedia(id) {
   const m = await findMsg(id);
   const f = m?.content?.file;
   if (!f) return;
   if (f.kind === 'file') return saveMedia(f);
   viewing = f;
+  $('viewer-save').hidden = false;
   $('viewer-name').textContent = `${f.name} · ${sizeText(f.size)}`;
   const body = $('viewer-body');
   const wait = el('div', 'viewer-wait');
@@ -1754,6 +1788,7 @@ function showSetPage(name) {
   if (name === 'blocked') renderBlocked();
   if (name === 'profile') fillProfileEdit();
   if (name === 'premium') fillPremium();
+  if (name === 'coins') fillCoins();
   if (name === 'media') openMediaPage();
   if (name === 'proxy') fillProxy();
   else stopMicMeter();
@@ -1815,6 +1850,7 @@ $('menu-btn').addEventListener('click', () => openSettings());
 
 // Свой профиль: фото, имя и «о себе» (юзернейм не меняется)
 let pendingAvatar; // undefined — фото не меняли, null — убрать, строка — новое
+let pendingPhoto = null; // большое фото к новому pendingAvatar
 function fillProfileEdit() {
   $('prof-name').value = client.profile.name;
   $('prof-bio').value = client.profile.bio;
@@ -1836,7 +1872,28 @@ function updateProfilePhoto() {
   $('prof-photo-actions').hidden = !premium && !has;
   $('prof-photo-locked').hidden = premium || !client.billing;
 }
-/** Картинка → квадратное фото профиля (обрезка по центру, JPEG), не больше AVATAR_MAX. */
+/** Квадрат из середины картинки → JPEG-data:-URL, который проходит check (подбираем размер и качество). */
+function squareJpeg(bmp, sizes, check) {
+  for (const size of sizes) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const g = canvas.getContext('2d');
+    const side = Math.min(bmp.width, bmp.height);
+    g.fillStyle = '#fff'; // прозрачный фон PNG → белый (JPEG без прозрачности)
+    g.fillRect(0, 0, size, size);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
+    for (const q of [0.85, 0.75, 0.6, 0.45]) {
+      const url = canvas.toDataURL('image/jpeg', q);
+      if (check(url)) return url;
+    }
+  }
+  return null;
+}
+/**
+ * Картинка → фото профиля: { avatar } — маленькое (AVATAR_SIZE, для списков и шапок) и
+ * { photo } — большое (до PHOTO_SIZE, для просмотра на весь экран; не больше исходника).
+ */
 async function makeAvatar(file) {
   if (!file.type.startsWith('image/') || file.size > 40 * 1024 * 1024) throw new Error(t('Это не картинка или она слишком большая'));
   let bmp;
@@ -1846,19 +1903,11 @@ async function makeAvatar(file) {
     throw new Error(t('Не удалось открыть картинку'));
   }
   try {
-    for (const size of [AVATAR_SIZE, 128, 96]) {
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = size;
-      const g = canvas.getContext('2d');
+    const avatar = squareJpeg(bmp, [AVATAR_SIZE, 128, 96], validAvatar);
+    if (avatar) {
       const side = Math.min(bmp.width, bmp.height);
-      g.fillStyle = '#fff'; // прозрачный фон PNG → белый (JPEG без прозрачности)
-      g.fillRect(0, 0, size, size);
-      g.imageSmoothingQuality = 'high';
-      g.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);
-      for (const q of [0.85, 0.75, 0.6, 0.45]) {
-        const url = canvas.toDataURL('image/jpeg', q);
-        if (validAvatar(url)) return url;
-      }
+      const sizes = [PHOTO_SIZE, 512, 400].filter((x) => x <= side && x > AVATAR_SIZE);
+      return { avatar, photo: squareJpeg(bmp, sizes, validPhoto) };
     }
   } finally {
     bmp.close?.();
@@ -1871,7 +1920,7 @@ $('prof-photo-input').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!file) return;
   try {
-    pendingAvatar = await makeAvatar(file);
+    ({ avatar: pendingAvatar, photo: pendingPhoto } = await makeAvatar(file));
     updateProfilePhoto();
   } catch (err) {
     toast(err.message);
@@ -1888,7 +1937,7 @@ $('prof-bio').addEventListener('input', bioCount);
 $('prof-save').addEventListener('click', async () => {
   try {
     const next = { name: $('prof-name').value, bio: $('prof-bio').value };
-    if (pendingAvatar !== undefined) next.avatar = pendingAvatar;
+    if (pendingAvatar !== undefined) Object.assign(next, { avatar: pendingAvatar, photo: pendingAvatar ? pendingPhoto : null });
     await client.setProfile(next);
     pendingAvatar = undefined;
     toast(t('Профиль сохранён'));
@@ -2026,9 +2075,13 @@ for (const b of document.querySelectorAll('#prem-for .prem-cur')) {
     if (premFor === 'gift' && !$('prem-gift-to').value) $('prem-gift-to').focus();
   });
 }
+const coinsSold = () => !!(client.billing?.packs?.length || client.billing?.plans?.[0]?.coins);
+const coinsText = (n) => `${n.toLocaleString(LOCALE)} 🪙`;
 function fillPremiumRow() {
-  $('row-premium-group').hidden = !client.billing && !client.isPremium();
+  $('row-premium-group').hidden = !client.billing && !client.isPremium() && !client.coins;
   $('set-premium-value').textContent = client.isPremium() && client.premium.until ? t('до {0}', dateShort.format(client.premium.until)) : '';
+  $('row-coins').hidden = !coinsSold() && !client.coins;
+  $('set-coins-value').textContent = client.coins ? coinsText(client.coins) : '';
 }
 function fillPremium() {
   const on = client.isPremium();
@@ -2050,12 +2103,13 @@ function fillPremium() {
   // На основной сети xRocket — напоминание, что оплата настоящая
   $('prem-real').hidden = !plans.length || !!client.billing?.testnet;
   // Валюта оплаты: цены тарифов — в основной (первой), в остальных — по курсу на момент счёта
-  const curs = client.billing?.currencies?.length ? client.billing.currencies : plans.length ? [plans[0].currency] : [];
+  const curs = client.billing?.currencies?.length ? [...client.billing.currencies] : plans.length ? [plans[0].currency] : [];
+  if (plans[0]?.coins) curs.push('COINS'); // оплата монетами с баланса
   if (!curs.includes(premCurrency)) premCurrency = curs[0] || null;
   $('prem-curs').hidden = curs.length < 2;
   $('prem-curs').replaceChildren(
     ...curs.map((c) => {
-      const b = el('button', 'prem-cur' + (c === premCurrency ? ' active' : ''), CURRENCY_NAME[c] || c);
+      const b = el('button', 'prem-cur' + (c === premCurrency ? ' active' : ''), c === 'COINS' ? t('🪙 Монеты ({0})', client.coins.toLocaleString(LOCALE)) : CURRENCY_NAME[c] || c);
       b.type = 'button';
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', String(c === premCurrency));
@@ -2071,7 +2125,8 @@ function fillPremium() {
     ...plans.map((p) => {
       const b = el('button', 'set-row prem-plan');
       b.type = 'button';
-      const price = premCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[premCurrency] || premCurrency);
+      const price =
+        premCurrency === 'COINS' ? coinsText(p.coins) : premCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[premCurrency] || premCurrency);
       b.append(el('span', 'set-ico', '🗓'), el('span', 'set-label', planName(p.days)), el('span', 'set-value', price));
       b.addEventListener('click', () => buyPlan(p, b));
       return b;
@@ -2098,6 +2153,7 @@ async function buyPlan(plan, btn) {
     toast(t('Это ваш юзернейм. Чтобы купить подписку себе, выберите «Себе»'));
     return;
   }
+  if (premCurrency === 'COINS') return payWithCoins(plan, btn, giftTo);
   btn.disabled = true;
   try {
     invoiceBase = client.premium.until || 0;
@@ -2111,19 +2167,125 @@ async function buyPlan(plan, btn) {
     btn.disabled = false;
   }
 }
+/** Премиум за монеты: подтверждение, списание, итог. */
+async function payWithCoins(plan, btn, giftTo) {
+  if (client.coins < plan.coins) {
+    toast(t('Не хватает монет: нужно {0}, на балансе {1}', coinsText(plan.coins), coinsText(client.coins)), 5000);
+    return showSetPage('coins');
+  }
+  const q = giftTo
+    ? t('Подарить {0} Премиум на {1} за {2}?', '@' + giftTo, planName(plan.days), coinsText(plan.coins))
+    : t('Оплатить Премиум на {0} монетами: {1}?', planName(plan.days), coinsText(plan.coins));
+  if (!confirm(q)) return;
+  btn.disabled = true;
+  try {
+    const r = await client.premiumForCoins(plan.id, plan.coins, giftTo);
+    if (!r.gift) toast(t('Подписка Премиум оформлена — спасибо! ⭐'), 6000);
+    fillPremium();
+  } catch (err) {
+    toast(err.message, 5000);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Монеты — внутренняя валюта ----------
+// Покупаются криптовалютой (тот же xRocket, счёт на пакет), тратятся на Премиум (позже — на подарки).
+let coinInvoice = null; // { id, url, coins, price, currency, expiresAt }
+let coinCurrency = null;
+function fillCoins() {
+  $('coins-balance').textContent = client.coins.toLocaleString(LOCALE);
+  $('coins-balance-text').textContent = t('монет на балансе');
+  $('coins-to-premium').hidden = !client.billing?.plans?.[0]?.coins;
+  const packs = client.billing?.packs || [];
+  $('coins-buy-title').hidden = $('coins-packs').hidden = $('coins-note').hidden = !packs.length;
+  const curs = client.billing?.currencies?.length ? client.billing.currencies : packs.length ? [packs[0].currency] : [];
+  if (!curs.includes(coinCurrency)) coinCurrency = curs[0] || null;
+  $('coins-curs').hidden = curs.length < 2 || !packs.length;
+  $('coins-curs').replaceChildren(
+    ...curs.map((c) => {
+      const b = el('button', 'prem-cur' + (c === coinCurrency ? ' active' : ''), CURRENCY_NAME[c] || c);
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(c === coinCurrency));
+      b.addEventListener('click', () => {
+        coinCurrency = c;
+        fillCoins();
+      });
+      return b;
+    })
+  );
+  const base = packs[0]?.currency;
+  $('coins-packs').replaceChildren(
+    ...packs.map((p) => {
+      const b = el('button', 'set-row prem-plan');
+      b.type = 'button';
+      const price = coinCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[coinCurrency] || coinCurrency);
+      b.append(el('span', 'set-ico', '🪙'), el('span', 'set-label', t('{0} монет', p.coins.toLocaleString(LOCALE))), el('span', 'set-value', price));
+      b.addEventListener('click', () => buyPack(p, b));
+      return b;
+    })
+  );
+  if (coinInvoice && coinInvoice.expiresAt < Date.now()) coinInvoice = null;
+  showCoinInvoice();
+}
+function showCoinInvoice() {
+  $('coins-pay').hidden = !coinInvoice;
+  if (!coinInvoice) return;
+  $('coins-pay-text').textContent = t('Счёт: {0} монет — {1} {2}. Откройте его в Telegram и оплатите в боте @xRocket.', coinInvoice.coins.toLocaleString(LOCALE), coinInvoice.price, coinInvoice.currency);
+  $('coins-link').href = coinInvoice.url;
+}
+async function buyPack(pack, btn) {
+  btn.disabled = true;
+  try {
+    coinInvoice = await client.buyCoins(pack.id, coinCurrency);
+    showCoinInvoice();
+  } catch (err) {
+    const why = err.data?.detail || err.data?.reason;
+    toast(why ? `${err.message} (xRocket: ${why})` : err.message, why ? 8000 : 3500);
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('coins-link').addEventListener('click', () => startPayPoll());
+$('coins-check').addEventListener('click', async () => {
+  $('coins-check').disabled = true;
+  try {
+    const before = client.coins;
+    await client.checkPremium();
+    await new Promise((r) => setTimeout(r, 300)); // зачисление приходит отдельным сообщением
+    if (coinInvoice && client.coins === before) toast(t('Оплата пока не поступила. Если вы уже заплатили, подождите минуту и проверьте ещё раз.'), 6000);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    $('coins-check').disabled = false;
+  }
+});
+client.on('coins', (n) => {
+  if (coinInvoice) {
+    toast(t('Монеты зачислены: на балансе {0}', coinsText(n)), 6000);
+    coinInvoice = null;
+  }
+  if (!$('menu-dialog').open) return;
+  fillPremiumRow();
+  if (setPage === 'coins') fillCoins();
+  if (setPage === 'premium') fillPremium();
+});
+
 function stopPremPoll() {
   clearInterval(premPoll);
   premPoll = null;
 }
 // После перехода к оплате — сами спрашиваем сервер раз в 15 секунд (на случай, если вебхук задержится)
-$('prem-link').addEventListener('click', () => {
+function startPayPoll() {
   stopPremPoll();
   const end = Date.now() + 15 * 60_000;
   premPoll = setInterval(() => {
-    if (!invoice || Date.now() > end) return stopPremPoll();
+    if ((!invoice && !coinInvoice) || Date.now() > end) return stopPremPoll();
     if (client.status === 'online') client.checkPremium().catch(() => {});
   }, 15_000);
-});
+}
+$('prem-link').addEventListener('click', startPayPoll);
 $('prem-check').addEventListener('click', async () => {
   $('prem-check').disabled = true;
   try {

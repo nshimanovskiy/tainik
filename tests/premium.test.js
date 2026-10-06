@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { startServer } from '../server/server.js';
-import { parsePlans, parseCurrencies, convertPrice, sameAmount, verifyWebhookSignature, signWebhook, WEBHOOK_PATH } from '../server/billing.js';
+import { parsePlans, parseCurrencies, parsePacks, convertPrice, sameAmount, verifyWebhookSignature, signWebhook, WEBHOOK_PATH } from '../server/billing.js';
 import { MessengerClient, MemoryStorage, AVATAR_MAX, validAvatar } from '../shared/client-core.js';
 
 const SECRET = 'webhook-secret-for-tests';
@@ -93,6 +93,7 @@ async function setup(t) {
       webhookSecret: SECRET,
       plans: parsePlans('30:3, 365:30.5', 'usdt'),
       currencies: parseCurrencies('gram, TRX, TON, NOPE', 'USDT'),
+      packs: parsePacks('100:1, 550:5, 1200:10', 'usdt'),
       publicUrl: 'https://chat.example',
       fetch: x.fetch,
     },
@@ -439,4 +440,92 @@ test('подписка в подарок: платит один, получае�
   bob.connect();
   await sleep(500);
   assert.equal((await bob.messages('alice')).filter((m) => m.content?.t === 'gift').length, 1);
+});
+
+test('монеты: покупка пакета, Премиум за монеты себе и в подарок, начисление администратором', async (t) => {
+  const { srv, x, mk, webhook, paidEvent, adminApi } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  assert.equal(alice.coins, 0);
+  assert.deepEqual(alice.billing.packs.map((p) => p.id), ['100c', '550c', '1200c']);
+  assert.deepEqual(alice.billing.plans.map((p) => p.coins), [300, 3050]);
+
+  // Пакет монет — счёт в xRocket, монеты не дарятся
+  await assert.rejects(alice.buyPremium('550c', 'USDT', 'bob'), (e) => e.code === 'bad_plan');
+  const inv = await alice.buyCoins('550c');
+  assert.equal(inv.coins, 550);
+  assert.equal(inv.price, '5');
+  const req = x.calls.filter((c) => c.method === 'POST').find((c) => c.body.clientInvoiceId === inv.id);
+  assert.match(req.body.description, /550 монет/);
+  const got = waitFor(alice, 'coins', (n) => n === 550);
+  assert.equal((await webhook(paidEvent(x.invoices.get(inv.id), 'evt-c'))).status, 200);
+  await got;
+  assert.equal((await webhook(paidEvent(x.invoices.get(inv.id), 'evt-c'))).status, 200);
+  await sleep(100);
+  assert.equal(srv.store.coinsOf('alice'), 550, 'повтор уведомления не начисляет второй раз');
+  assert.equal(srv.store.premiumUntil('alice'), 0, 'пакет монет — не подписка');
+
+  // Премиум за монеты себе
+  await assert.rejects(alice.premiumForCoins('30d', 1), (e) => e.code === 'price_changed');
+  const prem = waitFor(alice, 'premium', (p) => p.active);
+  const r = await alice.premiumForCoins('30d', 300);
+  await prem;
+  assert.equal(r.coins, 250);
+  assert.equal(alice.coins, 250);
+  assert.equal(r.gift, null);
+
+  // Не хватает — ничего не списывается
+  await assert.rejects(alice.premiumForCoins('365d', 3050), (e) => e.code === 'not_enough_coins');
+  assert.equal(srv.store.coinsOf('alice'), 250);
+
+  // В подарок за монеты
+  const bobGift = waitFor(bob, 'gift');
+  const bobPrem = waitFor(bob, 'premium', (p) => p.active);
+  const topped = waitFor(alice, 'coins', (n) => n === 350);
+  await (await adminApi('coins', { name: 'alice', delta: 100 })).json();
+  await topped;
+  const g = await alice.premiumForCoins('30d', 300, 'bob');
+  assert.equal(g.coins, 50);
+  const [gift] = await Promise.all([bobGift, bobPrem]);
+  assert.deepEqual([gift.from, gift.to, gift.days], ['alice', 'bob', 30]);
+  assert.equal((await bob.messages('alice')).filter((m) => m.content?.t === 'gift').length, 1);
+
+  // Администратор не уводит баланс в минус
+  const bad = await adminApi('coins', { name: 'alice', delta: -1000 });
+  assert.equal(bad.status, 400);
+  assert.equal(srv.store.coinsOf('alice'), 50);
+  assert.deepEqual(srv.store.coinLog('alice').map((l) => l.delta), [-300, 100, -300, 550]);
+});
+
+test('фото профиля: большое для просмотра идёт рядом с маленьким, хранится отдельно', async (t) => {
+  const { srv, mk } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  srv.store.extendPremium('alice', 30);
+  await alice.checkPremium();
+  await alice.addContact('bob');
+  await bob.addContact('alice');
+  const big = 'data:image/jpeg;base64,' + Buffer.alloc(60_000, 9).toString('base64'); // ~80 КБ
+  await assert.rejects(alice.setProfile({ avatar: avatar(), photo: 'data:image/jpeg;base64,' + 'A'.repeat(200_000) }), (e) => e.code === 'too_large');
+  const changed = waitFor(bob, 'profile-changed', (d) => d.username === 'alice' && d.profile.avatar);
+  await alice.setProfile({ avatar: avatar(), photo: big });
+  const got = incoming(bob, 'привет');
+  await alice.sendText('bob', 'привет');
+  await got;
+  await changed;
+  assert.equal(await bob.photoOf('alice'), big, 'большое фото дошло (конверт больше 64 КБ)');
+  assert.equal(bob.avatarOf('alice'), avatar());
+  assert.ok(!('photo' in (await bob.contacts()).alice.profile), 'в контактах — только маленькое');
+  assert.equal(await alice.photoOf('alice'), big);
+  // Очередь хранит ссылку на профиль, а не сам профиль с фото
+  assert.ok(!JSON.stringify((await alice.storage.get('outbox')) || []).includes(big.slice(30, 80)));
+
+  // Сменили фото без большого — у собеседника большое пропадает, показывается маленькое
+  const small2 = avatar(400);
+  const changed2 = waitFor(bob, 'profile-changed', (d) => d.username === 'alice' && d.profile.avatar === small2);
+  await alice.setProfile({ avatar: small2 });
+  await changed2;
+  assert.equal(await bob.photoOf('alice'), small2);
 });

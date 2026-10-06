@@ -234,6 +234,7 @@
         </button>
         <div class="set-group" id="row-premium-group" hidden>
         <button type="button" data-go="premium" class="set-row"><span class="set-ico" aria-hidden="true">⭐</span><span class="set-label">Тайник Премиум</span><span class="set-value" id="set-premium-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="coins" class="set-row" id="row-coins" hidden><span class="set-ico" aria-hidden="true">🪙</span><span class="set-label">Монеты</span><span class="set-value" id="set-coins-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="set-group">
         <button type="submit" value="accounts" class="set-row"><span class="set-ico" aria-hidden="true">👥</span><span class="set-label">Аккаунты</span><span class="set-chev" aria-hidden="true">›</span></button>
@@ -313,6 +314,30 @@
         <p class="set-note" id="prem-note">Оплата — криптовалютой через xRocket Pay в Telegram. Счёт действует час. Подписка включится сама через несколько секунд после оплаты; продление добавляет дни к текущему сроку.</p>
         <p class="set-note prem-real" id="prem-real" hidden>Это настоящая покупка: оплата списывается с вашего кошелька в @xRocket реальной криптовалютой.</p>
         <p class="set-note">Платёжный сервис не узнаёт ваш юзернейм, а сервер Тайника — данные вашего кошелька. Фото профиля зашифровано, как и имя: сервер знает только, что у вас есть подписка.</p>
+      </div>
+
+      <div class="set-page" data-page="coins" data-title="Монеты" hidden>
+        <div class="prem-hero">
+          <span class="prem-star" aria-hidden="true">🪙</span>
+          <b id="coins-balance" class="coins-balance">0</b>
+          <p class="small" id="coins-balance-text">монет на балансе</p>
+        </div>
+        <h3 class="set-sub">На что потратить</h3>
+        <div class="set-group">
+          <button type="button" data-go="premium" class="set-row" id="coins-to-premium"><span class="set-ico" aria-hidden="true">⭐</span><span class="set-label">Тайник Премиум — себе или в подарок</span><span class="set-chev" aria-hidden="true">›</span></button>
+          <div class="set-row set-static"><span class="set-ico" aria-hidden="true">🎁</span><span class="set-label">Подарки собеседникам — скоро</span></div>
+        </div>
+        <h3 class="set-sub" id="coins-buy-title">Купить монеты</h3>
+        <div class="prem-curs" id="coins-curs" role="radiogroup" aria-label="Валюта оплаты"></div>
+        <div class="set-group" id="coins-packs"></div>
+        <div class="set-group set-pad" id="coins-pay" hidden>
+          <p class="small" id="coins-pay-text"></p>
+          <div class="upd-actions">
+            <a id="coins-link" class="primary prem-link" href="#" target="_blank" rel="noopener">Оплатить в @xRocket</a>
+            <button type="button" id="coins-check" class="ghost">Проверить оплату</button>
+          </div>
+        </div>
+        <p class="set-note" id="coins-note">Монеты покупаются криптовалютой через xRocket Pay в Telegram и зачисляются сами через несколько секунд после оплаты. Монеты нельзя вывести или обменять обратно на криптовалюту.</p>
       </div>
 
       <div class="set-page" data-page="privacy" data-title="Конфиденциальность" hidden>

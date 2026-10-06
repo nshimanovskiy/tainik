@@ -14,7 +14,7 @@ import { createAdmin } from './admin.js';
 import { createWebclipHandler } from './webclip.js';
 import { createReleases } from './releases.js';
 import { createBlobs } from './blobs.js';
-import { createBilling, parsePlans, parseCurrencies } from './billing.js';
+import { createBilling, parsePlans, parseCurrencies, parsePacks } from './billing.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te } from '../shared/protocol/primitives.js';
@@ -23,7 +23,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 
 const USERNAME_RE = /^[a-z0-9_]{3,32}$/;
-const MAX_ENVELOPE = 64 * 1024; // байт на один конверт
+const MAX_ENVELOPE = 192 * 1024; // байт на один конверт (профиль с большим фото — до ~150 КБ)
 const MAX_BLOCKS = 1000; // заблокированных у одного аккаунта
 const MAX_OPKS = 200; // одноразовых ключей на устройство
 const MAX_DEVICES = 5; // устройств на аккаунт
@@ -284,8 +284,22 @@ export function startServer({
   function giftPaid(gift) {
     for (const name of new Set([gift.from, gift.to])) for (const c of onlineDevices(name)) send(c, { type: 'gift', gift });
   }
+  /** Баланс монет изменился — своим устройствам. */
+  function coinsChanged(name) {
+    const balance = store.coinsOf(name);
+    for (const c of onlineDevices(name)) send(c, { type: 'coins', balance });
+  }
+  /** Получатель подарка: null — себе; иначе юзернейм или код ошибки { error }. */
+  function giftTarget(raw, user) {
+    if (raw == null || raw === '') return null;
+    const to = String(raw).trim().replace(/^@/, '').toLowerCase();
+    if (to === user) return null; // себе — обычная покупка
+    if (!USERNAME_RE.test(to) || !store.getUser(to)) return { error: 'gift_unknown_user' };
+    if (store.hasBlocked(to, user)) return { error: 'gift_unavailable' };
+    return to;
+  }
   const GIFT_RECENT = 30 * 86400_000; // при входе устройство получает подарки за 30 дней
-  const billingInfo = () => (billing ? { plans: billing.plans, currencies: billing.currencies, testnet: billing.testnet } : null);
+  const billingInfo = () => (billing ? { plans: billing.plans, packs: billing.packs, currencies: billing.currencies, testnet: billing.testnet } : null);
 
   function deliverQueue(username, device) {
     const conn = online.get(addr(username, device));
@@ -399,6 +413,7 @@ export function startServer({
           verified: store.getPresence(p.username)?.verified || false,
           premium: premiumOf(p.username),
           gifts: store.giftsOf(p.username, Date.now() - GIFT_RECENT),
+          coins: store.coinsOf(p.username),
           billing: billingInfo(),
           blocks: store.blocksOf(p.username),
           vapidKey: vapid ? vapid.publicKey : null,
@@ -680,13 +695,9 @@ export function startServer({
         if (!take(state.billing, RATE.billingPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
         try {
           // Подарок: получатель существует, это не вы сами, и он вас не заблокировал
-          let giftTo = null;
-          if (msg.giftTo != null && msg.giftTo !== '') {
-            giftTo = String(msg.giftTo).trim().replace(/^@/, '').toLowerCase();
-            if (giftTo === state.user) giftTo = null; // себе — обычная покупка
-            else if (!USERNAME_RE.test(giftTo) || !store.getUser(giftTo)) return error(conn, 'gift_unknown_user', { reqId: msg.reqId });
-            else if (store.hasBlocked(giftTo, state.user)) return error(conn, 'gift_unavailable', { reqId: msg.reqId });
-          }
+          const giftTo = giftTarget(msg.giftTo, state.user);
+          if (giftTo?.error) return error(conn, giftTo.error, { reqId: msg.reqId });
+          // Тариф Премиума или (без подарка) пакет монет
           const inv = await billing.createInvoice(state.user, String(msg.plan || ''), msg.currency == null ? undefined : String(msg.currency), giftTo);
           return send(conn, { type: 'premium-invoice', reqId: msg.reqId, ...inv });
         } catch (e) {
@@ -695,6 +706,30 @@ export function startServer({
           const extra = e.code === 'billing_failed' ? { reason: String(e.detail || ''), detail: e.text || '' } : {};
           return error(conn, known.includes(e.code) ? e.code : 'billing_failed', { reqId: msg.reqId, ...extra });
         }
+      }
+
+      // Премиум за монеты (себе или в подарок): списание и продление — одной транзакцией
+      case 'premium-coins': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!billing) return error(conn, 'billing_disabled', { reqId: msg.reqId });
+        if (!take(state.billing, RATE.billingPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        const plan = billing.plans.find((p) => p.id === String(msg.plan || ''));
+        if (!plan?.coins) return error(conn, 'bad_plan', { reqId: msg.reqId });
+        const giftTo = giftTarget(msg.giftTo, state.user);
+        if (giftTo?.error) return error(conn, giftTo.error, { reqId: msg.reqId });
+        // Клиент присылает цену, которую видел: если её поменяли — не списываем
+        if (msg.cost != null && Number(msg.cost) !== plan.coins) return error(conn, 'price_changed', { reqId: msg.reqId });
+        let res;
+        try {
+          res = store.premiumForCoins(state.user, { plan: plan.id, days: plan.days, cost: plan.coins, giftTo });
+        } catch (e) {
+          return error(conn, e.code === 'not_enough_coins' || e.code === 'gift_unknown_user' ? e.code : 'internal', { reqId: msg.reqId });
+        }
+        say(giftTo ? 'монеты: Премиум в подарок' : 'монеты: Премиум');
+        coinsChanged(state.user);
+        premiumChanged(res.user);
+        if (res.gift) giftPaid(res.gift);
+        return send(conn, { type: 'coins-spent', reqId: msg.reqId, coins: res.coins, until: res.until, gift: res.gift });
       }
 
       case 'premium-check': {
@@ -767,7 +802,7 @@ export function startServer({
       totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued, media: store.blobStats() },
       users,
       bans: store.listBans(),
-      billing: billing ? { plans: billing.plans, currencies: billing.currencies, testnet: billing.testnet, webhook: billing.webhook, active: store.premiumActiveCount(), payments: store.recentPayments(30) } : null,
+      billing: billing ? { plans: billing.plans, packs: billing.packs, currencies: billing.currencies, testnet: billing.testnet, webhook: billing.webhook, active: store.premiumActiveCount(), coins: store.coinsTotal(), payments: store.recentPayments(30) } : null,
     };
   }
   // Действия администратора
@@ -792,6 +827,21 @@ export function startServer({
       broadcastPresence(name);
       for (const c of onlineDevices(name)) send(c, { type: 'verified', verified: !!on });
       say(on ? 'администратор поставил галочку' : 'администратор снял галочку');
+    },
+    // Монеты вручную: delta > 0 — начислить, < 0 — списать (не ниже нуля)
+    addCoins(name, delta) {
+      name = String(name || '').toLowerCase();
+      if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
+      delta = Number(delta);
+      if (!Number.isSafeInteger(delta) || delta === 0 || Math.abs(delta) > 1e9) throw new Error('Неверное число монет');
+      try {
+        store.addCoins(name, delta, 'admin');
+      } catch (e) {
+        if (e.code === 'not_enough_coins') throw new Error('На балансе меньше монет');
+        throw e;
+      }
+      coinsChanged(name);
+      say(delta > 0 ? 'администратор начислил монеты' : 'администратор списал монеты');
     },
     // Подписка вручную: days > 0 — продлить на столько дней, 0 — отключить сразу
     setPremium(name, days) {
@@ -839,7 +889,16 @@ export function startServer({
   });
 
   const billing = billingOpts?.token
-    ? createBilling({ ...billingOpts, store, say, onPaid: (name, until, gift) => (premiumChanged(name), gift && giftPaid(gift)) })
+    ? createBilling({
+        ...billingOpts,
+        store,
+        say,
+        onPaid: (res) => {
+          if (res.coins != null) return coinsChanged(res.user);
+          premiumChanged(res.user);
+          if (res.gift) giftPaid(res.gift);
+        },
+      })
     : null;
   if (billing) say(`подписка включена (xRocket Pay${billing.testnet ? ', тестовая сеть' : ''}${billing.webhook ? '' : ', без вебхука — только опрос'})`);
 
@@ -962,7 +1021,7 @@ export function startServer({
           }
         });
       },
-      { maxPayload: 256 * 1024 }
+      { maxPayload: 1024 * 1024 } // send несёт конверт для каждого устройства получателя
     );
   });
 
@@ -1066,6 +1125,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
           testnet: env.XROCKET_TESTNET === '1',
           plans: parsePlans(env.PREMIUM_PLANS || '30:3', env.PREMIUM_CURRENCY || 'USDT'),
           currencies: parseCurrencies(env.PREMIUM_PAY_CURRENCIES ?? 'GRAM,TRX', (env.PREMIUM_CURRENCY || 'USDT').trim().toUpperCase()),
+          packs: parsePacks(env.COIN_PACKS ?? '100:1,550:5,1200:10', env.PREMIUM_CURRENCY || 'USDT'),
+          coinsPerUnit: env.COINS_PER_UNIT != null && env.COINS_PER_UNIT !== '' ? Math.max(0, Math.floor(Number(env.COINS_PER_UNIT)) || 0) : 100,
           publicUrl: env.DOMAIN ? `https://${env.DOMAIN}` : null,
         }
       : null,

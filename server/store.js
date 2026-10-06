@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { randomBytes } from 'node:crypto';
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -110,6 +111,22 @@ CREATE TABLE IF NOT EXISTS payments (
 );
 CREATE INDEX IF NOT EXISTS payments_user ON payments(user, created_at);
 CREATE INDEX IF NOT EXISTS payments_status ON payments(status, expires_at);
+-- Монеты — внутренняя валюта: ими платят за Премиум (а потом и за подарки). Баланс удаляется
+-- с аккаунтом, журнал операций остаётся (бухгалтерия), как и счета.
+CREATE TABLE IF NOT EXISTS coins (
+  user     TEXT PRIMARY KEY REFERENCES users(name) ON DELETE CASCADE,
+  balance  INTEGER NOT NULL CHECK (balance >= 0)
+);
+CREATE TABLE IF NOT EXISTS coin_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user        TEXT NOT NULL,
+  delta       INTEGER NOT NULL,
+  balance     INTEGER NOT NULL,
+  reason      TEXT NOT NULL,
+  ref         TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS coin_log_user ON coin_log(user, created_at);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -129,6 +146,7 @@ function paymentRow(r) {
     expiresAt: r.expires_at,
     paidAt: r.paid_at || null,
     giftTo: r.gift_to || null,
+    coins: r.coins || null,
   };
 }
 
@@ -156,6 +174,7 @@ export class Store {
     // Подарок: счёт оплачивает user, подписку получает gift_to
     const pcols = this.db.prepare("SELECT name FROM pragma_table_info('payments')").all().map((r) => r.name);
     if (!pcols.includes('gift_to')) this.db.exec('ALTER TABLE payments ADD COLUMN gift_to TEXT');
+    if (!pcols.includes('coins')) this.db.exec('ALTER TABLE payments ADD COLUMN coins INTEGER'); // покупка монет: сколько
     this.db.exec('CREATE INDEX IF NOT EXISTS payments_gift ON payments(gift_to, paid_at)');
     this.limits = { maxOpks, maxQueue, maxDevices };
     const q = (sql) => this.db.prepare(sql);
@@ -208,13 +227,18 @@ export class Store {
       premiumEnded: q('SELECT user FROM premium WHERE until > ? AND until <= ?'),
       premiumActive: q('SELECT COUNT(*) AS n FROM premium WHERE until > ?'),
       addPayment: q(
-        'INSERT INTO payments(id, user, plan, days, amount, currency, status, created_at, expires_at, gift_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO payments(id, user, plan, days, amount, currency, status, created_at, expires_at, gift_to, coins) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       ),
       getPayment: q('SELECT * FROM payments WHERE id = ?'),
       setPaymentInvoice: q('UPDATE payments SET invoice_id = ?, url = ?, expires_at = ? WHERE id = ?'),
       setPaymentStatus: q('UPDATE payments SET status = ? WHERE id = ? AND status = ?'),
       markPaid: q("UPDATE payments SET status = 'paid', paid_at = ? WHERE id = ? AND status <> 'paid'"),
       openPaymentOf: q("SELECT * FROM payments WHERE user = ? AND plan = ? AND currency = ? AND gift_to IS ? AND status = 'active' AND url IS NOT NULL AND expires_at > ? ORDER BY created_at DESC LIMIT 1"),
+      coinsOf: q('SELECT balance FROM coins WHERE user = ?'),
+      setCoins: q('INSERT INTO coins(user, balance) VALUES (?, ?) ON CONFLICT(user) DO UPDATE SET balance = excluded.balance'),
+      logCoins: q('INSERT INTO coin_log(user, delta, balance, reason, ref, created_at) VALUES (?, ?, ?, ?, ?, ?)'),
+      coinLogOf: q('SELECT delta, balance, reason, ref, created_at FROM coin_log WHERE user = ? ORDER BY id DESC LIMIT ?'),
+      coinsTotal: q('SELECT COALESCE(SUM(balance), 0) AS n FROM coins'),
       giftsOf: q("SELECT * FROM payments WHERE status = 'paid' AND gift_to IS NOT NULL AND paid_at > ? AND (user = ? OR gift_to = ?) ORDER BY paid_at DESC LIMIT ?"),
       pendingOf: q("SELECT * FROM payments WHERE user = ? AND status = 'active' AND expires_at > ? ORDER BY created_at DESC LIMIT ?"),
       pendingAll: q("SELECT * FROM payments WHERE status = 'active' AND expires_at > ? ORDER BY created_at LIMIT ?"),
@@ -233,6 +257,7 @@ export class Store {
       adminUsers: q(
         `SELECT u.name, u.created_at, u.presence_hidden AS hidden, u.verified AS verified,
            (SELECT until FROM premium p WHERE p.user = u.name) AS premium_until,
+           (SELECT balance FROM coins c WHERE c.user = u.name) AS coins,
            (SELECT COUNT(*) FROM queue q WHERE q.user = u.name) AS queued,
            (SELECT COUNT(*) FROM push_subs p WHERE p.user = u.name) AS push
          FROM users u ORDER BY u.name`
@@ -466,9 +491,53 @@ export class Store {
     return this.s.premiumActive.get(now).n;
   }
 
+  // ----- монеты -----
+  coinsOf(user) {
+    return this.s.coinsOf.get(user)?.balance || 0;
+  }
+  /**
+   * Изменить баланс на delta (с записью в журнал). Баланс не уходит в минус: тогда ошибка
+   * not_enough_coins и ничего не меняется. Возвращает новый баланс.
+   */
+  addCoins(user, delta, reason, ref = null, now = Date.now()) {
+    return this.tx(() => this._addCoins(user, delta, reason, ref, now));
+  }
+  _addCoins(user, delta, reason, ref, now) {
+    if (!Number.isSafeInteger(delta)) throw new Error('bad coins');
+    const balance = this.coinsOf(user) + delta;
+    if (balance < 0) throw Object.assign(new Error('not_enough_coins'), { code: 'not_enough_coins' });
+    this.s.setCoins.run(user, balance);
+    this.s.logCoins.run(user, delta, balance, String(reason), ref, now);
+    return balance;
+  }
+  /**
+   * Премиум за монеты — одной транзакцией: списать cost у user и продлить подписку на days
+   * ему или получателю подарка giftTo. Возвращает { user, until, coins, gift }.
+   */
+  premiumForCoins(user, { plan, days, cost, giftTo = null }, now = Date.now()) {
+    return this.tx(() => {
+      const to = giftTo || user;
+      if (!this.s.user.get(to)) throw Object.assign(new Error('gift_unknown_user'), { code: 'gift_unknown_user' });
+      // Запись в счетах (валюта COINS, сразу оплачен) — видна в панели, подарок дойдёт и до офлайн-устройств
+      const id = 'tk' + randomBytes(12).toString('hex');
+      const coins = this._addCoins(user, -cost, giftTo ? 'premium-gift' : 'premium', id, now);
+      this.s.addPayment.run(id, user, plan, days, String(cost), 'COINS', 'active', now, now, giftTo, null);
+      this.s.markPaid.run(now, id);
+      const until = this._extend(to, days, now);
+      const gift = giftTo ? { id, from: user, to: giftTo, days, at: now } : null;
+      return { user: to, until, coins, gift };
+    });
+  }
+  coinLog(user, limit = 50) {
+    return this.s.coinLogOf.all(user, limit).map((r) => ({ delta: r.delta, balance: r.balance, reason: r.reason, ref: r.ref, at: r.created_at }));
+  }
+  coinsTotal() {
+    return this.s.coinsTotal.get().n;
+  }
+
   // ----- счета на оплату -----
-  addPayment({ id, user, plan, days, amount, currency, expiresAt, giftTo = null, now = Date.now() }) {
-    this.s.addPayment.run(id, user, plan, days, String(amount), currency, 'active', now, expiresAt, giftTo);
+  addPayment({ id, user, plan, days, amount, currency, expiresAt, giftTo = null, coins = null, now = Date.now() }) {
+    this.s.addPayment.run(id, user, plan, days, String(amount), currency, 'active', now, expiresAt, giftTo, coins);
   }
   getPayment(id) {
     return paymentRow(this.s.getPayment.get(String(id)));
@@ -488,6 +557,11 @@ export class Store {
     return this.tx(() => {
       const p = this.getPayment(id);
       if (!p || !this.s.markPaid.run(now, p.id).changes) return null;
+      // Покупка монет — на баланс плательщика
+      if (p.coins) {
+        if (!this.s.user.get(p.user)) return { user: p.user, until: 0, coins: null };
+        return { user: p.user, until: 0, coins: this._addCoins(p.user, p.coins, 'buy', p.id, now) };
+      }
       // Подарок — получателю; если его аккаунт успели удалить — дни достаются тому, кто платил
       let user = p.giftTo && this.s.user.get(p.giftTo) ? p.giftTo : p.user;
       const gift = user !== p.user ? { id: p.id, from: p.user, to: user, days: p.days, at: now } : null;
@@ -548,6 +622,7 @@ export class Store {
       presenceHidden: !!u.hidden,
       verified: !!u.verified,
       premiumUntil: u.premium_until || null,
+      coins: u.coins || 0,
       queued: u.queued,
       push: u.push > 0,
       devices: devices.get(u.name) || [],

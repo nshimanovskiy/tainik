@@ -56,6 +56,11 @@ export const AVATAR_MAX = 20_000;
 export const AVATAR_SIZE = 160; // сторона квадрата в пикселях
 const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 export const validAvatar = (a) => typeof a === 'string' && a.length <= AVATAR_MAX && AVATAR_RE.test(a);
+// Фото профиля в хорошем качестве — для просмотра на весь экран. Идёт в профиле рядом с маленьким
+// avatar (старые версии его просто не знают); у собеседников хранится отдельно: 'photo:<юзернейм>'.
+export const PHOTO_MAX = 100_000;
+export const PHOTO_SIZE = 640;
+export const validPhoto = (a) => typeof a === 'string' && a.length <= PHOTO_MAX && AVATAR_RE.test(a);
 const PROVISION_AVATARS = 30_000; // сколько места под фото собеседников при привязке устройства
 
 /** Имя или «о себе»: без управляющих и «переворачивающих» текст символов, обрезано. */
@@ -71,7 +76,10 @@ export function cleanProfileText(s, max) {
 function cleanProfile(p) {
   if (!p || !Number.isFinite(p.v) || p.v <= 0) return null;
   const out = { name: cleanProfileText(p.name, NAME_MAX).replace(/\n/g, ' '), bio: cleanProfileText(p.bio, BIO_MAX), v: p.v };
-  if (validAvatar(p.avatar)) out.avatar = p.avatar;
+  if (validAvatar(p.avatar)) {
+    out.avatar = p.avatar;
+    if (validPhoto(p.photo)) out.photo = p.photo;
+  }
   return out;
 }
 
@@ -187,6 +195,8 @@ export const ERROR_TEXT = {
   no_rate: t('Не удалось узнать курс валюты, попробуйте позже или выберите другую'),
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
   gift_unknown_user: t('Нет пользователя с таким юзернеймом'),
+  not_enough_coins: t('Не хватает монет — пополните баланс'),
+  price_changed: t('Цена изменилась — посмотрите ещё раз'),
   gift_unavailable: t('Этому пользователю нельзя сделать подарок'),
   group_too_big: t('В группе может быть не больше 50 участников'),
   group_name: t('Введите название группы'),
@@ -264,6 +274,7 @@ export class MessengerClient extends Emitter {
     this.verified = false; // у своего аккаунта официальная галочка
     // Подписка «Премиум» своего аккаунта и тарифы сервера (null — сервер подписку не продаёт)
     this.premium = { active: false, until: null };
+    this.coins = 0; // баланс монет — внутренней валюты (хранится на сервере)
     this.billing = null;
     this.blocked = new Set(); // чёрный список (хранится на сервере, общий для своих устройств)
     // Свой профиль (имя, «о себе»). Сервер его не знает: он уходит собеседникам зашифрованным
@@ -702,6 +713,7 @@ export class MessengerClient extends Emitter {
         this.billing = msg.billing && Array.isArray(msg.billing.plans) ? msg.billing : null;
         this._send({ type: 'set-active', active: this.active }); // мог смениться, пока шёл вход
         this._setPremium(msg.premium);
+        this._setCoins(msg.coins);
         if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._setStatus('online');
@@ -728,6 +740,9 @@ export class MessengerClient extends Emitter {
         return;
       case 'gift':
         this._serial(() => this._onGifts([msg.gift])).catch(() => {});
+        return;
+      case 'coins':
+        this._setCoins(msg.balance);
         return;
       case 'prekey-count':
         this._maintainPrekeys(msg.count).catch((e) => console.error('prekeys', e));
@@ -904,6 +919,15 @@ export class MessengerClient extends Emitter {
     return this._avatars.get(username) || null;
   }
 
+  /** Фото профиля для просмотра на весь экран: большое, если есть, иначе маленькое; null — нет фото. */
+  async photoOf(username) {
+    const small = this.avatarOf(username);
+    if (!small) return null;
+    if (this.account && username === this.account.username) return this.profile.photo || small;
+    const big = await this.storage.get('photo:' + username);
+    return validPhoto(big) ? big : small;
+  }
+
   /**
    * Счёт на оплату тарифа: { id, url, days, price, currency, expiresAt }; url — оплата в @xRocket.
    * currency — одна из billing.currencies (по умолчанию основная); не в основной валюте сумма — по курсу.
@@ -949,6 +973,33 @@ export class MessengerClient extends Emitter {
     if (!fresh.length) return;
     await this.storage.set('gifts-seen', [...seen].slice(-200));
     for (const gift of fresh) this.emit('gift', gift);
+  }
+
+  _setCoins(n) {
+    n = Number.isSafeInteger(n) && n >= 0 ? n : 0;
+    if (n === this.coins) return;
+    this.coins = n;
+    this.emit('coins', n);
+  }
+
+  /** Счёт на пакет монет (id из billing.packs): как buyPremium, в ответе coins — сколько монет. */
+  async buyCoins(packId, currency) {
+    const req = { type: 'premium-buy', plan: String(packId) };
+    if (currency) req.currency = String(currency);
+    const r = await this._request(req);
+    return { id: r.id, url: r.url, coins: r.coins, price: r.price, currency: r.currency, expiresAt: r.expiresAt, giftTo: null };
+  }
+
+  /**
+   * Премиум за монеты — себе или в подарок (giftTo). cost — цена, которую видел пользователь:
+   * если на сервере она другая, ничего не списывается (price_changed).
+   */
+  async premiumForCoins(planId, cost, giftTo = null) {
+    const req = { type: 'premium-coins', plan: String(planId), cost };
+    if (giftTo) req.giftTo = String(giftTo).trim().replace(/^@/, '').toLowerCase();
+    const r = await this._request(req);
+    this._setCoins(r.coins);
+    return { coins: r.coins, until: r.until, gift: r.gift || null };
   }
 
   /** Спросить сервер, не пришла ли оплата. Возвращает состояние подписки. */
@@ -1067,23 +1118,26 @@ export class MessengerClient extends Emitter {
    * Изменить свой профиль: уходит своим устройствам и собеседникам, которым вы писали.
    * avatar — data:-URL картинки (только с подпиской), null — убрать фото.
    */
-  async setProfile({ name = this.profile.name, bio = this.profile.bio, avatar = this.profile.avatar ?? null } = {}) {
+  async setProfile({ name = this.profile.name, bio = this.profile.bio, avatar = this.profile.avatar ?? null, photo } = {}) {
     if (avatar != null && avatar !== this.profile.avatar) {
       if (!this.isPremium()) throw errorOf('premium_required');
       if (!validAvatar(avatar)) throw errorOf('too_large');
     }
-    const next = cleanProfile({ name, bio, avatar, v: Math.max(Date.now(), this.profile.v + 1) });
+    // Большое фото — вместе с маленьким: сменили маленькое без большого — большого больше нет
+    if (photo === undefined) photo = avatar === this.profile.avatar ? this.profile.photo : null;
+    if (photo != null && !validPhoto(photo)) throw errorOf('too_large');
+    const next = cleanProfile({ name, bio, avatar, photo, v: Math.max(Date.now(), this.profile.v + 1) });
     await this._serial(async () => {
       this.profile = next;
       await this.storage.set('profile', next);
       const outbox = (await this.storage.get('outbox')) || [];
       // Старые, ещё не отправленные версии профиля не нужны
       const keep = outbox.filter((x) => !(x.kind === 'ctl' && (x.content?.t === 'profile' || x.content?.t === 'sync-profile')));
-      keep.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-profile', ...next }, attempts: 0 });
+      keep.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-profile', self: 1 }, attempts: 0 });
       const all = await this.contacts();
       for (const c of Object.values(all)) {
         if (!c.shareProfile || c.keyChanged || this.isBlocked(c.username)) continue;
-        keep.push({ id: randomId(), to: c.username, kind: 'ctl', content: { t: 'profile', ...next }, attempts: 0 });
+        keep.push({ id: randomId(), to: c.username, kind: 'ctl', content: { t: 'profile', self: 1 }, attempts: 0 });
         c.profileSentV = next.v;
       }
       await this.storage.set('outbox', keep);
@@ -1097,7 +1151,7 @@ export class MessengerClient extends Emitter {
   _shareProfileTo(c, outbox) {
     c.shareProfile = true;
     if (!this.profile.v || c.profileSentV === this.profile.v) return;
-    outbox.push({ id: randomId(), to: c.username, kind: 'ctl', content: { t: 'profile', ...this.profile }, attempts: 0 });
+    outbox.push({ id: randomId(), to: c.username, kind: 'ctl', content: { t: 'profile', self: 1 }, attempts: 0 });
     c.profileSentV = this.profile.v;
   }
 
@@ -1788,10 +1842,12 @@ export class MessengerClient extends Emitter {
     const devices = (await this.storage.get('devices:' + name)) || [];
     await this._ensureSessions(name, devices, expected);
 
+    // Профиль в очереди хранится ссылкой (с фото он большой) — подставляем текущий при отправке
+    const content = item.content?.self && (item.content.t === 'profile' || item.content.t === 'sync-profile') ? { t: item.content.t, ...this.profile } : item.content;
     const messages = [];
     for (const d of devices) {
       if (!(await hasSession(this.ps, { name, device: d }))) continue; // устройство исчезло — сервер подскажет
-      messages.push({ deviceId: d, envelope: await encrypt(this.ps, { name, device: d }, item.content, item.id) });
+      messages.push({ deviceId: d, envelope: await encrypt(this.ps, { name, device: d }, content, item.id) });
     }
     // notify: обычное сообщение — серверу можно разбудить офлайн-устройство пушем (служебные — нет)
     const notify = item.kind === 'msg';
@@ -2131,7 +2187,10 @@ export class MessengerClient extends Emitter {
       const old = c.profile;
       // Та же версия, но с фото (повтор по запросу) — тоже принимаем
       if (prof && (prof.v > (old?.v || 0) || (prof.v === old?.v && prof.avatar && !old.avatar))) {
-        c.profile = prof;
+        // Большое фото — отдельно от контактов (список контактов перезаписывается часто)
+        const { photo, ...rest } = prof;
+        await this.storage.set('photo:' + from, photo || null);
+        c.profile = rest;
         if (!known) c.hidden = true; // только профиль, без сообщений — в списке чатов не показываем
         await this._saveContacts(all);
         this.emit('profile-changed', { username: from, profile: prof });

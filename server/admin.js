@@ -150,7 +150,7 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
     }
     // Действия: только с сессией, только JSON и только со своим заголовком — чужой сайт
     // не может отправить такой запрос из браузера администратора (CSRF).
-    const act = /^\/api\/(delete-user|ban|unban|verify|premium)$/.exec(sub);
+    const act = /^\/api\/(delete-user|ban|unban|verify|premium|coins)$/.exec(sub);
     if (req.method === 'POST' && act) {
       const json = (status, obj) => send(res, status, JSON.stringify(obj), 'application/json; charset=utf-8');
       if (!authed) return json(401, { error: 'unauthorized' }), true;
@@ -163,6 +163,7 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
           if (act[1] === 'delete-user') actions.deleteUser(body.name);
           else if (act[1] === 'verify') actions.setVerified(body.name, body.verified === true);
           else if (act[1] === 'premium') actions.setPremium(body.name, body.days);
+          else if (act[1] === 'coins') actions.addCoins(body.name, body.delta);
           else if (act[1] === 'ban') actions.ban(body.ip, body.note);
           else actions.unban(body.ip);
           json(200, { ok: true });

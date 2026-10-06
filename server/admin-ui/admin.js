@@ -128,6 +128,7 @@ function render() {
     if (u.presenceHidden) name.append(el('span', 'tag', 'статус скрыт'));
     const prem = u.premiumUntil && u.premiumUntil > now;
     if (prem) name.append(el('span', 'tag premium', `★ до ${dateFmt.format(u.premiumUntil)}`));
+    if (u.coins) name.append(el('span', 'tag', `🪙 ${u.coins}`));
     const status = el('td', 'status');
     status.append(el('span', 'dot' + (u.online ? ' on' : '')), document.createTextNode(u.online ? 'в сети' : `был(а) ${ago(u.lastSeen, now)}`));
     const devs = el('td', 'devices');
@@ -188,7 +189,19 @@ function render() {
         alert(e.message);
       }
     });
-    actions.append(pr, mark, del);
+    const coins = el('button', 'ghost', 'Монеты…');
+    coins.type = 'button';
+    coins.title = 'Начислить или списать монеты';
+    coins.addEventListener('click', async () => {
+      const typed = prompt(`${u.name}: на балансе ${u.coins || 0} монет.\n\nСколько начислить? Чтобы списать — с минусом, например -100.`, '100');
+      if (typed === null || typed.trim() === '') return;
+      try {
+        await act('coins', { name: u.name, delta: Number(typed.trim()) });
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+    actions.append(pr, coins, mark, del);
     tr.append(name, status, devs, created, queued, actions);
     return tr;
   });
@@ -219,6 +232,8 @@ function renderBilling(b, now) {
   $('billing-info').textContent =
     `Тарифы: ${b.plans.map((p) => `${p.days} дн. — ${p.price} ${p.currency}`).join(', ')}` +
     (b.currencies?.length > 1 ? ` · оплата: ${b.currencies.join(', ')} (не ${b.plans[0].currency} — по курсу xRocket)` : '') +
+    (b.packs?.length ? ` · монеты: ${b.packs.map((p) => `${p.coins} — ${p.price} ${p.currency}`).join(', ')}; всего на балансах ${b.coins}` : '') +
+    (b.plans[0]?.coins ? ` · Премиум за монеты: ${b.plans.map((p) => `${p.days} дн. — ${p.coins}`).join(', ')}` : '') +
     (b.testnet ? ' · тестовая сеть xRocket' : '') +
     (b.webhook ? '' : ' · вебхук не настроен (XROCKET_WEBHOOK_SECRET): оплаты подтверждаются только сверкой');
   const rows = b.payments.map((p) => {
@@ -226,8 +241,8 @@ function renderBilling(b, now) {
     tr.append(
       el('td', 'muted small', fullFmt.format(p.createdAt)),
       el('td', 'name', p.giftTo ? `${p.user} → 🎁 ${p.giftTo}` : p.user),
-      el('td', '', `${p.days} дн.`),
-      el('td', 'num', `${p.amount} ${p.currency}`),
+      el('td', '', p.coins ? `🪙 ${p.coins}` : `${p.days} дн.`),
+      el('td', 'num', p.currency === 'COINS' ? `🪙 ${p.amount}` : `${p.amount} ${p.currency}`),
       el('td', 'small', PAY_STATUS[p.status] || p.status),
       el('td', 'muted small', p.paidAt ? ago(p.paidAt, now) : '')
     );

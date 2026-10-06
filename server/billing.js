@@ -46,6 +46,30 @@ export function parsePlans(spec, currency = 'USDT') {
 }
 
 /**
+ * Пакеты монет из строки «монеты:цена,…», например "100:1,550:5,1200:10" (цена — в валюте
+ * тарифов). Монеты — внутренняя валюта: ими платят за Премиум, позже — за подарки.
+ */
+export function parsePacks(spec, currency = 'USDT') {
+  currency = String(currency || 'USDT').trim().toUpperCase();
+  const packs = [];
+  for (const part of String(spec ?? '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    const m = /^(\d{1,7})\s*:\s*(\S+)$/.exec(part);
+    if (!m || !DECIMAL_RE.test(m[2]) || Number(m[1]) < 1 || Number(m[2]) <= 0) {
+      throw new Error(`COIN_PACKS: «${part}» — нужно «монеты:цена», например 100:1`);
+    }
+    const coins = Number(m[1]);
+    if (packs.some((p) => p.coins === coins)) throw new Error(`COIN_PACKS: пакет на ${coins} монет указан дважды`);
+    packs.push({ id: `${coins}c`, coins, price: m[2], currency });
+  }
+  return packs.sort((a, b) => a.coins - b.coins);
+}
+
+/** Цена тарифа в монетах: цена × монет за единицу валюты, с округлением вверх. */
+export function coinPrice(price, perUnit) {
+  return Math.max(1, Math.ceil(Number((Number(price) * perUnit).toPrecision(12))));
+}
+
+/**
  * Валюты, которыми можно оплатить: «USDT,GRAM,TRX». Первая — основная, в ней заданы цены
  * тарифов; в остальных сумма считается по курсу xRocket в момент выставления счёта.
  */
@@ -121,16 +145,21 @@ const ALIASES = { TON: ['TONCOIN'], TONCOIN: ['TON'], GRAM: ['GRAMCOIN'], TRX: [
  * @param {string}  [o.apiUrl]        свой адрес API (для тестов)
  * @param {Array}   [o.plans]         из parsePlans()
  * @param {string[]}[o.currencies]    из parseCurrencies(): первая — валюта цен тарифов
+ * @param {Array}   [o.packs]         из parsePacks(): пакеты монет за криптовалюту ([] — монеты не продаются)
+ * @param {number}  [o.coinsPerUnit]  монет за 1 единицу валюты тарифов — по нему цена Премиума в монетах (0 — нельзя)
  * @param {string}  [o.publicUrl]     https://домен — тогда адрес вебхука передаётся в каждом счёте
  * @param {Function}[o.fetch]
- * @param {Function}[o.onPaid]        (user, until, gift) — подписка продлена; gift — { id, from, to, days, at }, если это подарок
+ * @param {Function}[o.onPaid]        ({ user, until, gift, coins }) — оплачено: подписка продлена (gift — если подарок)
+ *                                   или монеты зачислены (coins — новый баланс)
  */
-export function createBilling({ store, token, webhookSecret = null, testnet = false, apiUrl = null, plans = parsePlans(), currencies = null, publicUrl = null, fetch: fetchImpl = globalThis.fetch, onPaid = () => {}, say = () => {} }) {
+export function createBilling({ store, token, webhookSecret = null, testnet = false, apiUrl = null, plans = parsePlans(), currencies = null, packs = [], coinsPerUnit = 100, publicUrl = null, fetch: fetchImpl = globalThis.fetch, onPaid = () => {}, say = () => {} }) {
   if (!token) return null;
   const apiBase = String(apiUrl || (testnet ? XROCKET_TESTNET_API : XROCKET_API)).replace(/\/+$/, '');
   const callbackUrl = publicUrl && webhookSecret ? `${String(publicUrl).replace(/\/+$/, '')}${WEBHOOK_PATH}` : null;
   const checking = new Set(); // счета, которые сейчас сверяются (чтобы не опрашивать дважды)
   const base = plans[0].currency;
+  // Цена тарифа в монетах — для оплаты Премиума с баланса
+  plans = plans.map((p) => (coinsPerUnit > 0 ? { ...p, coins: coinPrice(p.price, coinsPerUnit) } : p));
   let payWith = currencies?.length ? currencies : [base];
   const rates = new Map(); // валюта → { rate, at }: сколько основной валюты стоит единица валюты
 
@@ -222,8 +251,8 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
       }
       const res = store.markPaymentPaid(pay.id);
       if (res) {
-        say('оплата: подписка продлена');
-        if (res.until) onPaid(res.user, res.until, res.gift || null);
+        say(res.coins != null ? 'оплата: монеты зачислены' : 'оплата: подписка продлена');
+        if (res.until || res.coins != null) onPaid(res);
       }
       return res;
     }
@@ -250,6 +279,7 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
 
   return {
     plans,
+    packs,
     get currencies() {
       return payWith;
     },
@@ -261,26 +291,27 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
      * giftTo — юзернейм получателя подарка (проверяет вызывающий); платит user.
      */
     async createInvoice(user, planId, currency = base, giftTo = null) {
-      const plan = plans.find((p) => p.id === planId);
+      // Тариф Премиума или пакет монет (монеты не дарятся)
+      const plan = plans.find((p) => p.id === planId) || (!giftTo && packs.find((p) => p.id === planId));
       if (!plan) throw new BillingError('bad_plan');
       currency = String(currency || base).toUpperCase();
       if (!payWith.includes(currency)) throw new BillingError('bad_currency');
       const now = Date.now();
       giftTo = giftTo || null;
       const open = store.openPayment(user, plan.id, currency, now + REUSE_MIN, giftTo);
-      if (open?.url) return { id: open.id, url: open.url, days: open.days, price: open.amount, currency: open.currency, expiresAt: open.expiresAt, giftTo };
+      if (open?.url) return { id: open.id, url: open.url, days: open.days, coins: open.coins, price: open.amount, currency: open.currency, expiresAt: open.expiresAt, giftTo };
 
       // Цена в другой валюте — по текущему курсу xRocket, с округлением вверх
       const amount = currency === base ? plan.price : convertPrice(plan.price, await rateOf(currency));
       if (!amount) throw new BillingError('no_rate', currency);
       const id = 'tk' + randomBytes(12).toString('hex');
-      store.addPayment({ id, user, plan: plan.id, days: plan.days, amount, currency, expiresAt: now + INVOICE_TTL, giftTo, now });
+      store.addPayment({ id, user, plan: plan.id, days: plan.days || 0, amount, currency, expiresAt: now + INVOICE_TTL, giftTo, coins: plan.coins && !plan.days ? plan.coins : null, now });
       const body = {
         priceAmount: amount,
         priceCurrency: currency,
         numPayments: 1,
         clientInvoiceId: id,
-        description: `Тайник Премиум — ${plan.days} дн.${giftTo ? ' (подарок)' : ''}`, // без юзернеймов
+        description: plan.days ? `Тайник Премиум — ${plan.days} дн.${giftTo ? ' (подарок)' : ''}` : `Тайник — ${plan.coins} монет`, // без юзернеймов
         expiresIn: INVOICE_TTL,
       };
       if (callbackUrl) body.callback = { callbackUrl };
@@ -303,7 +334,7 @@ export function createBilling({ store, token, webhookSecret = null, testnet = fa
       }
       const expiresAt = inv.expiresAt ? Date.parse(inv.expiresAt) || now + INVOICE_TTL : now + INVOICE_TTL;
       store.setPaymentInvoice(id, inv.id != null ? String(inv.id) : null, url, expiresAt);
-      return { id, url, days: plan.days, price: amount, currency, expiresAt, giftTo };
+      return { id, url, days: plan.days || 0, coins: plan.days ? null : plan.coins, price: amount, currency, expiresAt, giftTo };
     },
 
     /** «Проверить оплату»: сверить неоплаченные счета пользователя. */

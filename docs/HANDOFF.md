@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на 5 октября 2026, версия **0.29.0** (`main`): Премиум в подарок; голосовые и квадратные видеосообщения (запись удержанием с закреплением, перемотка, смена камеры), статус «в сети» только когда приложение на экране; до этого — прокси в приложениях (SOCKS5/HTTP с паролем), исправление самообновления, групповые чаты, громкость и выбор устройств в звонке, подписка «Тайник Премиум» (xRocket Pay), версия приложения у устройств, страница проверки сети `/diag.html`. Сервер работает на `https://chat.sdsds.top`.
+Состояние на 5 октября 2026, версия **0.30.0** (`main`): монеты (внутренняя валюта) и фото профиля на весь экран; Премиум в подарок; голосовые и квадратные видеосообщения (запись удержанием с закреплением, перемотка, смена камеры), статус «в сети» только когда приложение на экране; до этого — прокси в приложениях (SOCKS5/HTTP с паролем), исправление самообновления, групповые чаты, громкость и выбор устройств в звонке, подписка «Тайник Премиум» (xRocket Pay), версия приложения у устройств, страница проверки сети `/diag.html`. Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано и что известно плохого. Подробности для пользователей — в `README.md` / `README.ru.md`, развёртывание — в `DEPLOY.md`, выпуски — в `RELEASING.md`, история — в `CHANGELOG.md`.
 
@@ -109,14 +109,16 @@
   - `list-devices`, `unlink-device`, `provision-open`, `provision-send`;
   - `presence-subscribe`, `set-presence-visibility`, `set-active` (приложение на экране или в фоне; «в сети» — только если хоть одно подключение активно, `conn.meta.active`; то же поле `active` есть в `auth`);
   - `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`;
-  - `premium-buy` (счёт на тариф; `giftTo` — подарок другому: получатель должен существовать и не блокировать дарителя), `premium-check` (сверить оплату).
-  - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}`, `gifts` — оплаченные подарки за 30 дней, где вы даритель или получатель, и `billing {plans, testnet}`), `gift {gift: {id, from, to, days, at}}` сразу после оплаты подарка — обоим; `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
+  - `premium-coins {plan, cost, giftTo?}` — Премиум за монеты (`store.premiumForCoins`: списание + продление в одной транзакции, запись в `payments` с валютой COINS; `cost` — цена, которую видел клиент, иначе `price_changed`);
+  - `premium-buy` (счёт на тариф или на пакет монет `<N>c` — пакет без подарка; `giftTo` — подарок другому: получатель должен существовать и не блокировать дарителя), `premium-check` (сверить оплату).
+  - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}`, `gifts` — оплаченные подарки за 30 дней, где вы даритель или получатель, и `billing {plans, testnet}`), `gift {gift: {id, from, to, days, at}}` сразу после оплаты подарка — обоим; `coins {balance}` — баланс монет изменился (в `ready` — `coins`); `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
 - `store.js` — SQLite (`node:sqlite`), файл `data/tainik.db`. Таблицы:
   - `users` (с колонками `presence_hidden`, `verified`);
   - `devices` (с `last_ip`, `app_version`);
   - `opks`, `queue`, `meta`, `push_subs`;
   - `blobs`, `ip_bans`, `blocks`;
   - `premium` (user → until, каскадно с аккаунтом), `payments` (счета xRocket: наш id = clientInvoiceId, тариф, сумма-строка, статус, `gift_to` — получатель подарка; не удаляются с аккаунтом). Подарок: `markPaymentPaid` продлевает `gift_to` (если его аккаунт удалён — плательщика). Клиент (`_onGifts`) кладёт в чат служебную запись `{t:'gift'}` один раз — id подарков помнит в `gifts-seen`.
+  - `coins` (баланс, CHECK ≥ 0, каскадно с аккаунтом) и `coin_log` (журнал всех изменений, остаётся); `payments.coins` — счёт на пакет монет.
   - Миграции — через `ALTER TABLE … ADD COLUMN` при старте.
 - `blobs.js` — вложения.
   - `blob-new` (WS) выдаёт `{id, token, chunk}`.
@@ -141,6 +143,7 @@
 ### 2.4 Интерфейс (`client/`)
 
 - `index.html` + `app.js` (~2900 строк) + `style.css` — весь мессенджер. В `call.js` — `CallManager` для WebRTC. Микрофон — `calls.micId` / `setMicrophone(id)` (replaceTrack на лету); динамик — `setSinkId` у `#remote-audio` и у AudioContext гудков. Громкость своего голоса — `calls.setMicGain()` (микрофон → GainNode → ограничитель → MediaStreamDestination, только если не 100%); собеседника — `audio.volume` до 100%, больше — WebAudio (элемент играет без звука). Выбор хранится в настройках устройства: `audio-in` / `audio-out` / `mic-gain` / `peer-volume` (проценты); страница ⋯ → «Звук и микрофон» (`data-page="media"`), в звонке — кнопка «Звук».
+- Фото профиля: `avatar` (160 px, ≤ 20 000 символов) и `photo` (до 640 px, ≤ 100 000, `validPhoto`) в одном профиле; у собеседников `photo` лежит в `storage['photo:<имя>']`, а не в контактах; в очереди профиль хранится ссылкой `{t:'profile', self:1}` и подставляется при отправке (`_deliver`). `MAX_ENVELOPE` — 192 КБ, `maxPayload` WS — 1 МБ. Просмотр — `openPhoto()` (нажатие на `#pf-avatar` / `#prof-avatar`).
 - Голосовые и видеосообщения — раздел «Голосовые и видеосообщения» в `app.js`: MediaRecorder (сначала mp4, затем webm/ogg), видео — кадр фронтальной камеры, обрезанный до квадрата 384×384 на `<canvas>`, `captureStream(30)` + дорожка микрофона; волна — AnalyserNode, 64 байта в base64. Отправка — `sendFile` с `as: 'voice' | 'note'`, `dur`, `wave` (голос) или `thumb`, `w/h` (видео); `cleanFile` принимает `as` только для audio/video соответственно. Воспроизведение — один элемент `playing` на всю ленту. Запись — удержание кнопки (`onRecDown/Move/Up`, pointer capture; вверх на `LOCK_DY` — `lockRec()`, влево на `CANCEL_DX` — отмена; `pointercancel` закрепляет, чтобы не терять запись); во время записи у `#composer` классы `recording`/`locked`. Смена камеры — `flipCamera()`: `facingMode` exact, иначе следующий `deviceId`; холст рисует из того же `<video>`, поэтому MediaRecorder не перезапускается. Перемотка — `pointerdown` по `.vwave` / `.note-seek`, `seekTo()` (длительность webm — из `f.dur`, пока браузер её не знает).
 - Активность для статуса: `pageActive()` — на Android `desktop.isActive()` (окно на экране, `MainActivity.updateForeground` → `WebHost.setActive` → `__tainikActive`), в браузере и десктопе — `document.visibilityState`; `client.setActive()` шлёт `set-active`.
 - `landing.html/js/css` — главная `/` с вкладками «О Тайнике» и «Скачать». Главная открывается всегда; в мессенджер ведёт кнопка «Перейти в чаты». Сразу в мессенджер попадают только по значку на экране «Домой» и по ссылкам `#chat=`.
@@ -258,7 +261,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test`. На 0.29.0 — **88 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
+- **Тесты:** `npm test`. На 0.30.0 — **90 тестов**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
 - **Локально:** `npm start` → главная `http://localhost:8080`, мессенджер `/app`. Чтобы проверить вдвоём, откройте обычное окно и окно инкогнито.
 - **CI:** каждый push в `main` запускает `build.yml`: test, docker, desktop×3, android. Статус:
   `curl -s "https://api.github.com/repos/nshimanovskiy/tainik/actions/runs?branch=main&per_page=1"`
@@ -323,6 +326,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.19 | Юзернейм и имя, «о себе», профиль собеседника, ссылка на главную в «О Тайнике» |
 | 0.20 | Подписка «Тайник Премиум» через xRocket Pay, фото профиля, звезда ★, подписка в админке |
 | 0.21 | Версия приложения у устройств (список устройств, админка); повторный запрос профиля, если фото потерялось |
+| 0.30 | Монеты — внутренняя валюта (пакеты за крипту, Премиум за монеты себе и в подарок); фото профиля на весь экран (большое фото в профиле) |
 | 0.29 | Премиум в подарок (профиль собеседника или «Тайник Премиум» → «В подарок») |
 | 0.28 | Запись удержанием (вверх — закрепить, влево — отмена), перемотка голосовых и видеосообщений, смена камеры |
 | 0.27 | Голосовые и квадратные видеосообщения; «в сети» только когда приложение на экране (Android в фоне — не в сети) |

@@ -42,6 +42,9 @@ services:
       PREMIUM_PLANS: ${PREMIUM_PLANS:-30:3}
       PREMIUM_CURRENCY: ${PREMIUM_CURRENCY:-USDT}
       PREMIUM_PAY_CURRENCIES: ${PREMIUM_PAY_CURRENCIES-GRAM,TRX}
+      # Монеты — внутренняя валюта: пакеты «монеты:цена» и сколько монет стоит единица PREMIUM_CURRENCY
+      COIN_PACKS: ${COIN_PACKS-100:1,550:5,1200:10}
+      COINS_PER_UNIT: ${COINS_PER_UNIT:-100}
     ports:
       - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
     volumes:
