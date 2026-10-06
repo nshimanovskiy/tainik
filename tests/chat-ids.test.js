@@ -122,3 +122,83 @@ test('каналы и группы: номера, вкладка в панели
   assert.equal(srv.store.getGroup(grp.slice(1)).owner, 'alice');
   assert.equal(srv.store.getGroup(grp.slice(1)).members, 2);
 });
+
+test('панель: название группы, удаление канала и группы', async (t) => {
+  const { srv, mk, adminApi, overview } = await setup(t);
+  const [alice, bob, carol] = [mk(), mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  await carol.register('carol');
+  const grp = await alice.createGroup('Дача', ['bob', 'carol']);
+  await until(() => srv.store.groupMembers(grp.slice(1)).length === 3);
+  await until(async () => (await overview()).chats.groups[0]?.name === 'Дача');
+
+  // Переименовали — новое название в панели (сообщает администратор группы)
+  await alice.updateGroup(grp, { name: 'Дача у озера' });
+  await until(async () => (await overview()).chats.groups[0]?.name === 'Дача у озера');
+
+  // Канал: подписчик видит удаление сразу
+  const ch = await alice.createChannel({ title: 'Новости', isPublic: true, handle: 'newsroom' });
+  await bob.joinChannel('@newsroom');
+  const gone = waitEv(bob, 'channel-removed', (d) => d.chat === ch);
+  assert.equal((await adminApi('chat-delete', { id: ch.slice(1) })).status, 200);
+  await gone;
+  assert.equal(srv.store.getChannel({ id: ch.slice(1) }), null);
+  assert.equal((await overview()).chats.channels.length, 0);
+
+  // Группа: участники в сети выходят из неё сразу, офлайн — при следующем входе
+  carol.disconnect();
+  const bobOut = waitEv(bob, 'group', (d) => d.chat === grp && d.group.left);
+  assert.equal((await adminApi('chat-delete', { id: grp.slice(1) })).status, 200);
+  await bobOut;
+  await until(async () => (await alice.contacts())[grp].group.left);
+  assert.equal((await bob.messages(grp)).at(-1).content.ev, 'deleted');
+  await assert.rejects(bob.sendText(grp, 'привет'));
+  assert.equal((await overview()).chats.groups.length, 0, 'удалённой группы нет в панели');
+  await carol.connect();
+  await until(async () => (await carol.contacts())[grp]?.group.left);
+  // Повторно удалить нельзя, неверный id — ошибка
+  assert.equal((await adminApi('chat-delete', { id: grp.slice(1) })).status, 400);
+  assert.equal((await adminApi('chat-delete', { id: 'xx' })).status, 400);
+});
+
+test('пользователь удаляет свой аккаунт: устройства стирают данные, каналы пропадают, имя свободно', async (t) => {
+  const { srv, mk } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  let gotCode;
+  const codeP = new Promise((r) => (gotCode = r));
+  const alice2 = mk();
+  const { done } = alice2.linkAsNewDevice({ deviceName: 'Телефон', onCode: ({ code }) => gotCode(code) });
+  await alice.linkDevice(await codeP);
+  await done;
+  const ch = await alice.createChannel({ title: 'Мой канал', isPublic: true, handle: 'alice_chan' });
+  await bob.joinChannel('@alice_chan');
+
+  await assert.rejects(alice.deleteAccount('bob'), (e) => e.code === 'bad_confirm');
+  assert.ok(srv.store.getUser('alice'), 'неверное подтверждение — ничего не удалено');
+
+  const wiped = waitEv(alice2, 'error', (e) => e.code === 'account_deleted' && e.self === true);
+  const chGone = waitEv(bob, 'channel-removed', (d) => d.chat === ch);
+  await alice.deleteAccount('@Alice');
+  await Promise.all([wiped, chGone]);
+  assert.equal(srv.store.getUser('alice'), null);
+  assert.equal(srv.store.getChannel({ id: ch.slice(1) }), null);
+  // Юзернейм свободен
+  const again = mk();
+  await again.register('alice');
+});
+
+function waitEv(emitter, event, pred = () => true, ms = 8000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => (off(), reject(new Error('timeout: ' + event))), ms);
+    const off = emitter.on(event, (d) => {
+      if (pred(d)) {
+        clearTimeout(timer);
+        off();
+        resolve(d);
+      }
+    });
+  });
+}

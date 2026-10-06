@@ -327,6 +327,8 @@ export const ERROR_TEXT = {
   logged_in_elsewhere: t('Это устройство открыто в другом окне'),
   device_removed: t('Это устройство отвязано от аккаунта'),
   account_deleted: t('Аккаунт удалён администратором сервера'),
+  account_deleted_self: t('Аккаунт удалён с другого вашего устройства'),
+  bad_confirm: t('Юзернейм введён неверно'),
   ip_banned: t('Доступ к серверу с вашего адреса заблокирован администратором'),
   too_many_devices: t('Достигнут предел: 5 устройств на аккаунт'),
   unknown_recipient: t('Такого пользователя нет'),
@@ -855,13 +857,14 @@ export class MessengerClient extends Emitter {
     });
   }
 
-  _fatal(code) {
+  _fatal(code, extra = {}) {
     this._stopped = true;
     if (this._firstReady) {
       this._firstReady.reject(errorOf(code));
       this._firstReady = null;
     }
-    this.emit('error', { code, text: ERROR_TEXT[code] || code });
+    const text = code === 'account_deleted' && extra.self ? ERROR_TEXT.account_deleted_self : ERROR_TEXT[code] || code;
+    this.emit('error', { code, text, ...extra });
     if (this.ws) this.ws.close();
   }
 
@@ -933,6 +936,9 @@ export class MessengerClient extends Emitter {
       case 'notice':
         this._serial(() => this._onNotices([msg.notice])).catch((e) => console.error('notices', e));
         return;
+      case 'group-removed':
+        if (GID_RE.test(String(msg.id))) this._serial(() => this._onGroupsRemoved([String(msg.id)])).catch(() => {});
+        return;
       case 'group-verified':
         if (/^[0-9a-f]{24}$/.test(String(msg.id))) this._setGroupsVerified(null, { chat: groupKey(msg.id), on: msg.verified === true }).catch(() => {});
         return;
@@ -988,7 +994,7 @@ export class MessengerClient extends Emitter {
         return;
       case 'error': {
         if (msg.code === 'mismatched_devices') return this._serial(() => this._onMismatch(msg));
-        if (msg.code === 'device_removed' || msg.code === 'account_deleted' || msg.code === 'ip_banned') return this._fatal(msg.code);
+        if (msg.code === 'device_removed' || msg.code === 'account_deleted' || msg.code === 'ip_banned') return this._fatal(msg.code, { self: msg.self === true });
         if (msg.code === 'logged_in_elsewhere') {
           this._setStatus('replaced');
           return this._fatal(msg.code);
@@ -1361,7 +1367,7 @@ export class MessengerClient extends Emitter {
   _groupsSig(all) {
     return Object.values(all)
       .filter((c) => c.group && !c.group.left)
-      .map((c) => `${c.group.id}:${c.group.members.length}:${c.group.admins.includes(this.account?.username) ? 1 : 0}`)
+      .map((c) => `${c.group.id}:${c.group.members.length}:${c.group.admins.includes(this.account?.username) ? 1 : 0}:${c.group.name}`)
       .sort()
       .join(',');
   }
@@ -1376,9 +1382,15 @@ export class MessengerClient extends Emitter {
     const sig = this._groupsSig(all);
     const groups = Object.values(all)
       .filter((c) => c.group && !c.group.left)
-      .map((c) => ({ id: c.group.id, members: c.group.members.length, admin: c.group.admins.includes(this.account.username) }));
+      .map((c) => {
+        const admin = c.group.admins.includes(this.account.username);
+        // Название сообщают серверу администраторы группы — чтобы оно было видно в панели администратора
+        return { id: c.group.id, members: c.group.members.length, admin, ...(admin ? { name: c.group.name } : {}) };
+      });
     const r = await this._request({ type: 'group-sync', groups });
     this._groupsSynced = sig;
+    const removed = (Array.isArray(r.removed) ? r.removed : []).map(String).filter((id) => GID_RE.test(id));
+    if (removed.length) await this._serial(() => this._onGroupsRemoved(removed));
     await this._setGroupsVerified(new Set((Array.isArray(r.verified) ? r.verified : []).map((id) => groupKey(String(id)))));
   }
   /** verified — множество ключей групп ('#id') с галочкой; null — поменять одну: { chat, on }. */
@@ -1898,6 +1910,17 @@ export class MessengerClient extends Emitter {
   }
 
   /** Ссылка на канал: публичный — по @имени, приватный — с ключом (кто получил ссылку, тот читает). */
+  /**
+   * Удалить свой аккаунт навсегда: confirm — свой юзернейм. Сервер удаляет ключи, очередь
+   * сообщений, подписку и каналы; другие ваши устройства отключаются и стирают данные.
+   * После этого локальные данные этого устройства нужно стереть (reset).
+   */
+  async deleteAccount(confirm) {
+    await this._request({ type: 'delete-account', confirm: String(confirm ?? '').trim().replace(/^@/, '').toLowerCase() });
+    this._stopped = true;
+    if (this.ws) this.ws.close();
+  }
+
   /** Ссылка на канал без адреса сервера: '@имя' или 'id.ключ' (для профиля). */
   channelRef(ch) {
     return ch.public && ch.handle ? '@' + ch.handle : `${ch.id}.${b64url(ch.key)}`;
@@ -2162,6 +2185,21 @@ export class MessengerClient extends Emitter {
     for (const e of events) await this._appendMsg(key, { id: 'g-' + randomId(9), dir: 'sys', ts: Date.now(), content: { t: 'group', ...e } });
     this.emit('group', { chat: key, group: rec.group });
     await this._replayGroup(all, key);
+  }
+
+  /** Группы удалены администратором сервера: выходим из них (писать в них больше нельзя). */
+  async _onGroupsRemoved(ids) {
+    const all = await this.contacts();
+    for (const id of ids) {
+      const key = groupKey(id);
+      const g = all[key]?.group;
+      if (!g || g.removed) continue;
+      g.left = true;
+      g.removed = true;
+      await this._saveContacts(all);
+      await this._appendMsg(key, { id: 'g-' + randomId(9), dir: 'sys', ts: Date.now(), content: { t: 'group', ev: 'deleted' } });
+      this.emit('group', { chat: key, group: g });
+    }
   }
 
   /** Участник вышел (или вы сами): убрать из состава; если админов не осталось — первый участник. */

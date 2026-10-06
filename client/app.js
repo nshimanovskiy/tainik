@@ -306,6 +306,8 @@ function groupEventText(e) {
       return (e.who || []).includes(client.account?.username) ? t('{0} исключил(а) вас из группы', byName(e.by)) : t('{0} исключил(а): {1}', byName(e.by), who);
     case 'left':
       return e.by === client.account?.username ? t('Вы покинули группу') : t('{0} покинул(а) группу', byName(e.by));
+    case 'deleted':
+      return t('Группа удалена администратором сервера');
     default:
       return t('Служебное сообщение');
   }
@@ -3285,29 +3287,61 @@ client.on('status-change', ({ contact, id, status }) => {
   node.querySelector('.st').textContent = STATUS_ICON[status] || '';
 });
 client.on('key-changed', (c) => toast(t('⚠ Ключ пользователя {0} изменился', c.username), 6000));
-client.on('error', async ({ code, text }) => {
+/** Стереть аккаунт на этом устройстве (ключи, переписку) и показать причину на экране входа. */
+async function wipeLocal(textOf) {
+  const name = client.account?.username || '';
+  await dropPush(false);
+  await client.reset();
+  current = null;
+  const text = textOf(name);
+  if (await forgetActiveAccount()) {
+    await settings.set('flash', text);
+    return location.reload();
+  }
+  showAuth();
+  $('auth-error').textContent = text;
+}
+client.on('error', async ({ code, text, self }) => {
   if (code === 'logged_in_elsewhere') return toast(text, 0);
   if (code === 'device_removed' || code === 'account_deleted') {
     // Устройство отвязано с другого устройства или аккаунт удалён — стираем ключи здесь
-    const name = client.account?.username || '';
-    await dropPush(false);
-    await client.reset();
-    current = null;
-    const text =
+    return wipeLocal((name) =>
       code === 'account_deleted'
-        ? t('Аккаунт {0} удалён администратором сервера. Ключи и переписка на этом устройстве стёрты.', name)
-        : t('Это устройство отвязано от аккаунта {0}. Ключи и переписка удалены.', name);
-    if (await forgetActiveAccount()) {
-      await settings.set('flash', text);
-      return location.reload();
-    }
-    showAuth();
-    $('auth-error').textContent = text;
-    return;
+        ? self
+          ? t('Аккаунт {0} удалён с другого вашего устройства. Ключи и переписка на этом устройстве стёрты.', name)
+          : t('Аккаунт {0} удалён администратором сервера. Ключи и переписка на этом устройстве стёрты.', name)
+        : t('Это устройство отвязано от аккаунта {0}. Ключи и переписка удалены.', name)
+    );
   }
   toast(text);
 });
-
+// Удалить свой аккаунт: подтверждение — ввести свой юзернейм
+$('delacc-btn').addEventListener('click', () => {
+  $('delacc-name').textContent = '@' + (client.account?.username || '');
+  $('delacc-input').value = '';
+  $('delacc-error').textContent = '';
+  $('delacc-dialog').showModal();
+});
+$('delacc-cancel').addEventListener('click', () => $('delacc-dialog').close());
+$('delacc-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const typed = $('delacc-input').value.trim().replace(/^@/, '').toLowerCase();
+  if (typed !== client.account?.username) {
+    $('delacc-error').textContent = t('Юзернейм введён неверно');
+    return;
+  }
+  $('delacc-confirm').disabled = true;
+  try {
+    await client.deleteAccount(typed);
+    $('delacc-dialog').close();
+    $('menu-dialog').close();
+    await wipeLocal((name) => t('Аккаунт {0} удалён. Ключи и переписка на этом устройстве стёрты.', name));
+  } catch (err) {
+    $('delacc-error').textContent = err.message;
+  } finally {
+    $('delacc-confirm').disabled = false;
+  }
+});
 // ---------- Уведомления и работа в фоне ----------
 // Десктоп: приложение живёт в трее и получает сообщения само, уведомления — системные.
 // Веб: пока вкладка открыта — уведомления от страницы; когда закрыта — Web Push
@@ -5405,7 +5439,7 @@ async function startOthers() {
         force: true,
       });
     });
-    c.on('error', async ({ code }) => {
+    c.on('error', async ({ code, self }) => {
       if (code !== 'device_removed' && code !== 'account_deleted') return;
       c.disconnect();
       await c.reset();
@@ -5417,7 +5451,13 @@ async function startOthers() {
       }
       await saveAccounts();
       renderAccountsBadge();
-      toast(code === 'account_deleted' ? t('Аккаунт {0} удалён администратором', acc.username || '') : t('Это устройство отвязано от аккаунта {0}', acc.username || ''));
+      toast(
+        code === 'account_deleted'
+          ? self
+            ? t('Аккаунт {0} удалён с другого вашего устройства', acc.username || '')
+            : t('Аккаунт {0} удалён администратором', acc.username || '')
+          : t('Это устройство отвязано от аккаунта {0}', acc.username || '')
+      );
     });
     await recount();
     c.connect().catch(() => {});

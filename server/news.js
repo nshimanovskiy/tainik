@@ -117,6 +117,11 @@ export function createNews({ store, version, changelogPath, notify, say = () => 
     subscribe(user) {
       if (channel) store.subscribe(channel.id, user);
     },
+    /** Канал удалили (в панели): забыть его. Новый создастся при следующем запуске сервера. */
+    forget() {
+      channel = null;
+      db.prepare("DELETE FROM meta WHERE key = 'news_channel'").run();
+    },
     get id() {
       return channel?.id || null;
     },

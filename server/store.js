@@ -255,6 +255,9 @@ export class Store {
     this.db.exec('CREATE INDEX IF NOT EXISTS blobs_pin ON blobs(pin)');
     if (!pcols.includes('coins')) this.db.exec('ALTER TABLE payments ADD COLUMN coins INTEGER'); // покупка монет: сколько
     // Каналы: номер (виден в панели администратора) и официальная галочка
+    const gcols = this.db.prepare("SELECT name FROM pragma_table_info('groups')").all().map((r) => r.name);
+    if (!gcols.includes('name')) this.db.exec('ALTER TABLE groups ADD COLUMN name TEXT'); // название (сообщают администраторы группы)
+    if (!gcols.includes('deleted_at')) this.db.exec('ALTER TABLE groups ADD COLUMN deleted_at INTEGER'); // удалена администратором сервера
     const ccols = this.db.prepare("SELECT name FROM pragma_table_info('channels')").all().map((r) => r.name);
     if (!ccols.includes('verified')) this.db.exec('ALTER TABLE channels ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
     if (!ccols.includes('uid')) this.db.exec('ALTER TABLE channels ADD COLUMN uid INTEGER');
@@ -637,22 +640,31 @@ export class Store {
 
   // ----- группы (только номер, участники и галочка; содержимое сервер не видит) -----
   /**
-   * Устройство user сообщило свои группы: [{ id, members, admin }]. Новые регистрируются; владелец —
-   * первый сообщивший администратор группы, число участников обновляют администраторы. Участие
-   * в остальных группах (из которых вышли) снимается. Возвращает id групп user с галочкой.
+   * Устройство user сообщило свои группы: [{ id, members, admin, name }]. Новые регистрируются;
+   * владелец — первый сообщивший администратор группы, число участников и название обновляют
+   * администраторы. Участие в остальных группах (из которых вышли) снимается.
+   * Возвращает { verified: id групп user с галочкой, removed: id групп, удалённых администратором сервера }.
    */
   syncGroups(user, list, now = Date.now()) {
     return this.tx(() => {
       const ids = [];
+      const removed = [];
       for (const g of list) {
         const n = Math.max(1, Math.min(10_000, Math.floor(Number(g.members) || 1)));
-        const r = this.db.prepare('SELECT owner FROM groups WHERE id = ?').get(g.id);
+        const name = g.admin && typeof g.name === 'string' && g.name.trim() ? g.name.trim().slice(0, 64) : null;
+        const r = this.db.prepare('SELECT owner, deleted_at FROM groups WHERE id = ?').get(g.id);
+        if (r?.deleted_at) {
+          removed.push(g.id);
+          continue;
+        }
         if (!r) {
           this.db
-            .prepare('INSERT INTO groups(id, uid, owner, members, created_at, active_at) VALUES (?, ?, ?, ?, ?, ?)')
-            .run(g.id, this._nextChatUid(), g.admin ? user : '', g.admin ? n : 0, now, now);
+            .prepare('INSERT INTO groups(id, uid, owner, members, created_at, active_at, name) VALUES (?, ?, ?, ?, ?, ?, ?)')
+            .run(g.id, this._nextChatUid(), g.admin ? user : '', g.admin ? n : 0, now, now, name);
         } else if (g.admin) {
-          this.db.prepare("UPDATE groups SET owner = CASE WHEN owner = '' THEN ? ELSE owner END, members = ?, active_at = ? WHERE id = ?").run(user, n, now, g.id);
+          this.db
+            .prepare("UPDATE groups SET owner = CASE WHEN owner = '' THEN ? ELSE owner END, members = ?, active_at = ?, name = COALESCE(?, name) WHERE id = ?")
+            .run(user, n, now, name, g.id);
         } else {
           this.db.prepare('UPDATE groups SET active_at = ? WHERE id = ?').run(now, g.id);
         }
@@ -663,12 +675,27 @@ export class Store {
       for (const r of this.db.prepare('SELECT grp FROM group_members WHERE user = ?').all(user)) {
         if (!keep.has(r.grp)) this.db.prepare('DELETE FROM group_members WHERE grp = ? AND user = ?').run(r.grp, user);
       }
-      return this.db.prepare('SELECT g.id FROM groups g JOIN group_members m ON m.grp = g.id WHERE m.user = ? AND g.verified = 1').all(user).map((r) => r.id);
+      const verified = this.db.prepare('SELECT g.id FROM groups g JOIN group_members m ON m.grp = g.id WHERE m.user = ? AND g.verified = 1').all(user).map((r) => r.id);
+      return { verified, removed };
     });
   }
   getGroup(id) {
     const r = this.db.prepare('SELECT * FROM groups WHERE id = ?').get(String(id));
-    return r ? { id: r.id, uid: r.uid, owner: r.owner, members: r.members, verified: !!r.verified, createdAt: r.created_at, activeAt: r.active_at } : null;
+    return r
+      ? { id: r.id, uid: r.uid, owner: r.owner, name: r.name || null, members: r.members, verified: !!r.verified, deleted: !!r.deleted_at, createdAt: r.created_at, activeAt: r.active_at }
+      : null;
+  }
+  /**
+   * Удалить группу (администратор сервера). Запись остаётся с отметкой: участники, которые сейчас
+   * не в сети, узнают об удалении при следующей сверке групп. Возвращает участников, известных серверу.
+   */
+  deleteGroup(id, now = Date.now()) {
+    return this.tx(() => {
+      const members = this.groupMembers(id);
+      this.db.prepare('UPDATE groups SET deleted_at = ?, verified = 0 WHERE id = ? AND deleted_at IS NULL').run(now, String(id));
+      this.db.prepare('DELETE FROM group_members WHERE grp = ?').run(String(id));
+      return members;
+    });
   }
   groupMembers(id) {
     return this.db.prepare('SELECT user FROM group_members WHERE grp = ?').all(String(id)).map((r) => r.user);
@@ -687,10 +714,13 @@ export class Store {
       .all()
       .map((r) => ({ id: r.id, uid: r.uid, owner: r.owner, handle: r.handle || null, public: !!r.public, key: r.key || null, meta: r.meta, verified: !!r.verified, subs: r.subs, posts: r.posts, createdAt: r.created_at }));
     const groups = this.db
-      .prepare('SELECT g.*, (SELECT COUNT(*) FROM group_members m WHERE m.grp = g.id) AS registered FROM groups g ORDER BY g.uid DESC')
+      .prepare('SELECT g.*, (SELECT COUNT(*) FROM group_members m WHERE m.grp = g.id) AS registered FROM groups g WHERE g.deleted_at IS NULL ORDER BY g.uid DESC')
       .all()
-      .map((r) => ({ id: r.id, uid: r.uid, owner: r.owner, members: r.members, registered: r.registered, verified: !!r.verified, createdAt: r.created_at, activeAt: r.active_at }));
+      .map((r) => ({ id: r.id, uid: r.uid, owner: r.owner, name: r.name || null, members: r.members, registered: r.registered, verified: !!r.verified, createdAt: r.created_at, activeAt: r.active_at }));
     return { channels, groups };
+  }
+  channelIdsOwnedBy(user) {
+    return this.db.prepare('SELECT id FROM channels WHERE owner = ?').all(user).map((r) => r.id);
   }
   channelsOwnedBy(user) {
     return this.db.prepare('SELECT COUNT(*) AS n FROM channels WHERE owner = ?').get(user).n;

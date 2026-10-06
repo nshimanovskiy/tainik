@@ -326,6 +326,23 @@ export function startServer({
       notice(res.gift.from, 'gift-sent', { to: res.gift.to, days: res.gift.days, ...coins });
     } else if (res.until) notice(res.user, 'premium', { days: res.days || 0, until: res.until, ...coins });
   }
+  /**
+   * Удалить аккаунт со всеми данными на сервере: устройства отключаются и стирают ключи
+   * (self — удалил сам, на других его устройствах это так и объясняется), каналы владельца
+   * удаляются у подписчиков, имя освобождается.
+   */
+  function removeAccount(name, { except = null, self = false } = {}) {
+    for (const c of onlineDevices(name)) {
+      if (c !== except) send(c, { type: 'error', code: 'account_deleted', self });
+      c.close(4003, 'deleted');
+    }
+    for (const id of store.channelIdsOwnedBy(name)) {
+      for (const u of store.subscribers(id)) if (u !== name) for (const d of onlineDevices(u)) send(d, { type: 'channel-deleted', id });
+    }
+    store.deleteUser(name);
+    for (const k of [...online.keys()]) if (k.startsWith(name + '.')) online.delete(k);
+    broadcastPresence(name);
+  }
   /** Баланс монет изменился — своим устройствам. */
   function coinsChanged(name) {
     const balance = store.coinsOf(name);
@@ -698,14 +715,26 @@ export function startServer({
 
       // ----- присутствие -----
       // Свои группы (id и число участников): сервер выдаёт им номера и сообщает, у каких есть галочка
+      // Пользователь удаляет свой аккаунт: подтверждение — свой юзернейм
+      case 'delete-account': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (String(msg.confirm || '').toLowerCase() !== state.user) return error(conn, 'bad_confirm', { reqId: msg.reqId });
+        const name = state.user;
+        send(conn, { type: 'account-deleted', reqId: msg.reqId });
+        removeAccount(name, { except: conn, self: true });
+        say('пользователь удалил свой аккаунт');
+        return;
+      }
+
       case 'group-sync': {
         if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
         if (!take(state.channel, RATE.channelPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
         const list = (Array.isArray(msg.groups) ? msg.groups : [])
           .filter((g) => g && GROUP_ID_RE.test(String(g.id)))
           .slice(0, GROUPS_SYNC_MAX)
-          .map((g) => ({ id: String(g.id), members: g.members, admin: g.admin === true }));
-        return send(conn, { type: 'group-sync', reqId: msg.reqId, verified: store.syncGroups(state.user, list) });
+          .map((g) => ({ id: String(g.id), members: g.members, admin: g.admin === true, name: typeof g.name === 'string' ? g.name.slice(0, 64) : null }));
+        const res = store.syncGroups(state.user, list);
+        return send(conn, { type: 'group-sync', reqId: msg.reqId, verified: res.verified, removed: res.removed });
       }
 
       case 'presence-subscribe': {
@@ -1044,13 +1073,7 @@ export function startServer({
     deleteUser(name) {
       name = String(name || '').toLowerCase();
       if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
-      for (const c of onlineDevices(name)) {
-        send(c, { type: 'error', code: 'account_deleted' });
-        c.close(4003, 'deleted');
-      }
-      store.deleteUser(name);
-      for (const k of [...online.keys()]) if (k.startsWith(name + '.')) online.delete(k);
-      broadcastPresence(name);
+      removeAccount(name);
       say('администратор удалил аккаунт');
     },
     // Официальная галочка: видна всем собеседникам сразу (через подписку на статус)
@@ -1120,6 +1143,25 @@ export function startServer({
         for (const user of store.groupMembers(id)) for (const c of onlineDevices(user)) send(c, { type: 'group-verified', id, verified: !!on });
       } else throw new Error('Неверный id');
       say(on ? 'администратор поставил галочку каналу или группе' : 'администратор снял галочку с канала или группы');
+    },
+    // Удалить канал или группу. Канал — со всеми постами, у подписчиков он пропадает. Группа —
+    // её участникам приходит «группа удалена» (переписка в ней сквозная: сервер может только
+    // сообщить участникам; приложения выходят из неё и больше не пишут в неё).
+    deleteChat(id) {
+      id = String(id || '');
+      if (CHANNEL_ID_RE.test(id)) {
+        if (!store.getChannel({ id })) throw new Error('Нет такого канала');
+        const subs = store.subscribers(id);
+        store.deleteChannel(id);
+        for (const u of subs) for (const d of onlineDevices(u)) send(d, { type: 'channel-deleted', id });
+        if (news?.id === id) news.forget();
+        say('администратор удалил канал');
+      } else if (GROUP_ID_RE.test(id)) {
+        const g = store.getGroup(id);
+        if (!g || g.deleted) throw new Error('Нет такой группы');
+        for (const u of store.deleteGroup(id)) for (const d of onlineDevices(u)) send(d, { type: 'group-removed', id });
+        say('администратор удалил группу');
+      } else throw new Error('Неверный id');
     },
     ban(ip, note = '') {
       ip = normIp(ip);

@@ -330,6 +330,26 @@ function verifyButton(kind, item, label) {
   return b;
 }
 
+// Удалить канал или группу (необратимо)
+function deleteChatButton(kind, item, label) {
+  const b = el('button', 'danger', 'Удалить');
+  b.type = 'button';
+  b.title = kind === 'channel' ? 'Удалить канал со всеми постами — у подписчиков он пропадёт' : 'Удалить группу — участники выйдут из неё';
+  b.addEventListener('click', async () => {
+    const what =
+      kind === 'channel'
+        ? `Удалить канал «${label}» со всеми постами? У всех подписчиков он пропадёт. Это необратимо.`
+        : `Удалить группу «${label}»? Её участники выйдут из неё и больше не смогут в неё писать. Переписка у участников останется. Это необратимо.`;
+    if (!confirm(what)) return;
+    try {
+      await act('chat-delete', { id: item.id });
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+  return b;
+}
+
 function renderChats() {
   if (!data?.chats) return;
   const { channels = [], groups = [] } = data.chats;
@@ -352,21 +372,21 @@ function renderChats() {
     if (c.handle) name.append(el('span', 'tag pub', '@' + c.handle));
     name.append(el('br'), el('code', 'cid', c.id));
     const actions = el('td', 'actions');
-    actions.append(verifyButton('канал', c, c.title || c.handle || 'канал ' + c.uid));
+    actions.append(verifyButton('канал', c, c.title || c.handle || 'канал ' + c.uid), deleteChatButton('channel', c, c.title || c.handle || 'канал ' + c.uid));
     tr.append(name, el('td', '', c.owner), el('td', 'num', String(c.subs)), el('td', 'num', String(c.posts)), el('td', 'muted small', dateFmt.format(c.createdAt)), actions);
     return tr;
   });
   $('chan-rows').replaceChildren(...chans);
   $('no-chans').hidden = chans.length > 0;
 
-  const grps = groups.filter((g) => hit(g)).map((g) => {
+  const grps = groups.filter((g) => hit(g, [g.name])).map((g) => {
     const tr = el('tr');
     const name = el('td', 'name');
-    const b = el('b', '', '👥 группа');
+    const b = el('b', '', '👥 ' + (g.name || 'группа (название неизвестно)'));
     if (g.verified) b.append(verifiedBadge());
     name.append(el('span', 'tag uid', `ID ${g.uid ?? '—'}`), b, el('br'), el('code', 'cid', g.id));
     const actions = el('td', 'actions');
-    actions.append(verifyButton('группу', g, 'группа ' + g.uid));
+    actions.append(verifyButton('группу', g, g.name || 'группа ' + g.uid), deleteChatButton('group', g, g.name || 'группа ' + g.uid));
     tr.append(
       name,
       el('td', '', g.owner || '—'),

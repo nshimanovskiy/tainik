@@ -274,6 +274,7 @@
         </div>
         <div class="set-group">
           <button id="reset-btn" type="submit" value="reset" class="set-row danger"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Выйти на этом устройстве</span></button>
+          <button id="delacc-btn" type="button" class="set-row danger"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить аккаунт</span></button>
         </div>
       </div>
 
@@ -642,7 +643,7 @@
         <button type="button" id="ng-add-btn" class="primary">Добавить</button>
       </div>
       <p id="ng-error" class="error small" role="alert"></p>
-      <p class="hint">Сообщения в группе шифруются отдельно для каждого участника — сервер не видит ни их, ни названия группы. Серверу известны только номер группы и её участники (ради галочки). До 50 участников.</p>
+      <p class="hint">Сообщения в группе шифруются отдельно для каждого участника — сервер их не видит. Серверу известны номер группы, её название и участники (ради галочки и панели администратора). До 50 участников.</p>
       <div class="dialog-actions">
         <button value="cancel" class="ghost">Отмена</button>
         <button type="button" id="ng-create" class="primary">Создать</button>
@@ -807,6 +808,21 @@
       <div class="dialog-actions">
         <button value="cancel" class="ghost">Отмена</button>
         <button value="delete" class="danger-btn">Удалить чат</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Удаление своего аккаунта -->
+  <dialog id="delacc-dialog">
+    <form class="dialog-body" id="delacc-form" autocomplete="off">
+      <h2>Удалить аккаунт навсегда?</h2>
+      <p class="hint">Аккаунт <b id="delacc-name"></b> будет удалён с сервера вместе с ключами, непрочитанными сообщениями, подпиской Премиум, монетами и вашими каналами. Все ваши устройства выйдут из аккаунта и сотрут переписку. Отменить это нельзя; юзернейм освободится.</p>
+      <p class="hint">Чтобы сохранить переписку, сначала сделайте «Перенос переписки» → «Экспортировать» (но импортировать её можно будет только в этот же аккаунт).</p>
+      <label class="set-field"><span>Введите свой юзернейм для подтверждения</span><input id="delacc-input" spellcheck="false" autocapitalize="none" autocomplete="off" placeholder="юзернейм"></label>
+      <p id="delacc-error" class="error small" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="delacc-cancel" class="ghost">Отмена</button>
+        <button type="submit" id="delacc-confirm" class="danger-btn">Удалить навсегда</button>
       </div>
     </form>
   </dialog>
