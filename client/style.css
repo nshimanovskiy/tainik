@@ -969,3 +969,4 @@ dialog.sheet[open] { animation: sheet-up .18s ease-out; }
 .fw-item:hover { background: var(--accent-soft); }
 a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-word; }
 .msg.out .bubble a.lnk { color: inherit; }
+.set-note.error { color: var(--danger); }

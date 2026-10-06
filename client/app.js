@@ -495,6 +495,61 @@ $('link-start').addEventListener('click', async () => {
     }
   }
 });
+// ---------- Перенос переписки ----------
+function backupStatus(text, bad = false) {
+  $('backup-status').textContent = text;
+  $('backup-status').classList.toggle('error', bad);
+}
+$('backup-export').addEventListener('click', async () => {
+  const btn = $('backup-export');
+  btn.disabled = true;
+  backupStatus(t('Готовим файл…'));
+  try {
+    const r = await client.exportBackup();
+    const saved = await saveBytes(r.name, 'application/octet-stream', r.bytes);
+    backupStatus(saved ? t('Сохранено: {0} — чатов: {1}, сообщений: {2}', r.name, r.chats, r.messages) : '');
+  } catch (err) {
+    backupStatus(t('Не удалось экспортировать: {0}', err.message), true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+$('backup-import').addEventListener('click', () => {
+  $('backup-file').value = '';
+  $('backup-file').click();
+});
+$('backup-file').addEventListener('change', async () => {
+  const f = $('backup-file').files?.[0];
+  if (!f) return;
+  $('backup-import').disabled = true;
+  backupStatus(t('Импортируем…'));
+  try {
+    const r = await client.importBackup(new Uint8Array(await f.arrayBuffer()));
+    backupStatus(r.messages || r.chats ? t('Готово: новых чатов — {0}, сообщений — {1}', r.chats, r.messages) : t('Всё из этого файла уже есть на устройстве'));
+  } catch (err) {
+    backupStatus(err.code === 'wrong_account' && err.user ? t('Это переписка аккаунта @{0}. Импортировать её можно только в него.', err.user) : err.message, true);
+  } finally {
+    $('backup-import').disabled = false;
+  }
+});
+client.on('imported', async () => {
+  await renderContacts();
+  if (current) await renderChat();
+});
+/** Сохранить байты в файл: в Android — через приложение, иначе — обычной загрузкой. */
+async function saveBytes(name, mime, bytes) {
+  if (desktop?.saveFile) return !!(await desktop.saveFile(name, mime, bytes));
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.rel = 'noopener';
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return true;
+}
 $('link-copy').addEventListener('click', async () => {
   try {
     await copyText($('link-code').textContent);

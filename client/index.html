@@ -253,6 +253,7 @@
         <div class="set-group">
         <button type="submit" value="accounts" class="set-row"><span class="set-ico" aria-hidden="true">👥</span><span class="set-label">Аккаунты</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="submit" value="devices" class="set-row"><span class="set-ico" aria-hidden="true">💻</span><span class="set-label">Устройства</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="backup" class="set-row"><span class="set-ico" aria-hidden="true">💾</span><span class="set-label">Перенос переписки</span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="set-group">
         <button type="button" data-go="privacy" class="set-row"><span class="set-ico" aria-hidden="true">🔒</span><span class="set-label">Конфиденциальность</span><span class="set-chev" aria-hidden="true">›</span></button>
@@ -356,6 +357,17 @@
           </div>
         </div>
         <p class="set-note" id="coins-note">Монеты покупаются криптовалютой через xRocket Pay в Telegram и зачисляются сами через несколько секунд после оплаты. Монеты нельзя вывести или обменять обратно на криптовалюту.</p>
+      </div>
+
+      <div class="set-page" data-page="backup" data-title="Перенос переписки" hidden>
+        <p class="set-note">Сохраните переписку в файл и откройте его на другом устройстве этого аккаунта — прошлые чаты появятся и там. Файл зашифрован ключами вашего аккаунта: импортировать его можно только в этот же аккаунт, другой аккаунт его не прочитает.</p>
+        <div class="set-group">
+          <button type="button" id="backup-export" class="set-row"><span class="set-ico" aria-hidden="true">📤</span><span class="set-label">Экспортировать переписку</span></button>
+          <button type="button" id="backup-import" class="set-row"><span class="set-ico" aria-hidden="true">📥</span><span class="set-label">Импортировать из файла</span></button>
+        </div>
+        <input type="file" id="backup-file" hidden>
+        <p id="backup-status" class="set-note" role="status"></p>
+        <p class="set-note">Импорт добавляет недостающие чаты и сообщения к уже имеющимся, ничего не удаляя. Фото, видео и файлы из старых сообщений откроются, только пока они хранятся на сервере. Храните файл в надёжном месте: в нём вся ваша переписка.</p>
       </div>
 
       <div class="set-page" data-page="privacy" data-title="Конфиденциальность" hidden>

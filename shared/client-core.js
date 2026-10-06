@@ -7,6 +7,7 @@
 // у каждого устройства свои prekey и свои сессии. Сообщение шифруется отдельно
 // для каждого устройства собеседника и копией — для остальных своих устройств.
 import { t } from './i18n.js';
+import { sealBackup, openBackup } from './backup.js';
 import {
   generateIdentity,
   generateSignedPreKey,
@@ -296,6 +297,9 @@ const MAX_SEND_ATTEMPTS = 4;
 const AUTH_CONTEXT = 'tainik/v3/auth';
 
 export const ERROR_TEXT = {
+  bad_backup: t('Это не файл переписки Тайника или он повреждён'),
+  backup_version: t('Файл создан более новой версией Тайника — обновите приложение'),
+  wrong_account: t('Это переписка другого аккаунта — импортировать её можно только в тот аккаунт, из которого она выгружена'),
   push_disabled: t('Уведомления на этом сервере выключены'),
   bad_subscription: t('Этот браузер не поддерживает уведомления Тайника'),
   bad_username: t('Юзернейм: 3–32 символа, латиница в нижнем регистре, цифры и _'),
@@ -2358,6 +2362,105 @@ export class MessengerClient extends Emitter {
       }
     }
     this.emit('deleted', { contact: chat, ids });
+  }
+
+  // ---------- Перенос переписки (резервная копия) ----------
+  // Чаты, их участники и сообщения — в файл, зашифрованный ключами личности аккаунта
+  // (см. shared/backup.js). Сессии шифрования и ключи в файл не попадают: новое устройство
+  // общается со всеми по своим сессиям, а в копии — только история.
+
+  /** Файл копии: { bytes, name, chats, messages }. */
+  async exportBackup(now = Date.now()) {
+    if (!this.account) throw new Error(t('Нет аккаунта'));
+    const contacts = {};
+    const chats = {};
+    const deleted = {};
+    let messages = 0;
+    for (const [chat, c] of Object.entries(await this.contacts())) {
+      const { pending, unread, ...rest } = c;
+      contacts[chat] = rest;
+      const list = await this.messages(chat);
+      if (list.length) chats[chat] = list;
+      messages += list.length;
+      const del = await this.storage.get('deleted:' + chat);
+      if (del?.length) deleted[chat] = del;
+    }
+    const bytes = await sealBackup(this.account, { contacts, chats, deleted }, now);
+    const day = new Date(now).toISOString().slice(0, 10);
+    return { bytes, name: `tainik-${this.account.username}-${day}.tainik`, chats: Object.keys(chats).length, messages };
+  }
+
+  /**
+   * Импорт копии этого же аккаунта: недостающие чаты добавляются, сообщения сливаются с уже
+   * имеющимися (без повторов и без удалённых здесь). Возвращает { chats, messages } — сколько добавлено.
+   */
+  async importBackup(bytes) {
+    if (!this.account) throw new Error(t('Нет аккаунта'));
+    let opened;
+    try {
+      opened = await openBackup(this.account, bytes);
+    } catch (e) {
+      throw Object.assign(new Error(ERROR_TEXT[e.code] || e.message), { code: e.code, user: e.user });
+    }
+    const p = opened.payload || {};
+    const src = p.contacts && typeof p.contacts === 'object' ? p.contacts : {};
+    const srcChats = p.chats && typeof p.chats === 'object' ? p.chats : {};
+    const srcDel = p.deleted && typeof p.deleted === 'object' ? p.deleted : {};
+    const me = this.account.username;
+    const okChat = (chat) =>
+      typeof chat === 'string' && chat !== me && (USER_RE.test(chat) || isSystemChat(chat) || (isGroupChat(chat) && GID_RE.test(chat.slice(1))) || (isChannelChat(chat) && CHANNEL_ID_RE.test(chat.slice(1))));
+    const res = await this._serial(async () => {
+      const all = await this.contacts();
+      let newChats = 0;
+      let added = 0;
+      const touched = [];
+      for (const [chat, bc] of Object.entries(src)) {
+        if (!okChat(chat) || !bc || typeof bc !== 'object' || bc.username !== chat) continue;
+        const list = Array.isArray(srcChats[chat]) ? srcChats[chat] : [];
+        if (!all[chat]) {
+          // Личный чат — только с действительным ключом собеседника
+          if (USER_RE.test(chat) && !validIdentityPub(bc.keys)) continue;
+          if (isGroupChat(chat) && !bc.group) continue;
+          if (isChannelChat(chat) && !bc.channel) continue;
+          const c = { ...bc, unread: 0, pending: [] };
+          delete c.keyChanged;
+          if (c.channel) c.channel.gone = true; // подписку подтвердит сервер при следующем входе
+          all[chat] = c;
+          newChats++;
+        }
+        const c = all[chat];
+        // Имя и фото собеседника из копии — если здесь их ещё нет
+        if (!c.profile && bc.profile && typeof bc.profile === 'object') c.profile = bc.profile;
+        if (!c.pinned && bc.pinned && typeof bc.pinned === 'object') c.pinned = bc.pinned;
+        const here = await this.messages(chat);
+        const delHere = (await this.storage.get('deleted:' + chat)) || [];
+        const del = new Set([...delHere, ...(Array.isArray(srcDel[chat]) ? srcDel[chat] : [])]);
+        const have = new Set(here.map((m) => m.id));
+        let n = 0;
+        for (const m of list) {
+          if (!m || typeof m.id !== 'string' || have.has(m.id) || del.has(m.id) || !Number.isFinite(m.ts)) continue;
+          if (!['in', 'out', 'sys'].includes(m.dir) || !m.content || typeof m.content !== 'object') continue;
+          // Неотправленное там здесь уже не уйдёт (очередь отправки не переносится)
+          const msg = m.dir === 'out' && m.status === 'sending' ? { ...m, status: 'failed' } : m;
+          here.push(msg);
+          have.add(m.id);
+          n++;
+        }
+        if (n) {
+          here.sort((a, b) => a.ts - b.ts);
+          await this.storage.set('chat:' + chat, here);
+          c.lastTs = Math.max(c.lastTs || 0, here[here.length - 1].ts);
+          added += n;
+          touched.push(chat);
+        }
+        if (del.size > delHere.length) await this.storage.set('deleted:' + chat, [...del].slice(-DELETED_LIMIT));
+      }
+      await this._saveContacts(all);
+      return { chats: newChats, messages: added, touched };
+    });
+    this._subscribePresence().catch(() => {});
+    this.emit('imported', res);
+    return { chats: res.chats, messages: res.messages };
   }
 
   async _isDeleted(chat, id) {
