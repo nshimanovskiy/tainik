@@ -1290,11 +1290,173 @@ async function pickFiles(list) {
   $('attach-caption').focus();
 }
 
-$('attach-btn').addEventListener('click', () => $('file-input').click());
-$('file-input').addEventListener('change', (e) => {
-  pickFiles(e.target.files);
-  e.target.value = '';
+// ---------- Скрепка: меню вложений, как в Telegram ----------
+// По умолчанию — галерея. На Android — последние фото и видео телефона прямо в меню (с разрешения),
+// в остальных версиях — кнопка системного выбора фото. Вкладка «Файлы» — любой файл.
+const gallery = desktop?.gallery || null;
+const asSel = []; // выбранные в галерее id (по порядку выбора)
+let asItems = new Map(); // id → описание
+let asLoading = false;
+let asDone = false;
+function openAttachSheet() {
+  if ($('attach-btn').disabled) return;
+  asSel.length = 0;
+  asTab('gallery');
+  if (!$('attach-sheet').open) $('attach-sheet').showModal();
+  fillGallery(true);
+}
+function closeAttachSheet() {
+  if ($('attach-sheet').open) $('attach-sheet').close();
+}
+function asTab(tab) {
+  for (const b of document.querySelectorAll('#attach-sheet [data-as-tab]')) {
+    b.classList.toggle('active', b.dataset.asTab === tab);
+    b.setAttribute('aria-selected', String(b.dataset.asTab === tab));
+  }
+  $('as-gallery').hidden = tab !== 'gallery';
+  $('as-files').hidden = tab !== 'files';
+  updateAsSend();
+}
+for (const b of document.querySelectorAll('#attach-sheet [data-as-tab]')) b.addEventListener('click', () => asTab(b.dataset.asTab));
+// Нажатие на затемнение вокруг меню закрывает его
+$('attach-sheet').addEventListener('click', (e) => e.target === $('attach-sheet') && closeAttachSheet());
+
+async function fillGallery(reset) {
+  const grid = $('as-grid');
+  let access = 'none';
+  if (gallery) {
+    try {
+      access = await gallery.access();
+    } catch {}
+  }
+  if (access === 'none') {
+    grid.hidden = true;
+    $('as-gallery-empty').hidden = false;
+    $('as-gallery-allow').hidden = !gallery;
+    $('as-gallery-text').textContent = gallery
+      ? t('Разрешите доступ к фото и видео — и последние снимки будут прямо здесь.')
+      : t('Выберите фото и видео — они отправятся с превью, как в галерее.');
+    return;
+  }
+  $('as-gallery-empty').hidden = true;
+  grid.hidden = false;
+  if (reset) {
+    asItems = new Map();
+    asDone = false;
+    grid.replaceChildren(galleryTile('camera', '📷', t('Камера')), galleryTile('more', '🖼', t('Все фото')));
+  }
+  await loadGalleryPage();
+}
+function galleryTile(act, ico, label) {
+  const b = el('button', 'as-cell as-action');
+  b.type = 'button';
+  b.dataset.asAct = act;
+  b.append(el('span', 'as-action-ico', ico), el('span', 'as-action-label', label));
+  return b;
+}
+async function loadGalleryPage() {
+  if (asLoading || asDone || !gallery) return;
+  asLoading = true;
+  try {
+    const last = [...asItems.values()].at(-1);
+    const list = await gallery.list(60, last ? last.ts : 0);
+    if (!Array.isArray(list) || list.length < 60) asDone = true;
+    const grid = $('as-grid');
+    for (const it of list || []) {
+      if (asItems.has(it.id)) continue;
+      asItems.set(it.id, it);
+      const b = el('button', 'as-cell');
+      b.type = 'button';
+      b.dataset.id = it.id;
+      b.setAttribute('aria-label', it.kind === 'video' ? t('Видео') : t('Фото'));
+      const img = el('img');
+      img.alt = '';
+      img.loading = 'lazy';
+      img.src = '/__gallery/thumb/' + it.id;
+      b.append(img);
+      if (it.kind === 'video') b.append(el('span', 'as-dur', fmtClock(it.dur || 0)));
+      b.append(el('span', 'as-check'));
+      grid.append(b);
+    }
+    paintAsSelection();
+  } catch (err) {
+    console.warn('gallery', err);
+  } finally {
+    asLoading = false;
+  }
+}
+$('as-grid').addEventListener('scroll', () => {
+  const g = $('as-grid');
+  if (g.scrollTop + g.clientHeight > g.scrollHeight - 400) loadGalleryPage();
 });
+$('as-grid').addEventListener('click', (e) => {
+  const b = e.target.closest('.as-cell');
+  if (!b) return;
+  if (b.dataset.asAct === 'camera') return $('camera-input').click();
+  if (b.dataset.asAct === 'more') return $('media-input').click();
+  const id = b.dataset.id;
+  const i = asSel.indexOf(id);
+  if (i >= 0) asSel.splice(i, 1);
+  else if (asSel.length < MAX_PICK) asSel.push(id);
+  else toast(t('За один раз — не больше {0} файлов', MAX_PICK));
+  paintAsSelection();
+});
+function paintAsSelection() {
+  for (const b of $('as-grid').querySelectorAll('.as-cell[data-id]')) {
+    const n = asSel.indexOf(b.dataset.id);
+    b.classList.toggle('selected', n >= 0);
+    b.querySelector('.as-check').textContent = n >= 0 ? String(n + 1) : '';
+  }
+  updateAsSend();
+}
+function updateAsSend() {
+  const show = asSel.length > 0 && !$('as-gallery').hidden;
+  $('as-send-bar').hidden = !show;
+  $('as-send').textContent = t('Отправить ({0})', asSel.length);
+}
+$('as-send').addEventListener('click', async () => {
+  const ids = [...asSel];
+  if (!ids.length) return;
+  $('as-send').disabled = true;
+  try {
+    // Файлы целиком — с адреса самого приложения (их отдаёт Android из галереи)
+    const files = [];
+    for (const id of ids) {
+      const it = asItems.get(id);
+      const r = await fetch('/__gallery/file/' + id);
+      if (!r.ok) throw new Error(t('Не удалось открыть файл из галереи'));
+      const blob = await r.blob();
+      files.push(new File([blob], it?.name || id, { type: it?.mime || blob.type || '' }));
+    }
+    closeAttachSheet();
+    pickFiles(files);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    $('as-send').disabled = false;
+  }
+});
+$('as-gallery-allow').addEventListener('click', async () => {
+  try {
+    const access = await gallery.ask();
+    if (access === 'none') toast(t('Без доступа к галерее фото можно выбрать кнопкой ниже'));
+  } catch {}
+  fillGallery(true);
+});
+$('as-gallery-pick').addEventListener('click', () => $('media-input').click());
+$('as-camera').addEventListener('click', () => $('camera-input').click());
+$('as-files-pick').addEventListener('click', () => $('file-input').click());
+
+$('attach-btn').addEventListener('click', openAttachSheet);
+for (const id of ['file-input', 'media-input', 'camera-input']) {
+  $(id).addEventListener('change', (e) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = '';
+    if (!files.length) return;
+    closeAttachSheet();
+    pickFiles(files);
+  });
+}
 ta.addEventListener('paste', (e) => {
   const files = [...(e.clipboardData?.files || [])];
   if (!files.length || $('attach-btn').disabled) return;

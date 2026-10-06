@@ -57,6 +57,13 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
             "settings.get" -> onIo(id) { settings.get(a.getString(0)) }
             "settings.set" -> onIo(id) { settings.set(a.getString(0), a.getString(1)); null }
             "bg.get" -> onMain(id) { Background.state(app).toString() }
+            // Галерея в меню «скрепки»: доступ ("full" / "partial" / "none"), запрос доступа, список
+            "gallery.access" -> onMain(id) { JSONObject.quote(host.gallery.access()) }
+            "gallery.ask" -> main.post {
+                val a = host.activity ?: return@post host.reply(id, true, JSONObject.quote(host.gallery.access()))
+                a.requestPermissionsThen(host.gallery.permissions()) { host.reply(id, true, JSONObject.quote(host.gallery.access())) }
+            }
+            "gallery.list" -> onIo(id) { host.gallery.list(a.optInt(0, 60), a.optLong(1, 0)) }
             "bg.set" -> onMain(id) { Background.set(app, host.activity, a.getString(0), a.getBoolean(1)); null }
             "version" -> host.reply(id, true, JSONObject.quote(BuildConfig.VERSION_NAME))
             // Обновления (Updater.kt)

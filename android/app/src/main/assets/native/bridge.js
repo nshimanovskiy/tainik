@@ -93,6 +93,12 @@
       set: (key, value) => call('bg.set', String(key), !!value).then(() => undefined),
     }),
     version: () => call('version').then(parsed('')),
+    // Галерея телефона для меню «скрепки»; превью и файлы — по адресам /__gallery/thumb|file/<id>
+    gallery: Object.freeze({
+      access: () => call('gallery.access').then(parsed('none')),
+      ask: () => call('gallery.ask').then(parsed('none')),
+      list: (limit = 60, before = 0) => call('gallery.list', Number(limit) || 60, Number(before) || 0).then(parsed([])),
+    }),
     // Окно на экране (а не в фоне): от этого зависит «в сети». Изменения — window.__tainikActive(bool)
     isActive: () => !!N.isActive?.(),
     // Прокси: { enabled, type, host, port, user, hasPass, active, supported } — как в десктопе

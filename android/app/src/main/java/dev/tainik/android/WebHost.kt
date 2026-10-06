@@ -48,6 +48,7 @@ class WebHost(private val app: TainikApp) {
     private val main = Handler(Looper.getMainLooper())
     private val ctx = MutableContextWrapper(app)
     private val assets = AssetServer(app.assets)
+    val gallery = Gallery(app)
     val webView: WebView = WebView(ctx)
     val bridge = Bridge(app, this)
 
@@ -239,7 +240,12 @@ class WebHost(private val app: TainikApp) {
     private inner class Client : WebViewClient() {
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
             val u = request.url
-            if (u.scheme == "https" && u.host == HOST) return assets.serve(u.path ?: "/")
+            if (u.scheme == "https" && u.host == HOST) {
+                val path = u.path ?: "/"
+                // Галерея телефона — только для самой страницы приложения
+                if (path.startsWith(Gallery.PREFIX)) return if (isOurs(pageUrl)) gallery.serve(path, request.requestHeaders) else null
+                return assets.serve(path)
+            }
             return null
         }
 
