@@ -101,6 +101,8 @@
     }),
     // Окно на экране (а не в фоне): от этого зависит «в сети». Изменения — window.__tainikActive(bool)
     isActive: () => !!N.isActive?.(),
+    // Буфер обмена через систему (true — скопировано)
+    copyText: (text) => !!N.copyText?.(String(text ?? '')),
     // Прокси: { enabled, type, host, port, user, hasPass, active, supported } — как в десктопе
     proxy: Object.freeze({
       get: () => call('proxy.get').then(parsed(null)),

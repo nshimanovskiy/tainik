@@ -444,7 +444,7 @@ $('link-start').addEventListener('click', async () => {
 });
 $('link-copy').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText($('link-code').textContent);
+    await copyText($('link-code').textContent);
     toast(t('Код скопирован'));
   } catch {
     toast(t('Не удалось скопировать — выделите код вручную'));
@@ -669,6 +669,32 @@ const REJECT_TEXT = {
   unknown_spk: t('Не удалось расшифровать: сообщение слишком старое (ключ уже удалён)'),
   no_session: t('Не удалось расшифровать: нет сессии. Попросите собеседника написать ещё раз'),
 };
+// Копирование в буфер. Вызывать сразу в обработчике нажатия, до любых await: иначе браузер
+// (особенно Safari и WebView) считает, что нажатия уже не было, и молча отказывает.
+const msgText = new Map(); // id → текст показанных сообщений: копирование без ожидания базы
+function copyText(text) {
+  text = String(text ?? '');
+  if (window.desktop?.copyText?.(text)) return Promise.resolve();
+  // Старый способ срабатывает синхронно и там, где navigator.clipboard недоступен
+  const prev = document.activeElement;
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px';
+  document.body.append(ta);
+  ta.focus({ preventScroll: true });
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {}
+  ta.remove();
+  if (prev instanceof HTMLElement && prev !== document.body) prev.focus({ preventScroll: true });
+  if (ok) return Promise.resolve();
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  return Promise.reject(new Error('clipboard'));
+}
 // Текст со ссылками: только узлы DOM (никакого innerHTML), ссылки — http(s)
 function linkNodes(parent, text) {
   for (const p of linkify(text)) {
@@ -723,6 +749,7 @@ function messageNode(m) {
   }
   const li = el('li', `msg ${m.dir}${m.status === 'failed' ? ' failed' : ''}`);
   li.dataset.id = m.id;
+  msgText.set(m.id, m.content?.body ?? '');
   const bubble = el('div', 'bubble');
   // В группе — кто написал (нажатие открывает профиль участника)
   if (m.dir === 'in' && m.from) {
@@ -863,6 +890,7 @@ async function renderChat() {
       ? t('📢 Публичный канал: посты может прочитать любой, кто его найдёт')
       : t('🔒 Посты зашифрованы ключом канала: прочитать их может только тот, у кого есть ссылка-приглашение')
     : t('🔒 Сообщения в этом чате защищены сквозным шифрованием');
+  msgText.clear();
   ol.replaceChildren(el('li', 'e2e-note', note));
   let lastDay = '';
   for (const m of list) {
@@ -4113,9 +4141,8 @@ $('msg-menu').addEventListener('click', async (e) => {
     return;
   }
   if (b.dataset.act === 'copy') {
-    const m = await findMsg(id);
     try {
-      await navigator.clipboard.writeText(m?.content?.body || '');
+      await copyText(msgText.get(id) ?? (await findMsg(id))?.content?.body ?? '');
       toast(t('Скопировано'));
     } catch {
       toast(t('Не удалось скопировать'));
@@ -4279,7 +4306,7 @@ for (const [id, video] of [['pf-call', false], ['pf-video', true]]) {
 }
 $('pf-username-row').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText('@' + profileFor);
+    await copyText('@' + profileFor);
     toast(t('Юзернейм скопирован'));
   } catch {}
 });
@@ -4555,7 +4582,7 @@ $('ci-link-row').addEventListener('click', async () => {
   const ch = channelFor && (await client.channelOf(channelFor));
   if (!ch) return;
   try {
-    await navigator.clipboard.writeText(client.channelLink(ch, location.origin));
+    await copyText(client.channelLink(ch, location.origin));
     toast(t('Ссылка скопирована'));
   } catch {
     toast(client.channelLink(ch, location.origin), 8000);

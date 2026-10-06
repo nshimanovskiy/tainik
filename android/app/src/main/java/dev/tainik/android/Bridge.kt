@@ -136,6 +136,17 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
         }
     }
 
+    /** Копирование в буфер обмена системой: из WebView navigator.clipboard срабатывает не всегда. */
+    @JavascriptInterface
+    fun copyText(text: String): Boolean {
+        if (!ours() || text.length > 100_000) return false
+        main.post {
+            val cm = app.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("Тайник", text))
+        }
+        return true
+    }
+
     @JavascriptInterface
     fun callActive(active: Boolean, peer: String) {
         if (!ours()) return
