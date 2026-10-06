@@ -109,9 +109,10 @@ test('каналы и группы: номера, вкладка в панели
   await adminApi('chat-verify', { id: grp.slice(1), verified: false });
   await until(() => !bob.isVerified(grp));
 
-  // Вышел из группы — больше не участник на сервере
+  // Вышел из группы — больше не участник на сервере, а администратор группы обновит число участников
   await carol.leaveGroup(grp);
   await until(() => !srv.store.groupMembers(grp.slice(1)).includes('carol'));
+  await until(() => srv.store.getGroup(grp.slice(1)).members === 2);
 
   // Чужой id и неверный запрос
   assert.equal((await adminApi('chat-verify', { id: 'f'.repeat(24), verified: true })).status, 400);
@@ -119,5 +120,5 @@ test('каналы и группы: номера, вкладка в панели
   // Владелец — администратор группы; участник не администратор — владельца и число не сменит
   srv.store.syncGroups('bob', [{ id: grp.slice(1), members: 99, admin: false }]);
   assert.equal(srv.store.getGroup(grp.slice(1)).owner, 'alice');
-  assert.equal(srv.store.getGroup(grp.slice(1)).members, 3);
+  assert.equal(srv.store.getGroup(grp.slice(1)).members, 2);
 });
