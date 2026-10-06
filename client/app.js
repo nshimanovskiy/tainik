@@ -1,10 +1,10 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, GROUP_MAX } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, GROUP_MAX, PROFILE_CHANNELS_MAX } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
 import config from './config.js';
 import { CallManager, CALL_RESULT_TEXT } from './call.js';
-import { t, LANG, LOCALE, setLang, translateDom } from '/shared/i18n.js';
+import { t, LANG, LOCALE, setLang, translateDom, LANGS as LANG_LIST } from '/shared/i18n.js';
 import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
 import { linkify } from '/shared/linkify.js';
 import { VERSION } from '/shared/version.js';
@@ -682,7 +682,7 @@ async function clearChatNotices(chat) {
   } catch {}
 }
 // ---------- Язык ----------
-const LANGS = [['ru', 'Русский'], ['en', 'English']];
+const LANGS = LANG_LIST;
 {
   for (const [code, name] of LANGS) {
     const b = el('button', 'set-row set-radio');
@@ -2453,6 +2453,43 @@ function fillProfileEdit() {
   pendingAvatar = undefined;
   updateProfilePhoto();
   bioCount();
+  renderProfileChannels();
+}
+
+// Каналы в профиле: свои каналы, не больше двух (сохраняются сразу, отдельно от имени и «о себе»)
+async function renderProfileChannels() {
+  const own = await client.ownChannels();
+  const pinned = (client.profile.channels || []).map((c) => c.ref);
+  const box = $('prof-channels');
+  box.replaceChildren();
+  if (!own.length) {
+    box.append(el('div', 'set-row set-static', t('У вас пока нет своих каналов. Создайте канал: 📢 вверху списка чатов → «Создать».')));
+    $('prof-channels-note').hidden = true;
+    return;
+  }
+  $('prof-channels-note').hidden = false;
+  for (const ch of own) {
+    const row = el('label', 'set-row set-toggle');
+    const cb = el('input');
+    cb.type = 'checkbox';
+    cb.checked = pinned.includes(ch.ref);
+    cb.disabled = !cb.checked && pinned.length >= PROFILE_CHANNELS_MAX;
+    cb.addEventListener('change', async () => {
+      const next = cb.checked ? [...pinned, ch.ref] : pinned.filter((r) => r !== ch.ref);
+      try {
+        await client.setProfileChannels(next);
+        toast(cb.checked ? t('Канал прикреплён к профилю') : t('Канал убран из профиля'));
+      } catch (err) {
+        cb.checked = !cb.checked;
+        toast(err.message);
+      }
+      renderProfileChannels();
+    });
+    const label = el('span', 'set-label');
+    label.append(el('span', '', '📢 ' + (ch.title || t('Канал'))), el('span', 'small muted', ' · ' + (ch.public ? ch.ref : t('приватный канал'))));
+    row.append(label, cb);
+    box.append(row);
+  }
 }
 function updateProfilePhoto() {
   const premium = client.isPremium();
@@ -4390,6 +4427,21 @@ async function renderProfile() {
   $('pf-bio-row').hidden = !prof?.bio;
   $('pf-bio').replaceChildren();
   linkNodes($('pf-bio'), prof?.bio || '');
+  // Каналы, которые собеседник прикрепил к профилю: нажатие — открыть канал (подписаться)
+  $('pf-channels').replaceChildren(
+    ...(prof?.channels || []).map((ch) => {
+      const b = el('button', 'set-row pf-info');
+      b.type = 'button';
+      const text = el('span', 'pf-info-text');
+      text.append(el('b', '', ch.title || t('Канал')), el('span', 'small muted', ch.ref.startsWith('@') ? t('Канал · {0}', ch.ref) : t('Канал · приватный')));
+      b.append(el('span', 'set-ico', '📢'), text, el('span', 'set-chev', '›'));
+      b.addEventListener('click', () => {
+        $('profile-dialog').close();
+        openChannels(ch.ref);
+      });
+      return b;
+    })
+  );
   $('pf-key').textContent = c?.keyChanged ? t('⚠ ключ изменился — сверьте код') : c?.verified ? t('✔ ключ проверен') : t('🔒 ключ не проверен');
   const noCall = !c || !!c.keyChanged || client.isBlocked(name) || client.status !== 'online' || !window.RTCPeerConnection;
   $('pf-call').disabled = noCall;

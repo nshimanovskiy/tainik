@@ -885,4 +885,12 @@ export default {
   "📤 Из архива": "📤 Unarchive",
   "Чат в архиве": "Chat archived",
   "Чат возвращён из архива": "Chat unarchived",
+  "В профиль можно прикрепить не больше двух каналов": "You can pin no more than two channels to your profile",
+  "У вас пока нет своих каналов. Создайте канал: 📢 вверху списка чатов → «Создать».": "You have no channels of your own yet. Create one: 📢 at the top of the chat list → “Create”.",
+  "Канал прикреплён к профилю": "Channel pinned to your profile",
+  "Канал убран из профиля": "Channel removed from your profile",
+  "Канал · {0}": "Channel · {0}",
+  "Канал · приватный": "Channel · private",
+  "Каналы в профиле": "Channels in profile",
+  "Прикрепите до двух своих каналов — их увидят в вашем профиле. У приватного канала вместе с ним уходит ссылка-приглашение: подписаться сможет любой, кто видит ваш профиль.": "Pin up to two of your channels — they will show in your profile. A private channel is shared together with its invite link: anyone who sees your profile can subscribe.",
 };

@@ -80,7 +80,20 @@ export function cleanProfileText(s, max) {
     .trim()
     .slice(0, max);
 }
-/** Профиль { name, bio, avatar?, v } из сообщения (только известные поля) или null. */
+/** Каналов в профиле — не больше этого (свои каналы, как в Telegram «личный канал»). */
+export const PROFILE_CHANNELS_MAX = 2;
+/** Каналы профиля: [{ ref, title }] — ref: '@имя' (публичный) или 'id.ключ' (приватный, по приглашению). */
+function cleanProfileChannels(list) {
+  const out = [];
+  for (const c of Array.isArray(list) ? list : []) {
+    if (out.length >= PROFILE_CHANNELS_MAX) break;
+    const ref = String(c?.ref ?? '');
+    if (ref.length > 120 || !parseChannelRef(ref) || out.some((x) => x.ref === ref)) continue;
+    out.push({ ref, title: cleanProfileText(c.title, CHANNEL_TITLE_MAX).replace(/\n/g, ' ') });
+  }
+  return out;
+}
+/** Профиль { name, bio, avatar?, channels?, v } из сообщения (только известные поля) или null. */
 function cleanProfile(p) {
   if (!p || !Number.isFinite(p.v) || p.v <= 0) return null;
   const out = { name: cleanProfileText(p.name, NAME_MAX).replace(/\n/g, ' '), bio: cleanProfileText(p.bio, BIO_MAX), v: p.v };
@@ -88,6 +101,8 @@ function cleanProfile(p) {
     out.avatar = p.avatar;
     if (validPhoto(p.photo)) out.photo = p.photo;
   }
+  const channels = cleanProfileChannels(p.channels);
+  if (channels.length) out.channels = channels;
   return out;
 }
 
@@ -299,6 +314,7 @@ const AUTH_CONTEXT = 'tainik/v3/auth';
 
 export const ERROR_TEXT = {
   bad_backup: t('Это не файл переписки Тайника или он повреждён'),
+  profile_channels_max: t('В профиль можно прикрепить не больше двух каналов'),
   backup_version: t('Файл создан более новой версией Тайника — обновите приложение'),
   wrong_account: t('Это переписка другого аккаунта — импортировать её можно только в тот аккаунт, из которого она выгружена'),
   push_disabled: t('Уведомления на этом сервере выключены'),
@@ -1420,7 +1436,7 @@ export class MessengerClient extends Emitter {
    * Изменить свой профиль: уходит своим устройствам и собеседникам, которым вы писали.
    * avatar — data:-URL картинки (только с подпиской), null — убрать фото.
    */
-  async setProfile({ name = this.profile.name, bio = this.profile.bio, avatar = this.profile.avatar ?? null, photo } = {}) {
+  async setProfile({ name = this.profile.name, bio = this.profile.bio, avatar = this.profile.avatar ?? null, photo, channels = this.profile.channels || [] } = {}) {
     if (avatar != null && avatar !== this.profile.avatar) {
       if (!this.isPremium()) throw errorOf('premium_required');
       if (!validAvatar(avatar)) throw errorOf('too_large');
@@ -1428,7 +1444,7 @@ export class MessengerClient extends Emitter {
     // Большое фото — вместе с маленьким: сменили маленькое без большого — большого больше нет
     if (photo === undefined) photo = avatar === this.profile.avatar ? this.profile.photo : null;
     if (photo != null && !validPhoto(photo)) throw errorOf('too_large');
-    const next = cleanProfile({ name, bio, avatar, photo, v: Math.max(Date.now(), this.profile.v + 1) });
+    const next = cleanProfile({ name, bio, avatar, photo, channels, v: Math.max(Date.now(), this.profile.v + 1) });
     await this._serial(async () => {
       this.profile = next;
       await this.storage.set('profile', next);
@@ -1836,6 +1852,12 @@ export class MessengerClient extends Emitter {
       await this._applyChannelInfo(all, r.channel);
       await this._saveContacts(all);
     });
+    // Канал прикреплён к профилю — новое название и там
+    const ref = this.channelRef(ch);
+    const pinned = this.profile.channels || [];
+    if (pinned.some((c) => c.ref === ref && c.title !== meta.title)) {
+      await this.setProfile({ channels: pinned.map((c) => (c.ref === ref ? { ...c, title: meta.title } : c)) });
+    }
   }
 
   /** Назначить или снять администратора (только владелец; пользователь должен быть подписан). */
@@ -1876,6 +1898,31 @@ export class MessengerClient extends Emitter {
   }
 
   /** Ссылка на канал: публичный — по @имени, приватный — с ключом (кто получил ссылку, тот читает). */
+  /** Ссылка на канал без адреса сервера: '@имя' или 'id.ключ' (для профиля). */
+  channelRef(ch) {
+    return ch.public && ch.handle ? '@' + ch.handle : `${ch.id}.${b64url(ch.key)}`;
+  }
+
+  /** Свои каналы (вы владелец), которые можно прикрепить к профилю. */
+  async ownChannels() {
+    return Object.values(await this.contacts())
+      .filter((c) => c.channel?.role === 'owner' && !c.channel.gone && c.channel.key)
+      .map((c) => ({ chat: c.username, ref: this.channelRef(c.channel), title: c.channel.title || '', public: !!c.channel.public }));
+  }
+
+  /** Прикрепить к профилю каналы (не больше PROFILE_CHANNELS_MAX): refs — из ownChannels(). */
+  async setProfileChannels(refs) {
+    const own = await this.ownChannels();
+    const channels = [];
+    for (const ref of refs) {
+      const ch = own.find((x) => x.ref === ref);
+      if (!ch) continue; // канал удалён или больше не ваш — из профиля он уходит
+      if (channels.length >= PROFILE_CHANNELS_MAX) throw errorOf('profile_channels_max');
+      channels.push({ ref: ch.ref, title: ch.title });
+    }
+    await this.setProfile({ channels });
+  }
+
   channelLink(ch, origin) {
     const base = `${String(origin || '').replace(/\/+$/, '')}/app#ch=`;
     return ch.public && ch.handle ? base + '@' + ch.handle : base + `${ch.id}.${b64url(ch.key)}`;

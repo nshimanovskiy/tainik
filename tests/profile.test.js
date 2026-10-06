@@ -94,3 +94,41 @@ test('профиль: имя видят те, кому вы пишете; изм
   await link(bob2, bob);
   assert.equal(bob2.nameOf('alice'), 'Алиса');
 });
+
+test('профиль: свои каналы (не больше двух) видят собеседники; переименование доходит', async (t) => {
+  const { mk } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  const pub = await alice.createChannel({ title: 'Заметки', isPublic: true, handle: 'alice_notes' });
+  const priv = await alice.createChannel({ title: 'Для своих', isPublic: false });
+  const third = await alice.createChannel({ title: 'Третий', isPublic: false });
+  const own = await alice.ownChannels();
+  assert.equal(own.length, 3);
+  const ref = (chat) => own.find((c) => c.chat === chat).ref;
+  assert.equal(ref(pub), '@alice_notes');
+
+  await assert.rejects(alice.setProfileChannels([ref(pub), ref(priv), ref(third)]), (e) => e.code === 'profile_channels_max');
+  // Чужой канал прикрепить нельзя — он просто не попадёт в профиль
+  const bobs = await bob.createChannel({ title: 'Боба', isPublic: true, handle: 'bob_channel' });
+  await alice.setProfileChannels([ref(pub), '@bob_channel', ref(priv)]);
+  assert.deepEqual(alice.profile.channels.map((c) => c.title), ['Заметки', 'Для своих']);
+  assert.ok(bobs);
+
+  // Собеседник видит каналы в профиле и может по ним подписаться
+  await alice.addContact('bob');
+  const got = incoming(bob, 'привет');
+  await alice.sendText('bob', 'привет');
+  await got;
+  const prof = await bob.profileOf('alice');
+  assert.deepEqual(prof.channels.map((c) => c.ref), [ref(pub), ref(priv)]);
+  await bob.joinChannel(prof.channels[1].ref);
+  assert.ok((await bob.contacts())[priv], 'подписался на приватный канал по ссылке из профиля');
+
+  // Переименовали канал — в профиле новое название
+  const renamed = waitFor(bob, 'profile-changed', (d) => d.profile.channels?.[0]?.title === 'Заметки Алисы');
+  await alice.updateChannel(pub, { title: 'Заметки Алисы' });
+  await renamed;
+
+  assert.equal((await bob.profileOf('alice')).channels.length, 2);
+});

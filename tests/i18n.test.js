@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import EN from '../shared/i18n-en.js';
+import ES from '../shared/i18n-es.js';
+import JA from '../shared/i18n-ja.js';
 import { t, LANG } from '../shared/i18n.js';
 
 const require = createRequire(import.meta.url);
@@ -91,4 +93,43 @@ test('перевод: в файлах с t() нет локальных пере�
       });
   }
   assert.deepEqual(bad, []);
+});
+
+test('перевод: испанский и японский — те же строки, что и английский, параметры совпадают', () => {
+  for (const [name, dict] of [['es', ES], ['ja', JA]]) {
+    assert.deepEqual(Object.keys(dict), Object.keys(EN), `${name}: набор строк не совпадает с английским — добавьте перевод`);
+    for (const [k, v] of Object.entries(dict)) {
+      assert.ok(typeof v === 'string' && v.trim(), `${name}: пустой перевод: ${k}`);
+      assert.equal(placeholders(v), placeholders(k), `${name}: ${k}`);
+      assert.ok(!CYR.test(v), `${name}: в переводе осталась кириллица: ${v}`);
+    }
+  }
+  for (const [name, dict] of [['es', desktopI18n.ES], ['ja', desktopI18n.JA]]) {
+    assert.deepEqual(Object.keys(dict).sort(), Object.keys(desktopI18n.EN).sort(), `десктоп ${name}`);
+    for (const [k, v] of Object.entries(dict)) assert.equal(placeholders(v), placeholders(k), `десктоп ${name}: ${k}`);
+  }
+  desktopI18n.setLangSource(() => 'es');
+  assert.equal(desktopI18n.t('Перезапустить и обновить до {0}', '1.0.0').includes('1.0.0'), true);
+  assert.notEqual(desktopI18n.t('Открыть Тайник'), 'Открыть Тайник');
+  desktopI18n.setLangSource(() => 'ru');
+  assert.equal(desktopI18n.langFromLocale('es-MX'), 'es');
+  assert.equal(desktopI18n.langFromLocale('ja-JP'), 'ja');
+  assert.equal(desktopI18n.knownLang('ja'), 'ja');
+  assert.equal(desktopI18n.knownLang('xx'), null);
+});
+
+test('перевод: Android — испанский и японский для всех нативных строк', () => {
+  const kt = read('android/app/src/main/java/dev/tainik/android/I18n.kt');
+  const map = (name) => new Set([...kt.split(`private val ${name} = mapOf(`)[1].split('\n    )')[0].matchAll(/^\s*"((?:[^"\\]|\\.)*)" to "/gm)].map((m) => JSON.parse(`"${m[1]}"`)));
+  const es = map('ES');
+  const ja = map('JA');
+  const missing = [];
+  for (const f of fs.readdirSync(new URL('../android/app/src/main/java/dev/tainik/android/', import.meta.url))) {
+    const src = read('android/app/src/main/java/dev/tainik/android/' + f);
+    for (const m of src.matchAll(/I18n\.tr\(\s*\w+\s*,\s*"(?:[^"\\]|\\.)*"\s*,\s*"((?:[^"\\]|\\.)*)"\s*,?\s*\)/g)) {
+      const en = JSON.parse(`"${m[1]}"`);
+      if (!es.has(en) || !ja.has(en)) missing.push(`${f}: ${en}`);
+    }
+  }
+  assert.deepEqual(missing, []);
 });

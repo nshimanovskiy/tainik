@@ -22,7 +22,7 @@ const {
 } = require('electron');
 const { spawn } = require('node:child_process');
 const { Updater, updateKind, serverBase, macInstallScript } = require('./updater.cjs');
-const { t, setLangSource, langFromLocale } = require('./i18n.cjs');
+const { t, setLangSource, langFromLocale, knownLang } = require('./i18n.cjs');
 const { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry } = require('./lib.cjs');
 const { cleanProxy, startRelay, testProxy } = require('./proxy.cjs');
 // Хранилище v3 (несколько устройств) несовместимо с v2 — отдельный файл
@@ -80,7 +80,7 @@ function loadSettings() {
   }
 }
 // Язык трея и системных окон: выбор в приложении, иначе язык системы
-setLangSource(() => (settings.lang === 'ru' || settings.lang === 'en' ? settings.lang : langFromLocale(app.getLocale?.())));
+setLangSource(() => knownLang(settings.lang) || langFromLocale(app.getLocale?.()));
 function saveSettings() {
   fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2), { mode: 0o600 });
 }

@@ -1,5 +1,5 @@
 // Главная страница: вкладки «О Тайнике» / «Скачать», файлы последнего выпуска с этого сервера.
-import { t, LANG, LOCALE, setLang, translateDom } from '/shared/i18n.js';
+import { t, LANG, LOCALE, setLang, translateDom, LANGS } from '/shared/i18n.js';
 
 // Главная открывается всегда, даже если вы уже вошли: в чаты — кнопкой «Перейти в чаты».
 // Сразу в мессенджер — только значок на экране «Домой» (старые значки вели на /)
@@ -23,11 +23,12 @@ const hasAccount = (() => {
 
 const $ = (id) => document.getElementById(id);
 translateDom();
-// Переключатель языка: показывает язык, на который переключит
-$('lang-switch').textContent = LANG === 'ru' ? 'EN' : 'RU';
-$('lang-switch').title = LANG === 'ru' ? 'English' : 'Русский';
+// Переключатель языка: по кругу RU → EN → ES → JA, показывает язык, на который переключит
+const nextLang = LANGS[(LANGS.findIndex(([c]) => c === LANG) + 1) % LANGS.length];
+$('lang-switch').textContent = nextLang[0].toUpperCase();
+$('lang-switch').title = nextLang[1];
 $('lang-switch').addEventListener('click', () => {
-  setLang(LANG === 'ru' ? 'en' : 'ru');
+  setLang(nextLang[0]);
   location.reload();
 });
 // Вы уже вошли — главная кнопка ведёт в чаты

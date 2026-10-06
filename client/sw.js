@@ -7,11 +7,14 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 const NAME_RE = /^[a-z0-9_]{3,32}$/;
-// Язык уведомлений страница передаёт при регистрации: /sw.js?lang=en
-const EN = new URL(self.location.href).searchParams.get('lang') === 'en';
-const TEXT = EN
-  ? { app: 'Tainik', missed: 'Missed call', msg: 'New message', notice: 'New notification' }
-  : { app: 'Тайник', missed: 'Пропущенный звонок', msg: 'Новое сообщение', notice: 'Новое уведомление' };
+// Язык уведомлений страница передаёт при регистрации: /sw.js?lang=en (ru, en, es, ja)
+const TEXTS = {
+  ru: { app: 'Тайник', missed: 'Пропущенный звонок', msg: 'Новое сообщение', notice: 'Новое уведомление' },
+  en: { app: 'Tainik', missed: 'Missed call', msg: 'New message', notice: 'New notification' },
+  es: { app: 'Tainik', missed: 'Llamada perdida', msg: 'Mensaje nuevo', notice: 'Notificación nueva' },
+  ja: { app: 'Tainik', missed: '不在着信', msg: '新しいメッセージ', notice: '新しい通知' },
+};
+const TEXT = TEXTS[new URL(self.location.href).searchParams.get('lang')] || TEXTS.ru;
 const SYSTEM_CHAT = '~tainik'; // служебный чат «Тайник» (см. shared/client-core.js)
 
 self.addEventListener('push', (event) => {

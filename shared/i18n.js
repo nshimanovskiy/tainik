@@ -3,30 +3,37 @@
 // Язык: выбор пользователя (localStorage «tainik:lang») или язык системы.
 // Вне браузера (сервер, тесты) — всегда русский.
 import EN from './i18n-en.js';
+import ES from './i18n-es.js';
+import JA from './i18n-ja.js';
 
-const DICTS = { en: EN };
+const DICTS = { en: EN, es: ES, ja: JA };
 export const LANGS = [
   ['ru', 'Русский'],
   ['en', 'English'],
+  ['es', 'Español'],
+  ['ja', '日本語'],
 ];
+const CODES = LANGS.map(([c]) => c);
 
 function detect() {
   if (typeof document === 'undefined') return 'ru';
   try {
     const saved = globalThis.localStorage?.getItem('tainik:lang');
-    if (saved === 'ru' || saved === 'en') return saved;
+    if (CODES.includes(saved)) return saved;
   } catch {}
   const langs = globalThis.navigator?.languages?.length ? navigator.languages : [globalThis.navigator?.language || 'ru'];
   // Русский — для тех, у кого в системе русский или близкий язык; остальным — английский
   for (const l of langs) {
     if (/^(ru|be|uk|kk|ky|uz|tg|hy|az|ka)\b/i.test(l)) return 'ru';
     if (/^en\b/i.test(l)) return 'en';
+    if (/^es\b/i.test(l)) return 'es';
+    if (/^ja\b/i.test(l)) return 'ja';
   }
   return 'en';
 }
 
 export const LANG = detect();
-export const LOCALE = LANG === 'ru' ? 'ru-RU' : 'en-GB';
+export const LOCALE = { ru: 'ru-RU', en: 'en-GB', es: 'es-ES', ja: 'ja-JP' }[LANG] || 'en-GB';
 if (typeof document !== 'undefined') document.documentElement.lang = LANG;
 
 export function t(s, ...args) {
