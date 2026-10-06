@@ -127,6 +127,41 @@ CREATE TABLE IF NOT EXISTS coin_log (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS coin_log_user ON coin_log(user, created_at);
+-- Каналы: публичные (находятся по @имени, ключ лежит на сервере открыто) и приватные (вход по
+-- ссылке-приглашению, ключ — только в ссылке, сервер видит лишь шифротекст). Посты, название и
+-- описание зашифрованы ключом канала. Сервер знает владельца, администраторов и подписчиков.
+CREATE TABLE IF NOT EXISTS channels (
+  id          TEXT PRIMARY KEY,
+  owner       TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  handle      TEXT UNIQUE,
+  public      INTEGER NOT NULL,
+  key         TEXT,
+  meta        TEXT NOT NULL,
+  seq         INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS channels_owner ON channels(owner);
+CREATE TABLE IF NOT EXISTS channel_admins (
+  channel  TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user     TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  PRIMARY KEY (channel, user)
+);
+CREATE TABLE IF NOT EXISTS channel_subs (
+  channel     TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user        TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (channel, user)
+);
+CREATE INDEX IF NOT EXISTS channel_subs_user ON channel_subs(user);
+CREATE TABLE IF NOT EXISTS channel_posts (
+  channel     TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  seq         INTEGER NOT NULL,
+  ts          INTEGER NOT NULL,
+  data        TEXT,
+  deleted_at  INTEGER,
+  PRIMARY KEY (channel, seq)
+);
+CREATE INDEX IF NOT EXISTS channel_posts_del ON channel_posts(channel, deleted_at);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -174,6 +209,10 @@ export class Store {
     // Подарок: счёт оплачивает user, подписку получает gift_to
     const pcols = this.db.prepare("SELECT name FROM pragma_table_info('payments')").all().map((r) => r.name);
     if (!pcols.includes('gift_to')) this.db.exec('ALTER TABLE payments ADD COLUMN gift_to TEXT');
+    // Вложение поста в канале не удаляется по сроку, пока пост существует: pin = '<канал>:<номер>'
+    const bcols = this.db.prepare("SELECT name FROM pragma_table_info('blobs')").all().map((r) => r.name);
+    if (!bcols.includes('pin')) this.db.exec('ALTER TABLE blobs ADD COLUMN pin TEXT');
+    this.db.exec('CREATE INDEX IF NOT EXISTS blobs_pin ON blobs(pin)');
     if (!pcols.includes('coins')) this.db.exec('ALTER TABLE payments ADD COLUMN coins INTEGER'); // покупка монет: сколько
     this.db.exec('CREATE INDEX IF NOT EXISTS payments_gift ON payments(gift_to, paid_at)');
     this.limits = { maxOpks, maxQueue, maxDevices };
@@ -196,7 +235,7 @@ export class Store {
       getBlob: q('SELECT id, owner, size, received, done, token_hash, created_at FROM blobs WHERE id = ?'),
       updBlob: q('UPDATE blobs SET received = ?, done = ? WHERE id = ?'),
       blobsTotal: q('SELECT COALESCE(SUM(size), 0) AS n FROM blobs'),
-      blobsExpired: q('SELECT id FROM blobs WHERE created_at < ? OR (done = 0 AND created_at < ?)'),
+      blobsExpired: q('SELECT id FROM blobs WHERE pin IS NULL AND (created_at < ? OR (done = 0 AND created_at < ?))'),
       delBlob: q('DELETE FROM blobs WHERE id = ?'),
       blobStats: q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM blobs WHERE done = 1'),
       addBan: q('INSERT INTO ip_bans(ip, note, created_at) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET note = excluded.note'),
@@ -489,6 +528,106 @@ export class Store {
   }
   premiumActiveCount(now = Date.now()) {
     return this.s.premiumActive.get(now).n;
+  }
+
+  // ----- каналы -----
+  createChannel({ id, owner, handle = null, isPublic, key = null, meta, now = Date.now() }) {
+    this.tx(() => {
+      this.db.prepare('INSERT INTO channels(id, owner, handle, public, key, meta, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, owner, handle, isPublic ? 1 : 0, key, meta, now);
+      this.db.prepare('INSERT INTO channel_subs(channel, user, created_at) VALUES (?, ?, ?)').run(id, owner, now);
+    });
+  }
+  /** { id, owner, handle, public, key, meta, seq, createdAt } или null; по id или по @имени. */
+  getChannel({ id, handle }) {
+    const r = id ? this.db.prepare('SELECT * FROM channels WHERE id = ?').get(String(id)) : this.db.prepare('SELECT * FROM channels WHERE handle = ?').get(String(handle));
+    return r ? { id: r.id, owner: r.owner, handle: r.handle || null, public: !!r.public, key: r.key || null, meta: r.meta, seq: r.seq, createdAt: r.created_at } : null;
+  }
+  channelsOwnedBy(user) {
+    return this.db.prepare('SELECT COUNT(*) AS n FROM channels WHERE owner = ?').get(user).n;
+  }
+  channelHandleTaken(handle) {
+    return !!this.db.prepare('SELECT 1 FROM channels WHERE handle = ?').get(handle);
+  }
+  updateChannel(id, { meta, handle, isPublic, key }) {
+    if (meta != null) this.db.prepare('UPDATE channels SET meta = ? WHERE id = ?').run(meta, id);
+    if (isPublic !== undefined) this.db.prepare('UPDATE channels SET public = ?, handle = ?, key = ? WHERE id = ?').run(isPublic ? 1 : 0, handle, key, id);
+  }
+  deleteChannel(id) {
+    this.tx(() => {
+      this.db.prepare('UPDATE blobs SET pin = NULL, created_at = 0 WHERE pin >= ? AND pin < ?').run(id + ':', id + ';');
+      this.db.prepare('DELETE FROM channels WHERE id = ?').run(id);
+    });
+  }
+  isChannelAdmin(id, user) {
+    const c = this.getChannel({ id });
+    return !!c && (c.owner === user || !!this.db.prepare('SELECT 1 FROM channel_admins WHERE channel = ? AND user = ?').get(id, user));
+  }
+  channelAdmins(id) {
+    return this.db.prepare('SELECT user FROM channel_admins WHERE channel = ? ORDER BY user').all(id).map((r) => r.user);
+  }
+  setChannelAdmin(id, user, on) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO channel_admins(channel, user) VALUES (?, ?)').run(id, user);
+    else this.db.prepare('DELETE FROM channel_admins WHERE channel = ? AND user = ?').run(id, user);
+  }
+  isSubscribed(id, user) {
+    return !!this.db.prepare('SELECT 1 FROM channel_subs WHERE channel = ? AND user = ?').get(id, user);
+  }
+  subscribe(id, user, now = Date.now()) {
+    this.db.prepare('INSERT OR IGNORE INTO channel_subs(channel, user, created_at) VALUES (?, ?, ?)').run(id, user, now);
+  }
+  unsubscribe(id, user) {
+    this.tx(() => {
+      this.db.prepare('DELETE FROM channel_subs WHERE channel = ? AND user = ?').run(id, user);
+      this.db.prepare('DELETE FROM channel_admins WHERE channel = ? AND user = ?').run(id, user);
+    });
+  }
+  subscriberCount(id) {
+    return this.db.prepare('SELECT COUNT(*) AS n FROM channel_subs WHERE channel = ?').get(id).n;
+  }
+  subscribers(id) {
+    return this.db.prepare('SELECT user FROM channel_subs WHERE channel = ?').all(id).map((r) => r.user);
+  }
+  channelsOf(user) {
+    return this.db.prepare('SELECT channel FROM channel_subs WHERE user = ? ORDER BY created_at').all(user).map((r) => r.channel);
+  }
+  /** Новый пост: номер по порядку; вложения (свои, загруженные этим пользователем) закрепляются. */
+  addChannelPost(id, user, data, blobIds = [], now = Date.now()) {
+    return this.tx(() => {
+      this.db.prepare('UPDATE channels SET seq = seq + 1 WHERE id = ?').run(id);
+      const seq = this.db.prepare('SELECT seq FROM channels WHERE id = ?').get(id).seq;
+      this.db.prepare('INSERT INTO channel_posts(channel, seq, ts, data) VALUES (?, ?, ?, ?)').run(id, seq, now, data);
+      const pin = this.db.prepare('UPDATE blobs SET pin = ? WHERE id = ? AND owner = ? AND pin IS NULL');
+      for (const b of blobIds) pin.run(`${id}:${seq}`, String(b), user);
+      return { seq, ts: now };
+    });
+  }
+  /** Удалить пост (остаётся отметка — чтобы удаление дошло и до устройств, которые были не в сети). */
+  deleteChannelPost(id, seq, now = Date.now()) {
+    return this.tx(() => {
+      const ok = this.db.prepare('UPDATE channel_posts SET data = NULL, deleted_at = ? WHERE channel = ? AND seq = ? AND data IS NOT NULL').run(now, id, seq).changes > 0;
+      if (ok) this.db.prepare('UPDATE blobs SET pin = NULL, created_at = 0 WHERE pin = ?').run(`${id}:${seq}`);
+      return ok;
+    });
+  }
+  /** Посты после номера after (по возрастанию) и номера удалённых после момента delSince. */
+  channelHistory(id, after = 0, limit = 100, delSince = null) {
+    const posts = this.db
+      .prepare('SELECT seq, ts, data FROM channel_posts WHERE channel = ? AND seq > ? AND data IS NOT NULL ORDER BY seq LIMIT ?')
+      .all(id, after, limit)
+      .map((r) => ({ seq: r.seq, ts: r.ts, data: r.data }));
+    const deleted = delSince == null ? [] : this.db.prepare('SELECT seq FROM channel_posts WHERE channel = ? AND deleted_at > ?').all(id, delSince).map((r) => r.seq);
+    return { posts, deleted };
+  }
+  /** Последние посты (для первого открытия канала): до limit штук, по возрастанию. */
+  channelTail(id, limit = 50) {
+    return this.db
+      .prepare('SELECT seq, ts, data FROM channel_posts WHERE channel = ? AND data IS NOT NULL ORDER BY seq DESC LIMIT ?')
+      .all(id, limit)
+      .reverse()
+      .map((r) => ({ seq: r.seq, ts: r.ts, data: r.data }));
+  }
+  channelStats() {
+    return this.db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(public), 0) AS pub FROM channels').get();
   }
 
   // ----- монеты -----

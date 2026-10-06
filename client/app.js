@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, GROUP_MAX } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, GROUP_MAX } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -239,6 +239,12 @@ function groupEventText(e) {
       return t('Служебное сообщение');
   }
 }
+const isChAdmin = (ch) => !!ch && !ch.gone && (ch.role === 'owner' || ch.role === 'admin');
+function channelSubText(ch) {
+  if (ch.gone) return t('канал недоступен');
+  const kind = ch.public ? t('публичный канал') : t('приватный канал');
+  return ch.subs ? `${kind} · ${t('подписчиков: {0}', ch.subs)}` : kind;
+}
 function membersText(g) {
   if (g.left) return t('вы не участник группы');
   const n = g.members.length;
@@ -459,6 +465,7 @@ async function renderContacts() {
     const cn = el('span', 'c-name');
     setName(cn, c.username, client.isVerified(c.username));
     if (c.group) cn.prepend(el('span', 'g-ico', '👥'));
+    if (c.channel) cn.prepend(el('span', 'g-ico', '📢'));
     top.append(cn);
     if (client.isBlocked(c.username)) top.append(el('span', 'shield warn', t('🚫 заблокирован')));
     else if (c.keyChanged) top.append(el('span', 'shield warn', t('⚠ ключ изменён')));
@@ -551,12 +558,12 @@ async function renderHeader() {
   setName($('peer-name'), c.username, client.isVerified(c.username));
   paintAvatar($('peer-avatar'), c.username);
   const v = $('peer-verify');
-  const group = !!c.group;
-  // В группе нет звонков, кода безопасности и статуса «в сети»
+  const group = !!c.group || !!c.channel;
+  // В группе и канале нет звонков, кода безопасности и статуса «в сети»
   for (const id of ['call-audio-btn', 'call-video-btn', 'safety-btn']) $(id).hidden = group;
   if (group) {
     v.className = 'peer-verify';
-    v.textContent = membersText(c.group);
+    v.textContent = c.channel ? channelSubText(c.channel) : membersText(c.group);
     $('peer-presence').textContent = '';
     $('key-banner').hidden = true;
     updateComposer(c);
@@ -596,7 +603,7 @@ function presenceText(p) {
   return t('был(а) {0}', dmFmt.format(d));
 }
 function renderPresence() {
-  if (!current || isGroupChat(current)) return;
+  if (!current || isGroupChat(current) || isChannelChat(current)) return;
   const p = client.presenceOf(current);
   const node = $('peer-presence');
   node.textContent = client.status === 'online' ? presenceText(p) : '';
@@ -613,14 +620,23 @@ async function updateComposer(c) {
   $('blocked-bar').hidden = !iBlocked;
   $('composer').hidden = iBlocked;
   if (iBlocked) setReply(null);
-  const blocked = !c || !!c.keyChanged || iBlocked || left;
+  // Канал: пишут только владелец и администраторы, у остальных — полоска «О канале»
+  const ch = c?.channel;
+  const chReader = !!ch && !isChAdmin(ch);
+  $('channel-bar').hidden = !chReader;
+  if (chReader) {
+    $('composer').hidden = true;
+    $('channel-bar-text').textContent = ch.gone ? t('Канал удалён или вы больше не подписаны') : t('📢 Вы читаете канал');
+    $('channel-bar-btn').textContent = ch.gone ? t('Удалить чат') : t('О канале');
+  }
+  const blocked = !c || !!c.keyChanged || iBlocked || left || chReader;
   $('send-btn').disabled = blocked || client.status !== 'online';
   $('attach-btn').disabled = blocked || client.status !== 'online';
   const noCall = blocked || client.status !== 'online' || !window.RTCPeerConnection;
   $('call-audio-btn').disabled = noCall;
   $('call-video-btn').disabled = noCall;
   $('text').disabled = blocked;
-  $('text').placeholder = left ? t('Вы не участник этой группы') : blocked ? t('Отправка остановлена: ключ изменился') : client.status === 'online' ? t('Сообщение') : t('Нет связи — сообщение уйдёт позже');
+  $('text').placeholder = ch ? (client.status === 'online' ? t('Пост в канал') : t('Нет связи')) : left ? t('Вы не участник этой группы') : blocked ? t('Отправка остановлена: ключ изменился') : client.status === 'online' ? t('Сообщение') : t('Нет связи — сообщение уйдёт позже');
   if (!blocked) $('send-btn').disabled = !$('text').value.trim();
   // Пустое поле — вместо «Отправить» кнопки записи голосового и видеосообщения
   const empty = !$('text').value.trim();
@@ -691,6 +707,7 @@ function messageNode(m) {
   }
   li.append(bubble);
   const acts = el('div', 'msg-actions');
+  if (isChannelChat(current)) li.classList.add('post'); // пост канала: без ответа
   const rb = el('button', '', '↩︎');
   rb.type = 'button';
   rb.dataset.act = 'reply';
@@ -701,7 +718,8 @@ function messageNode(m) {
   mb.dataset.act = 'menu';
   mb.title = t('Ещё');
   mb.setAttribute('aria-label', t('Действия с сообщением'));
-  acts.append(rb, mb);
+  if (isChannelChat(current)) acts.append(mb);
+  else acts.append(rb, mb);
   li.append(acts);
   const meta = el('div', 'meta');
   meta.append(el('span', '', timeFmt.format(new Date(m.ts))));
@@ -716,9 +734,15 @@ async function renderChat() {
   const gen = ++chatGen;
   await renderHeader();
   const list = await client.messages(current);
+  const ch = isChannelChat(current) ? await client.channelOf(current) : null;
   if (gen !== chatGen) return;
   const ol = $('messages');
-  ol.replaceChildren(el('li', 'e2e-note', t('🔒 Сообщения в этом чате защищены сквозным шифрованием')));
+  const note = ch
+    ? ch.public
+      ? t('📢 Публичный канал: посты может прочитать любой, кто его найдёт')
+      : t('🔒 Посты зашифрованы ключом канала: прочитать их может только тот, у кого есть ссылка-приглашение')
+    : t('🔒 Сообщения в этом чате защищены сквозным шифрованием');
+  ol.replaceChildren(el('li', 'e2e-note', note));
   let lastDay = '';
   for (const m of list) {
     const d = dayLabel(m.ts);
@@ -2615,8 +2639,8 @@ client.on('contacts', () => {
   renderContacts();
   if (current) renderHeader();
 });
-client.on('message', async ({ contact, message }) => {
-  const incoming = message.dir === 'in';
+client.on('message', async ({ contact, message, quiet }) => {
+  const incoming = message.dir === 'in' && !quiet;
   // Открытый чат в окне без фокуса не считаем прочитанным — иначе пропадёт счётчик
   if (contact === current && document.hasFocus()) {
     await client.markRead(contact);
@@ -2843,6 +2867,12 @@ async function initNotifications() {
 }
 // Ссылка вида /#chat=имя (из уведомления при закрытой вкладке) открывает чат
 function consumeChatLink() {
+  // Ссылка на канал: /app#ch=@имя или /app#ch=<id>.<ключ> — показать канал и предложить подписаться
+  if (location.hash.startsWith('#ch=') && client.account) {
+    const ref = location.hash;
+    history.replaceState(null, '', location.pathname + location.search);
+    return openChannels(ref);
+  }
   if (!location.hash.startsWith('#chat=') || !client.account) return;
   let chat = '';
   try {
@@ -3564,6 +3594,7 @@ async function openMenu(id, x, y) {
   const m = await findMsg(id);
   if (menuFor !== id) return;
   menu.querySelector('[data-act="save"]').hidden = !m?.content?.file;
+  menu.querySelector('[data-act="reply"]').hidden = isChannelChat(current);
   menu.querySelector('[data-act="copy"]').hidden = !!m?.content?.file && !m.content.body;
   menu.hidden = false;
   const w = menu.offsetWidth;
@@ -3650,9 +3681,10 @@ $('msg-menu').addEventListener('click', async (e) => {
   if (b.dataset.act === 'delete') {
     const m = await findMsg(id);
     const group = isGroupChat(current);
-    // В группе «у всех» — только для своих сообщений
-    $('del-all').closest('label').hidden = group && m?.dir !== 'out';
-    $('del-peer').textContent = group ? t('всех участников') : nameOf(current);
+    const chan = isChannelChat(current);
+    // В группе «у всех» — только для своих сообщений, в канале — для владельца и администраторов
+    $('del-all').closest('label').hidden = chan ? !isChAdmin(await client.channelOf(current)) : group && m?.dir !== 'out';
+    $('del-peer').textContent = chan ? t('всех подписчиков') : group ? t('всех участников') : nameOf(current);
     $('del-all').checked = false;
     $('delete-dialog').dataset.id = id;
     $('delete-dialog').showModal();
@@ -3687,6 +3719,7 @@ let profileFor = null;
 let profileTab = 'media';
 async function openProfile(name) {
   if (isGroupChat(name)) return openGroup(name);
+  if (isChannelChat(name)) return openChannelInfo(name);
   if (name === client.account?.username) return openSettings('profile');
   profileFor = name;
   profileTab = 'media';
@@ -3911,6 +3944,238 @@ $('ng-create').addEventListener('click', async () => {
 });
 
 // О группе: состав, админы, название; админ добавляет и исключает
+// ---------- Каналы ----------
+// Найти (по @имени или ссылке-приглашению) или создать; «О канале» — ссылка, описание, администраторы.
+let cnPreview = null;
+function cnTab(tab) {
+  for (const b of document.querySelectorAll('#channel-new [data-cn-tab]')) {
+    b.classList.toggle('active', b.dataset.cnTab === tab);
+    b.setAttribute('aria-selected', String(b.dataset.cnTab === tab));
+  }
+  $('cn-find').hidden = tab !== 'find';
+  $('cn-create').hidden = tab !== 'create';
+  $('cn-error').textContent = '';
+  (tab === 'find' ? $('cn-ref') : $('cn-title')).focus();
+}
+function openChannels(ref = '') {
+  if (!client.account) return;
+  cnPreview = null;
+  $('cn-preview').hidden = true;
+  $('cn-ref').value = ref;
+  $('cn-error').textContent = '';
+  if (!$('channel-new').open) $('channel-new').showModal();
+  cnTab('find');
+  if (ref) cnSearch();
+}
+$('new-channel-btn').addEventListener('click', () => openChannels());
+for (const b of document.querySelectorAll('#channel-new [data-cn-tab]')) b.addEventListener('click', () => cnTab(b.dataset.cnTab));
+for (const r of document.querySelectorAll('input[name="cn-type"]')) {
+  r.addEventListener('change', () => {
+    $('cn-handle-row').hidden = document.querySelector('input[name="cn-type"]:checked').value !== 'public';
+  });
+}
+async function cnSearch() {
+  const ref = $('cn-ref').value.trim();
+  $('cn-error').textContent = '';
+  if (!ref) return;
+  $('cn-search').disabled = true;
+  try {
+    const pre = await client.channelPreview(ref);
+    cnPreview = pre;
+    paintAvatar($('cn-pv-avatar'), pre.chat);
+    $('cn-pv-avatar').textContent = [...(pre.title || '?')][0].toUpperCase();
+    $('cn-pv-title').textContent = pre.title;
+    $('cn-pv-sub').textContent = [pre.public ? '@' + pre.handle : t('приватный канал'), t('подписчиков: {0}', pre.subs)].join(' · ');
+    $('cn-pv-about').textContent = pre.about;
+    $('cn-pv-about').hidden = !pre.about;
+    $('cn-pv-posts').replaceChildren(...pre.posts.slice(-3).map((m) => el('li', '', textOf(m.content))));
+    $('cn-join').textContent = pre.role ? t('Открыть') : t('Подписаться');
+    $('cn-preview').hidden = false;
+  } catch (err) {
+    $('cn-preview').hidden = true;
+    $('cn-error').textContent = err.message;
+  } finally {
+    $('cn-search').disabled = false;
+  }
+}
+$('cn-search').addEventListener('click', cnSearch);
+$('cn-ref').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), cnSearch()));
+$('cn-join').addEventListener('click', async () => {
+  if (!cnPreview) return;
+  $('cn-join').disabled = true;
+  try {
+    const chat = cnPreview.role ? cnPreview.chat : await client.joinChannel(cnPreview);
+    $('channel-new').close();
+    await openChat(chat);
+  } catch (err) {
+    $('cn-error').textContent = err.message;
+  } finally {
+    $('cn-join').disabled = false;
+  }
+});
+$('cn-create-btn').addEventListener('click', async () => {
+  const isPublic = document.querySelector('input[name="cn-type"]:checked').value === 'public';
+  $('cn-error').textContent = '';
+  $('cn-create-btn').disabled = true;
+  try {
+    const chat = await client.createChannel({ title: $('cn-title').value, about: $('cn-about').value, isPublic, handle: $('cn-handle').value });
+    for (const id of ['cn-title', 'cn-about', 'cn-handle']) $(id).value = '';
+    $('channel-new').close();
+    await openChat(chat);
+    if (!isPublic) toast(t('Канал создан. Пригласите читателей ссылкой — она в «О канале»'), 6000);
+  } catch (err) {
+    $('cn-error').textContent = err.message;
+  } finally {
+    $('cn-create-btn').disabled = false;
+  }
+});
+for (const id of ['cn-title', 'cn-handle']) $(id).addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), $('cn-create-btn').click()));
+
+let channelFor = null;
+async function openChannelInfo(chat) {
+  channelFor = chat;
+  await renderChannelInfo();
+  if (!$('channel-info').open) $('channel-info').showModal();
+}
+async function renderChannelInfo() {
+  const chat = channelFor;
+  const ch = chat && (await client.channelOf(chat));
+  if (!ch) return $('channel-info').open && $('channel-info').close();
+  const owner = ch.role === 'owner' && !ch.gone;
+  const admin = isChAdmin(ch);
+  paintAvatar($('ci-avatar'), chat);
+  $('ci-name').textContent = ch.title;
+  $('ci-sub').textContent = channelSubText(ch);
+  $('ci-about-row').hidden = !ch.about;
+  $('ci-about').textContent = ch.about;
+  const link = client.channelLink(ch, location.origin);
+  $('ci-link').textContent = ch.public ? '@' + ch.handle : link;
+  $('ci-link-label').textContent = ch.public ? t('Публичная ссылка — нажмите, чтобы скопировать') : t('Ссылка-приглашение — по ней можно читать канал. Нажмите, чтобы скопировать');
+  $('ci-link-row').hidden = !!ch.gone;
+  $('ci-edit').hidden = !admin;
+  if (admin && document.activeElement !== $('ci-title-input') && document.activeElement !== $('ci-about-input')) {
+    $('ci-title-input').value = ch.title;
+    $('ci-about-input').value = ch.about;
+  }
+  $('ci-admins-box').hidden = !owner;
+  if (owner) {
+    $('ci-admins').replaceChildren(
+      ...[client.account.username, ...(ch.admins || [])].map((u) => {
+        const li = el('li');
+        const av = el('span', 'avatar');
+        paintAvatar(av, u);
+        const body = el('div', 'm-body');
+        const nm = el('span', 'm-name');
+        setName(nm, u, client.isVerified(u));
+        body.append(nm, el('span', 'm-sub', '@' + u + ' · ' + (u === client.account.username ? t('владелец') : t('администратор'))));
+        li.append(av, body);
+        if (u !== client.account.username) {
+          const acts = el('div', 'm-acts');
+          const rb = el('button', 'ghost danger', t('Снять админа'));
+          rb.type = 'button';
+          rb.addEventListener('click', () => channelAction(() => client.setChannelAdmin(chat, u, false)));
+          acts.append(rb);
+          li.append(acts);
+        }
+        return li;
+      })
+    );
+  }
+  $('ci-note').textContent = ch.gone
+    ? t('Канал удалён или вы больше не подписаны. История осталась только у вас.')
+    : owner
+      ? t('Вы владелец: можете менять название и описание, назначать администраторов и удалить канал.')
+      : admin
+        ? t('Вы администратор: можете публиковать и удалять посты, менять название и описание.')
+        : ch.public
+          ? t('Публичный канал: посты видит любой, кто его найдёт.')
+          : t('Приватный канал: посты могут прочитать только те, у кого есть ссылка-приглашение.');
+  $('ci-leave').hidden = owner || !!ch.gone;
+  $('ci-delete').querySelector('.set-label').textContent = owner ? t('Удалить канал') : t('Удалить чат');
+  $('ci-delete').hidden = !owner && !ch.gone;
+}
+async function channelAction(fn) {
+  try {
+    await fn();
+    await renderChannelInfo();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+$('ci-close').addEventListener('click', () => $('channel-info').close());
+$('ci-link-row').addEventListener('click', async () => {
+  const ch = channelFor && (await client.channelOf(channelFor));
+  if (!ch) return;
+  try {
+    await navigator.clipboard.writeText(client.channelLink(ch, location.origin));
+    toast(t('Ссылка скопирована'));
+  } catch {
+    toast(client.channelLink(ch, location.origin), 8000);
+  }
+});
+$('ci-save').addEventListener('click', () => channelFor && channelAction(() => client.updateChannel(channelFor, { title: $('ci-title-input').value, about: $('ci-about-input').value })));
+async function ciAddAdmin() {
+  const u = $('ci-admin-input').value.trim().replace(/^@/, '').toLowerCase();
+  if (!u || !channelFor) return;
+  await channelAction(() => client.setChannelAdmin(channelFor, u, true));
+  $('ci-admin-input').value = '';
+}
+$('ci-admin-add').addEventListener('click', ciAddAdmin);
+$('ci-admin-input').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), ciAddAdmin()));
+$('ci-leave').addEventListener('click', async () => {
+  const chat = channelFor;
+  if (!chat || !confirm(t('Отписаться от канала «{0}»? Его посты на этом и других ваших устройствах пропадут.', nameOf(chat)))) return;
+  $('channel-info').close();
+  await channelGone(chat, () => client.leaveChannel(chat));
+});
+$('ci-delete').addEventListener('click', async () => {
+  const chat = channelFor;
+  if (chat) await removeChannelChat(chat);
+});
+/** Удалить канал (владелец) или чат канала, которого больше нет / от которого отписались. */
+async function removeChannelChat(chat) {
+  const ch = await client.channelOf(chat);
+  if (!ch) return;
+  if (ch.role === 'owner' && !ch.gone) {
+    if (!confirm(t('Удалить канал «{0}» навсегда? Все посты пропадут у всех подписчиков.', nameOf(chat)))) return;
+    if ($('channel-info').open) $('channel-info').close();
+    return channelGone(chat, () => client.deleteChannel(chat));
+  }
+  if (!ch.gone) {
+    if (!confirm(t('Отписаться от канала «{0}»? Его посты на этом и других ваших устройствах пропадут.', nameOf(chat)))) return;
+    if ($('channel-info').open) $('channel-info').close();
+    return channelGone(chat, () => client.leaveChannel(chat));
+  }
+  if ($('channel-info').open) $('channel-info').close();
+  await channelGone(chat, () => client.leaveChannel(chat));
+}
+async function channelGone(chat, fn) {
+  try {
+    await fn();
+  } catch (err) {
+    return toast(err.message);
+  }
+  if (current === chat) $('back-btn').click();
+  renderContacts();
+}
+$('channel-bar-btn').addEventListener('click', async () => {
+  if (!current) return;
+  const ch = await client.channelOf(current);
+  if (ch?.gone) return removeChannelChat(current);
+  openChannelInfo(current);
+});
+client.on('channel', ({ chat }) => {
+  if ($('channel-info').open && channelFor === chat) renderChannelInfo();
+  if (chat === current) renderHeader();
+  renderContacts();
+});
+client.on('channel-removed', ({ chat }) => {
+  if ($('channel-info').open && channelFor === chat) renderChannelInfo();
+  if (chat === current) renderHeader();
+  renderContacts();
+});
+client.on('contacts', () => $('channel-info').open && renderChannelInfo());
+
 let groupFor = null;
 async function openGroup(chat) {
   groupFor = chat;
@@ -4022,11 +4287,13 @@ function openChatMenu(name, x, y) {
   chatMenuFor = name;
   const menu = $('chat-menu');
   const isBlocked = client.isBlocked(name);
+  const chan = isChannelChat(name);
   const group = isGroupChat(name);
-  menu.querySelector('[data-act="block"]').hidden = isBlocked || group;
-  menu.querySelector('[data-act="unblock"]').hidden = !isBlocked || group;
-  menu.querySelector('[data-act="profile"]').hidden = group;
+  menu.querySelector('[data-act="block"]').hidden = isBlocked || group || chan;
+  menu.querySelector('[data-act="unblock"]').hidden = !isBlocked || group || chan;
+  menu.querySelector('[data-act="profile"]').hidden = group || chan;
   menu.querySelector('[data-act="group"]').hidden = !group;
+  menu.querySelector('[data-act="channel"]').hidden = !chan;
   menu.querySelector('[data-act="leave"]').hidden = !group;
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
@@ -4081,6 +4348,8 @@ $('chat-menu').addEventListener('click', (e) => {
   if (b.dataset.act === 'unblock') return setBlocked(name, false);
   if (b.dataset.act === 'profile') return openProfile(name);
   if (b.dataset.act === 'group') return openGroup(name);
+  if (b.dataset.act === 'channel') return openChannelInfo(name);
+  if (b.dataset.act === 'delete-chat' && isChannelChat(name)) return removeChannelChat(name);
   if (b.dataset.act === 'leave') return leaveGroup(name);
   if (b.dataset.act === 'delete-chat' && isGroupChat(name)) return deleteGroupChat(name);
   if (b.dataset.act === 'block') {

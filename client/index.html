@@ -103,6 +103,7 @@
         <input id="add-input" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм собеседника">
         <button class="icon-btn accent" title="Добавить" aria-label="Добавить">+</button>
         <button type="button" id="new-group-btn" class="icon-btn" title="Новая группа" aria-label="Новая группа">👥</button>
+        <button type="button" id="new-channel-btn" class="icon-btn" title="Каналы: найти или создать" aria-label="Каналы">📢</button>
       </form>
       <p id="add-error" class="error small" role="alert"></p>
       <div id="notif-offer" class="notif-offer" hidden>
@@ -169,6 +170,10 @@
             <div id="reply-text" class="rb-text"></div>
           </div>
           <button type="button" id="reply-cancel" class="icon-btn" aria-label="Отменить ответ">✕</button>
+        </div>
+        <div id="channel-bar" class="blocked-bar" hidden>
+          <span id="channel-bar-text"></span>
+          <button type="button" id="channel-bar-btn" class="ghost"></button>
         </div>
         <div id="blocked-bar" class="blocked-bar" hidden>
           <span>🚫 Вы заблокировали этого пользователя</span>
@@ -530,6 +535,7 @@
   <div id="chat-menu" class="msg-menu" role="menu" hidden>
     <button type="button" data-act="profile" role="menuitem">👤 Профиль</button>
     <button type="button" data-act="group" role="menuitem">👥 О группе</button>
+    <button type="button" data-act="channel" role="menuitem">📢 О канале</button>
     <button type="button" data-act="leave" role="menuitem" class="danger">🚪 Покинуть группу</button>
     <button type="button" data-act="block" role="menuitem" class="danger">🚫 Заблокировать</button>
     <button type="button" data-act="unblock" role="menuitem">✓ Разблокировать</button>
@@ -594,6 +600,89 @@
         <button type="button" id="ng-create" class="primary">Создать</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Каналы: найти по @имени или ссылке, создать -->
+  <dialog id="channel-new">
+    <form method="dialog" class="dialog-body">
+      <h2>Каналы</h2>
+      <div class="prem-curs" role="tablist">
+        <button type="button" class="prem-cur active" data-cn-tab="find" role="tab">Найти</button>
+        <button type="button" class="prem-cur" data-cn-tab="create" role="tab">Создать</button>
+      </div>
+      <div id="cn-find">
+        <div class="add-form flush">
+          <input id="cn-ref" placeholder="@имя канала или ссылка" spellcheck="false" autocapitalize="none" autocomplete="off" aria-label="Имя канала или ссылка-приглашение">
+          <button type="button" id="cn-search" class="primary">Найти</button>
+        </div>
+        <div id="cn-preview" class="cn-preview" hidden>
+          <div class="cn-head">
+            <span class="avatar big" id="cn-pv-avatar"></span>
+            <div class="cn-head-text"><b id="cn-pv-title"></b><span class="small muted" id="cn-pv-sub"></span></div>
+          </div>
+          <p class="small cn-about" id="cn-pv-about"></p>
+          <ul id="cn-pv-posts" class="cn-posts"></ul>
+          <button type="button" id="cn-join" class="primary">Подписаться</button>
+        </div>
+      </div>
+      <div id="cn-create" class="cn-create" hidden>
+        <input id="cn-title" maxlength="64" placeholder="Название канала" aria-label="Название канала" autocomplete="off">
+        <textarea id="cn-about" maxlength="500" rows="2" placeholder="Описание (необязательно)" aria-label="Описание канала"></textarea>
+        <label class="check"><input type="radio" name="cn-type" value="private" checked> Приватный — вход только по ссылке-приглашению</label>
+        <label class="check"><input type="radio" name="cn-type" value="public"> Публичный — его найдут по @имени</label>
+        <div id="cn-handle-row" class="cn-handle" hidden>
+          <span aria-hidden="true">@</span>
+          <input id="cn-handle" maxlength="32" placeholder="имя_канала" spellcheck="false" autocapitalize="none" autocomplete="off" aria-label="Имя канала">
+        </div>
+        <button type="button" id="cn-create-btn" class="primary">Создать канал</button>
+      </div>
+      <p id="cn-error" class="error small" role="alert"></p>
+      <p class="hint" id="cn-hint">Писать в канал могут владелец и назначенные им администраторы, остальные читают. Посты хранятся на сервере зашифрованными ключом канала: у приватного канала ключ есть только в ссылке-приглашении, у публичного — у всех, кто его нашёл.</p>
+      <div class="dialog-actions">
+        <button value="cancel" class="ghost">Закрыть</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- О канале -->
+  <dialog id="channel-info" class="settings profile">
+    <div class="settings-form">
+      <header class="set-head">
+        <h2>Канал</h2>
+        <button type="button" id="ci-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+      </header>
+      <div class="set-page">
+        <div class="pf-top">
+          <span class="avatar huge" id="ci-avatar"></span>
+          <div id="ci-name" class="pf-name"></div>
+          <div id="ci-sub" class="pf-status"></div>
+        </div>
+        <div class="set-group">
+          <div class="set-row set-static pf-info" id="ci-about-row"><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="ci-about" class="pf-bio"></span><span class="small muted">Описание</span></span></div>
+          <button type="button" class="set-row pf-info" id="ci-link-row" title="Скопировать"><span class="set-ico" aria-hidden="true">🔗</span><span class="pf-info-text"><span id="ci-link" class="ci-link"></span><span class="small muted" id="ci-link-label"></span></span></button>
+        </div>
+        <div class="set-group set-pad ci-edit" id="ci-edit" hidden>
+          <label class="set-field"><span>Название</span><input id="ci-title-input" maxlength="64" autocomplete="off"></label>
+          <label class="set-field"><span>Описание</span><textarea id="ci-about-input" maxlength="500" rows="2"></textarea></label>
+          <button type="button" id="ci-save" class="ghost">Сохранить</button>
+        </div>
+        <div id="ci-admins-box" hidden>
+          <h3 class="set-sub">Администраторы</h3>
+          <ul id="ci-admins" class="set-group gd-members"></ul>
+          <div class="set-group set-pad">
+            <div class="add-form flush">
+              <input id="ci-admin-input" placeholder="Юзернейм подписчика" spellcheck="false" autocapitalize="none" aria-label="Юзернейм подписчика">
+              <button type="button" id="ci-admin-add" class="primary">Назначить</button>
+            </div>
+          </div>
+        </div>
+        <p class="set-note" id="ci-note"></p>
+        <div class="set-group">
+          <button type="button" class="set-row danger" id="ci-leave"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Отписаться</span></button>
+          <button type="button" class="set-row danger" id="ci-delete"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить канал</span></button>
+        </div>
+      </div>
+    </div>
   </dialog>
 
   <!-- О группе: состав, админы, название, выход -->

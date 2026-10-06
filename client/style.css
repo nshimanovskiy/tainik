@@ -877,3 +877,23 @@ dialog.scanner[open] { display: flex; flex-direction: column; }
 .avatar.zoomable { cursor: zoom-in; }
 .viewer-body .viewer-photo { width: min(92vw, calc(92vh - 60px), 640px); height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 12px; }
 .coins-balance { font-size: 30px; font-variant-numeric: tabular-nums; }
+
+/* ---------- Каналы ---------- */
+#channel-new .prem-curs { margin: 4px 0 12px; }
+.cn-create { display: flex; flex-direction: column; gap: 10px; }
+.cn-create textarea { resize: vertical; min-height: 56px; }
+.cn-handle { display: flex; align-items: center; gap: 6px; }
+.cn-handle span { color: var(--muted); font-weight: 600; }
+.cn-handle input { flex: 1; }
+.cn-preview { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; display: flex; flex-direction: column; gap: 8px; }
+.cn-head { display: flex; align-items: center; gap: 12px; }
+.cn-head-text { display: flex; flex-direction: column; min-width: 0; }
+.cn-head-text b { font-size: 16px; overflow-wrap: anywhere; }
+.cn-about { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cn-posts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.cn-posts li { font-size: 13px; padding: 6px 10px; border-radius: 10px; background: var(--accent-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cn-posts:empty { display: none; }
+.ci-link { overflow-wrap: anywhere; font-size: 13.5px; }
+.ci-edit { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; }
+.ci-edit textarea { resize: vertical; }
+.msg.post { max-width: min(560px, 85%); }

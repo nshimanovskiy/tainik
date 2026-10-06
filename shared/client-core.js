@@ -30,6 +30,13 @@ import {
   genX25519,
   randomId,
   te,
+  td,
+  toB64,
+  fromB64,
+  randomBytes,
+  isKey32,
+  aeadEncrypt,
+  aeadDecrypt,
   createLinkKeys,
   makeLinkCode,
   parseLinkCode,
@@ -93,6 +100,65 @@ export const GROUP_NAME_MAX = 64;
 const GID_RE = /^[0-9a-f]{24}$/;
 const USER_RE = /^[a-z0-9_]{3,32}$/;
 export const isGroupChat = (chat) => typeof chat === 'string' && chat.startsWith('#');
+
+// ---------- Каналы ----------
+// Пишут владелец и администраторы, читают подписчики. Посты лежат на сервере, зашифрованные
+// ключом канала (AES-256-GCM). У приватного канала ключ — только в ссылке-приглашении (после «#»,
+// на сервер не уходит), у публичного ключ сервер раздаёт всем, кто нашёл канал по @имени.
+// Чат канала — контакт с ключом '!<id>'.
+export const isChannelChat = (chat) => typeof chat === 'string' && chat.startsWith('!');
+export const CHANNEL_TITLE_MAX = 64;
+export const CHANNEL_ABOUT_MAX = 500;
+export const CHANNEL_HANDLE_RE = /^[a-z][a-z0-9_]{4,31}$/;
+const CHANNEL_ID_RE = /^[0-9a-f]{32}$/;
+const channelKey = (id) => '!' + id;
+const b64url = (b64) => b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64url = (s) => {
+  const b = String(s).replace(/-/g, '+').replace(/_/g, '/');
+  return b + '='.repeat((4 - (b.length % 4)) % 4);
+};
+async function channelSeal(keyB64, id, obj) {
+  const iv = randomBytes(12);
+  const ct = await aeadEncrypt(fromB64(keyB64), iv, te.encode(JSON.stringify(obj)), te.encode('tainik/channel/' + id));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv);
+  out.set(ct, 12);
+  return toB64(out);
+}
+async function channelOpen(keyB64, id, data) {
+  try {
+    const raw = fromB64(String(data));
+    if (raw.length < 29) return null;
+    const pt = await aeadDecrypt(fromB64(keyB64), raw.subarray(0, 12), raw.subarray(12), te.encode('tainik/channel/' + id));
+    return JSON.parse(td.decode(pt));
+  } catch {
+    return null;
+  }
+}
+const cleanChannelMeta = (m) => ({
+  title: cleanProfileText(m?.title, CHANNEL_TITLE_MAX).replace(/\n/g, ' '),
+  about: cleanProfileText(m?.about, CHANNEL_ABOUT_MAX),
+});
+/**
+ * Ссылка или @имя канала → { handle } или { id, key }. Понимает https://…/app#ch=…, #ch=…,
+ * @имя и «id.ключ». null — не похоже на канал.
+ */
+export function parseChannelRef(ref) {
+  let s = String(ref ?? '').trim();
+  const i = s.indexOf('#ch=');
+  if (i >= 0) s = s.slice(i + 4);
+  try {
+    s = decodeURIComponent(s);
+  } catch {}
+  if (s.startsWith('@')) {
+    const handle = s.slice(1).toLowerCase();
+    return CHANNEL_HANDLE_RE.test(handle) ? { handle } : null;
+  }
+  const m = /^([0-9a-f]{32})\.([A-Za-z0-9_-]{43})$/.exec(s);
+  if (m && isKey32(unb64url(m[2]))) return { id: m[1], key: unb64url(m[2]) };
+  const handle = s.toLowerCase();
+  return CHANNEL_HANDLE_RE.test(handle) ? { handle } : null;
+}
 const groupKey = (gid) => '#' + gid;
 const newGroupId = () => [...globalThis.crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const cleanGroupName = (n) => cleanProfileText(n, GROUP_NAME_MAX).replace(/\n/g, ' ');
@@ -195,6 +261,16 @@ export const ERROR_TEXT = {
   no_rate: t('Не удалось узнать курс валюты, попробуйте позже или выберите другую'),
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
   gift_unknown_user: t('Нет пользователя с таким юзернеймом'),
+  channel_not_found: t('Канал не найден'),
+  bad_channel_link: t('Ссылка на канал неверная или устарела'),
+  bad_channel_handle: t('Имя канала: от 5 до 32 латинских букв, цифр и «_», начинается с буквы'),
+  channel_handle_taken: t('Это имя уже занято'),
+  channel_title: t('Введите название канала'),
+  channel_not_admin: t('Писать в канал могут только его владелец и администраторы'),
+  channel_owner: t('Владелец не может отписаться — канал можно только удалить'),
+  channel_not_subscriber: t('Администратором можно сделать только подписчика канала'),
+  too_many_channels: t('Слишком много каналов'),
+  bad_channel: t('Не удалось сохранить канал'),
   not_enough_coins: t('Не хватает монет — пополните баланс'),
   price_changed: t('Цена изменилась — посмотрите ещё раз'),
   gift_unavailable: t('Этому пользователю нельзя сделать подарок'),
@@ -471,6 +547,10 @@ export class MessengerClient extends Emitter {
       if (raw.left) g.left = true;
       contacts[groupKey(g.id)] = { username: groupKey(g.id), group: g, unread: 0, lastTs: Date.now(), pending: [] };
     }
+    for (const ch of Array.isArray(p.channels) ? p.channels : []) {
+      if (!CHANNEL_ID_RE.test(String(ch?.id)) || !isKey32(ch.key)) continue;
+      contacts[channelKey(ch.id)] = { username: channelKey(ch.id), unread: 0, lastTs: Date.now(), pending: [], hidden: true, channel: { id: ch.id, key: ch.key, lastSeq: 0 } };
+    }
     await this.storage.set('contacts', contacts);
     this._indexNames(contacts);
     this.profile = cleanProfile(p.profile) || { name: '', bio: '', v: 0 };
@@ -499,11 +579,15 @@ export class MessengerClient extends Emitter {
         }
         return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile };
       })
-      .filter((c) => !isGroupChat(c.username));
+      .filter((c) => !isGroupChat(c.username) && !isChannelChat(c.username));
     const groups = Object.values(await this.contacts())
       .filter((c) => c.group)
       .map((c) => ({ ...c.group }));
-    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, groups, profile: this.profile };
+    // Каналы: только id и ключ — остальное новое устройство получит от сервера при входе
+    const channels = Object.values(await this.contacts())
+      .filter((c) => c.channel?.key && !c.channel.gone)
+      .map((c) => ({ id: c.channel.id, key: c.channel.key }));
+    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, groups, channels, profile: this.profile };
     let sealed;
     try {
       sealed = await sealProvision(link, payload);
@@ -714,6 +798,7 @@ export class MessengerClient extends Emitter {
         this._send({ type: 'set-active', active: this.active }); // мог смениться, пока шёл вход
         this._setPremium(msg.premium);
         this._setCoins(msg.coins);
+        if (Array.isArray(msg.channels)) this._onChannels(msg.channels).catch((e) => console.error('channels', e));
         if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._setStatus('online');
@@ -743,6 +828,37 @@ export class MessengerClient extends Emitter {
         return;
       case 'coins':
         this._setCoins(msg.balance);
+        return;
+      case 'channel-post':
+        this._serial(() => this._onChannelPost(String(msg.id), msg.post)).catch(() => {});
+        return;
+      case 'channel-del':
+        this._serial(() => this._removeChannelPosts(channelKey(String(msg.id)), Array.isArray(msg.seqs) ? msg.seqs : [])).catch(() => {});
+        return;
+      case 'channel-meta':
+        this._serial(async () => {
+          const all = await this.contacts();
+          const chat = await this._applyChannelInfo(all, msg.channel);
+          if (!chat) return;
+          if (!msg.channel.role) all[chat].channel.gone = true; // нас отписали (или сняли с канала)
+          await this._saveContacts(all);
+          this.emit('channel', { chat });
+        })
+          .then(() => this._syncChannel(channelKey(String(msg.channel?.id))))
+          .catch(() => {});
+        return;
+      case 'channel-deleted':
+      case 'channel-left':
+        this._serial(async () => {
+          const all = await this.contacts();
+          const c = all[channelKey(String(msg.id))];
+          if (!c?.channel) return;
+          if (msg.type === 'channel-left') delete all[c.username];
+          else c.channel.gone = true;
+          await this._saveContacts(all);
+        })
+          .then(() => this.emit('channel-removed', { chat: channelKey(String(msg.id)) }))
+          .catch(() => {});
         return;
       case 'prekey-count':
         this._maintainPrekeys(msg.count).catch((e) => console.error('prekeys', e));
@@ -1098,6 +1214,7 @@ export class MessengerClient extends Emitter {
     this._avatars.clear();
     for (const c of Object.values(all || {})) {
       if (c.group) this._names.set(c.username, c.group.name);
+      if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
       if (c.profile?.name) this._names.set(c.username, c.profile.name);
       if (c.profile?.avatar) this._avatars.set(c.username, c.profile.avatar);
     }
@@ -1309,6 +1426,7 @@ export class MessengerClient extends Emitter {
   /** Сообщение собеседнику и копия «отправлено» своим устройствам (общая часть sendText и sendFile). */
   async _sendContent(username, base, replyTo) {
     if (isGroupChat(username)) return this._sendGroupContent(username, base, replyTo);
+    if (isChannelChat(username)) return this._postToChannel(username, base);
     await this._serial(async () => {
       const all = await this.contacts();
       const c = all[username];
@@ -1335,6 +1453,264 @@ export class MessengerClient extends Emitter {
       await this._saveContacts(all);
     });
     this._pumpOutbox();
+  }
+
+  // ---------- Каналы ----------
+  // См. isChannelChat. Состав подписчиков и права хранит сервер; ключи — только у клиентов
+  // (своим устройствам ключ приватного канала уходит E2E-сообщением sync-channel).
+
+  /** Состояние канала { id, public, handle, key, title, about, role, subs, ... } или null. */
+  async channelOf(chat) {
+    return (isChannelChat(chat) && (await this.contacts())[chat]?.channel) || null;
+  }
+
+  /** Описание канала от сервера + ключ → обновить (или завести) чат канала. Возвращает чат или null. */
+  async _applyChannelInfo(all, info, key = null) {
+    if (!info || !CHANNEL_ID_RE.test(String(info.id))) return null;
+    const chat = channelKey(info.id);
+    let c = all[chat];
+    key = key || c?.channel?.key || (info.public && isKey32(info.key) ? info.key : null);
+    if (!key) return null; // приватный канал, ключа ещё нет — придёт от своего устройства
+    const meta = await channelOpen(key, info.id, info.meta);
+    if (!meta) return null; // ключ не подходит
+    const { title, about } = cleanChannelMeta(meta);
+    if (!c) c = all[chat] = { username: chat, unread: 0, lastTs: Date.now(), pending: [], channel: { lastSeq: 0 } };
+    Object.assign(c.channel, {
+      id: info.id,
+      public: !!info.public,
+      handle: info.public ? info.handle || null : null,
+      key,
+      title,
+      about,
+      role: info.role || null,
+      subs: Number.isSafeInteger(info.subs) ? info.subs : c.channel.subs || 0,
+      seq: Number.isSafeInteger(info.seq) ? info.seq : c.channel.seq || 0,
+      owner: typeof info.owner === 'string' ? info.owner : c.channel.owner || null,
+      admins: Array.isArray(info.admins) ? info.admins.filter((a) => typeof a === 'string') : c.channel.admins || [],
+    });
+    delete c.channel.gone;
+    delete c.hidden;
+    return chat;
+  }
+
+  /** Канал по ссылке или @имени — без подписки: { chat, title, about, subs, public, handle, role, posts }. */
+  async channelPreview(refInput) {
+    const ref = typeof refInput === 'string' ? parseChannelRef(refInput) : refInput;
+    if (!ref) throw errorOf('bad_channel_link');
+    const r = await this._request({ type: 'channel-get', ...(ref.handle ? { handle: ref.handle } : { id: ref.id }) });
+    const info = r.channel;
+    const key = ref.key || (info.public && isKey32(info.key) ? info.key : null);
+    const meta = key && (await channelOpen(key, info.id, info.meta));
+    if (!meta) throw errorOf('bad_channel_link');
+    const posts = [];
+    for (const p of r.posts || []) {
+      const content = cleanText(await channelOpen(key, info.id, p.data), p.ts);
+      if (content) posts.push({ id: 'p' + p.seq, dir: 'in', ts: p.ts, content });
+    }
+    return { chat: channelKey(info.id), id: info.id, key, ...cleanChannelMeta(meta), subs: info.subs, public: !!info.public, handle: info.handle || null, role: info.role, posts };
+  }
+
+  /** Подписаться (ref — ссылка, @имя или результат channelPreview). Возвращает чат канала. */
+  async joinChannel(refInput) {
+    const pre = refInput?.chat ? refInput : await this.channelPreview(refInput);
+    const r = await this._request({ type: 'channel-join', id: pre.id });
+    let chat = null;
+    await this._serial(async () => {
+      const all = await this.contacts();
+      chat = await this._applyChannelInfo(all, r.channel, pre.key);
+      if (!chat) throw errorOf('bad_channel_link');
+      all[chat].lastTs = Date.now();
+      await this._saveContacts(all);
+      if (!pre.public) await this._queueToSelf({ t: 'sync-channel', id: pre.id, key: pre.key });
+    });
+    this._pumpOutbox();
+    await this._syncChannel(chat).catch(() => {});
+    return chat;
+  }
+
+  /**
+   * Создать канал. Публичный находят по @имени (handle), в приватный входят по ссылке.
+   * Возвращает чат канала.
+   */
+  async createChannel({ title, about = '', isPublic = false, handle = '' } = {}) {
+    const meta = cleanChannelMeta({ title, about });
+    if (!meta.title) throw errorOf('channel_title');
+    handle = String(handle || '').trim().replace(/^@/, '').toLowerCase();
+    if (isPublic && !CHANNEL_HANDLE_RE.test(handle)) throw errorOf('bad_channel_handle');
+    const key = toB64(randomBytes(32));
+    const id = [...randomBytes(16)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const req = { type: 'channel-create', id, public: !!isPublic, meta: await channelSeal(key, id, meta) };
+    if (isPublic) Object.assign(req, { handle, key });
+    const upd = await this._request(req);
+    let chat = null;
+    await this._serial(async () => {
+      const all = await this.contacts();
+      chat = await this._applyChannelInfo(all, upd.channel, key);
+      all[chat].channel.lastSeq = upd.channel.seq || 0;
+      await this._saveContacts(all);
+      if (!isPublic) await this._queueToSelf({ t: 'sync-channel', id, key });
+    });
+    this._pumpOutbox();
+    return chat;
+  }
+
+  /** Изменить название или описание (владелец и администраторы). */
+  async updateChannel(chat, { title, about } = {}) {
+    const ch = await this.channelOf(chat);
+    if (!ch) throw errorOf('channel_not_found');
+    const meta = cleanChannelMeta({ title: title ?? ch.title, about: about ?? ch.about });
+    if (!meta.title) throw errorOf('channel_title');
+    const r = await this._request({ type: 'channel-update', id: ch.id, meta: await channelSeal(ch.key, ch.id, meta) });
+    await this._serial(async () => {
+      const all = await this.contacts();
+      await this._applyChannelInfo(all, r.channel);
+      await this._saveContacts(all);
+    });
+  }
+
+  /** Назначить или снять администратора (только владелец; пользователь должен быть подписан). */
+  async setChannelAdmin(chat, user, on = true) {
+    const ch = await this.channelOf(chat);
+    if (!ch) throw errorOf('channel_not_found');
+    const r = await this._request({ type: 'channel-admin', id: ch.id, user: String(user).trim().replace(/^@/, '').toLowerCase(), on: !!on });
+    await this._serial(async () => {
+      const all = await this.contacts();
+      await this._applyChannelInfo(all, r.channel);
+      await this._saveContacts(all);
+    });
+  }
+
+  /** Отписаться (владелец не может — только удалить канал). Переписка канала удаляется. */
+  async leaveChannel(chat) {
+    const ch = await this.channelOf(chat);
+    if (ch && !ch.gone) await this._request({ type: 'channel-leave', id: ch.id });
+    await this._dropChannel(chat);
+  }
+
+  /** Удалить канал у всех (только владелец). */
+  async deleteChannel(chat) {
+    const ch = await this.channelOf(chat);
+    if (!ch) return;
+    await this._request({ type: 'channel-delete', id: ch.id });
+    await this._dropChannel(chat);
+  }
+
+  async _dropChannel(chat) {
+    await this._serial(async () => {
+      const all = await this.contacts();
+      delete all[chat];
+      await this.storage.set('chat:' + chat, []);
+      await this._saveContacts(all);
+    });
+    this.emit('channel-removed', { chat });
+  }
+
+  /** Ссылка на канал: публичный — по @имени, приватный — с ключом (кто получил ссылку, тот читает). */
+  channelLink(ch, origin) {
+    const base = `${String(origin || '').replace(/\/+$/, '')}/app#ch=`;
+    return ch.public && ch.handle ? base + '@' + ch.handle : base + `${ch.id}.${b64url(ch.key)}`;
+  }
+
+  /** Пост в канал (текст или вложение). Для владельца и администраторов. */
+  async _postToChannel(chat, base) {
+    const ch = await this.channelOf(chat);
+    if (!ch || ch.gone) throw errorOf('channel_not_found');
+    if (ch.role !== 'owner' && ch.role !== 'admin') throw errorOf('channel_not_admin');
+    const content = { ...base, ts: Date.now() };
+    delete content.reply;
+    const data = await channelSeal(ch.key, ch.id, content);
+    const r = await this._request({ type: 'channel-post', id: ch.id, data, blobs: content.file ? [content.file.id] : [] });
+    await this._serial(() => this._onChannelPost(ch.id, { seq: r.seq, ts: r.ts, data }, true));
+  }
+
+  /** Пост пришёл (или отправлен отсюда): в чат канала, если его там ещё нет. */
+  async _onChannelPost(id, post, mine = false) {
+    const chat = channelKey(id);
+    const all = await this.contacts();
+    const c = all[chat];
+    if (!c?.channel?.key || !Number.isSafeInteger(post?.seq)) return;
+    const mid = 'p' + post.seq;
+    const list = await this.messages(chat);
+    if (list.some((m) => m.id === mid)) return;
+    if (((await this.storage.get('deleted:' + chat)) || []).includes(mid)) return;
+    const content = cleanText(await channelOpen(c.channel.key, id, post.data), post.ts);
+    if (!content) return;
+    delete content.reply;
+    const m = { id: mid, dir: 'in', ts: post.ts, content };
+    // По порядку номеров (история может прийти позже живых постов)
+    const at = list.findIndex((x) => x.id?.startsWith('p') && Number(x.id.slice(1)) > post.seq);
+    if (at >= 0) list.splice(at, 0, m);
+    else list.push(m);
+    await this.storage.set('chat:' + chat, list);
+    c.channel.lastSeq = Math.max(c.channel.lastSeq || 0, post.seq);
+    c.channel.seq = Math.max(c.channel.seq || 0, post.seq);
+    c.lastTs = Math.max(c.lastTs || 0, post.ts);
+    const admin = c.channel.role === 'owner' || c.channel.role === 'admin';
+    if (!mine && !admin) c.unread = (c.unread || 0) + 1;
+    await this._saveContacts(all);
+    // quiet — без уведомления: история, свои посты, посты в канале, где вы администратор
+    this.emit('message', { contact: chat, message: m, channel: true, quiet: mine || admin });
+  }
+
+  /** Догнать канал: новые посты после lastSeq и удаления, случившиеся без нас. */
+  async _syncChannel(chat) {
+    if (this.status !== 'online') return;
+    const ch = await this.channelOf(chat);
+    if (!ch?.key || ch.gone) return;
+    let after = ch.lastSeq || 0;
+    let delSince = ch.syncedAt ?? null;
+    let now = null;
+    for (let round = 0; round < 20; round++) {
+      const r = await this._request({ type: 'channel-history', id: ch.id, after, delSince, tail: after === 0, limit: after === 0 ? 50 : 100 });
+      now = r.now;
+      await this._serial(async () => {
+        for (const p of r.posts || []) await this._onChannelPost(ch.id, p, true);
+        if (r.deleted?.length) await this._removeChannelPosts(chat, r.deleted);
+      });
+      const last = r.posts?.at(-1)?.seq;
+      if (!last || after === 0 || (r.posts?.length || 0) < 100) break;
+      after = last;
+      delSince = null;
+    }
+    await this._serial(async () => {
+      const all = await this.contacts();
+      if (!all[chat]?.channel) return;
+      all[chat].channel.syncedAt = now;
+      if (!all[chat].channel.lastSeq) all[chat].channel.lastSeq = all[chat].channel.seq || 0;
+      await this._saveContacts(all);
+    });
+  }
+
+  async _removeChannelPosts(chat, seqs) {
+    const ids = seqs.filter(Number.isSafeInteger).map((n) => 'p' + n);
+    const list = await this.messages(chat);
+    const keep = list.filter((m) => !ids.includes(m.id));
+    if (keep.length === list.length) return;
+    await this.storage.set('chat:' + chat, keep);
+    this.emit('deleted', { contact: chat, ids });
+  }
+
+  /** Список каналов от сервера при входе: обновить, завести новые публичные, догнать посты. */
+  async _onChannels(list) {
+    const ids = new Set();
+    const chats = [];
+    await this._serial(async () => {
+      const all = await this.contacts();
+      for (const info of Array.isArray(list) ? list : []) {
+        const chat = await this._applyChannelInfo(all, info);
+        if (chat) (ids.add(chat), chats.push(chat));
+      }
+      // Каналы, которых в списке нет: отписались на другом устройстве или канал удалён
+      for (const c of Object.values(all)) if (c.channel && !ids.has(c.username)) c.channel.gone = true;
+      await this._saveContacts(all);
+    });
+    for (const chat of chats) await this._syncChannel(chat).catch(() => {});
+  }
+
+  async _queueToSelf(content) {
+    const outbox = (await this.storage.get('outbox')) || [];
+    outbox.push({ id: randomId(), to: this.account.username, kind: 'ctl', content, attempts: 0 });
+    await this.storage.set('outbox', outbox);
   }
 
   // ---------- Группы ----------
@@ -1667,6 +2043,9 @@ export class MessengerClient extends Emitter {
     if (!all[username]) throw new Error(t('Нет такого контакта'));
     if (isGroupChat(username)) {
       if (all[username].group?.left) throw errorOf('group_left');
+    } else if (isChannelChat(username)) {
+      const role = all[username].channel?.role;
+      if (role !== 'owner' && role !== 'admin') throw errorOf('channel_not_admin');
     } else {
       if (all[username].keyChanged) throw errorOf('key_changed');
       if (this.isBlocked(username)) throw errorOf('you_blocked');
@@ -1772,7 +2151,13 @@ export class MessengerClient extends Emitter {
       let outbox = (await this.storage.get('outbox')) || [];
       outbox = outbox.filter((x) => !(ids.includes(x.id) && (x.kind === 'msg' || x.kind === 'sync')));
       const ts = Date.now();
-      if (forAll && isGroupChat(username)) {
+      if (forAll && isChannelChat(username)) {
+        // Пост канала «у всех» удаляет сервер (только владелец и администраторы)
+        const ch = (await this.contacts())[username]?.channel;
+        if (ch && (ch.role === 'owner' || ch.role === 'admin')) {
+          for (const id of ids) if (/^p\d+$/.test(id)) this._request({ type: 'channel-del-post', id: ch.id, seq: Number(id.slice(1)) }).catch(() => {});
+        }
+      } else if (forAll && isGroupChat(username)) {
         const g = (await this.contacts())[username]?.group;
         if (g && !g.left && mine.length) {
           for (const m of g.members) if (m !== me) outbox.push({ id: randomId(), to: m, kind: 'ctl', content: { t: 'gdelete', g: g.id, ids: mine, ts }, attempts: 0 });
@@ -2059,6 +2444,24 @@ export class MessengerClient extends Emitter {
           this.profile = prof;
           await this.storage.set('profile', prof);
           this.emit('profile', prof);
+        }
+        return ack(false);
+      }
+      // Своё устройство подписалось на приватный канал или создало его — ключ к нему
+      if (c?.t === 'sync-channel' && typeof c.id === 'string' && CHANNEL_ID_RE.test(c.id) && isKey32(c.key)) {
+        const chat = channelKey(c.id);
+        if (!(await this.contacts())[chat]?.channel?.key && this.status === 'online') {
+          // Описание канала — с сервера (сразу, без очереди: _serial уже занят этим сообщением)
+          this._request({ type: 'channel-get', id: c.id })
+            .then((r) =>
+              this._serial(async () => {
+                const all = await this.contacts();
+                if (!r.channel.role) return; // уже отписались
+                if (await this._applyChannelInfo(all, r.channel, c.key)) await this._saveContacts(all);
+              })
+            )
+            .then(() => this._syncChannel(chat))
+            .catch(() => {});
         }
         return ack(false);
       }

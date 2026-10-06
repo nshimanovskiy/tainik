@@ -32,7 +32,15 @@ const PROVISION_TTL = 10 * 60 * 1000; // канал привязки живёт 
 const AUTH_CONTEXT = 'tainik/v3/auth';
 // authPerMin — на IP: за одним адресом (дом, офис) бывает много устройств и аккаунтов,
 // и после перезапуска сервера они входят разом
-const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 120, billingPerMin: 6 };
+const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 120, billingPerMin: 6, channelPerMin: 60 };
+// Каналы
+const CHANNEL_ID_RE = /^[0-9a-f]{32}$/;
+const CHANNEL_HANDLE_RE = /^[a-z][a-z0-9_]{4,31}$/;
+const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const CHANNEL_META_MAX = 8 * 1024; // символов base64: зашифрованные название и описание
+const CHANNEL_POST_MAX = 96 * 1024; // символов base64: зашифрованный пост (текст, описание файла)
+const CHANNELS_PER_USER = 20; // своих каналов
+const CHANNEL_PAGE = 100;
 const PUSH_GAP = 4000; // не чаще одного пуша от одного отправителя на устройство за это время
 
 const MIME = {
@@ -299,6 +307,27 @@ export function startServer({
     return to;
   }
   const GIFT_RECENT = 30 * 86400_000; // при входе устройство получает подарки за 30 дней
+
+  // ---------- Каналы ----------
+  /** Описание канала для пользователя user (роль своя у каждого). Ключ — только у публичного. */
+  function channelInfo(c, user) {
+    const role = c.owner === user ? 'owner' : store.isChannelAdmin(c.id, user) ? 'admin' : store.isSubscribed(c.id, user) ? 'sub' : null;
+    const info = { id: c.id, public: c.public, handle: c.handle, meta: c.meta, seq: c.seq, owner: c.owner, subs: store.subscriberCount(c.id), role };
+    if (c.public) info.key = c.key;
+    if (role === 'owner') info.admins = store.channelAdmins(c.id);
+    return info;
+  }
+  /** Всем онлайн-устройствам подписчиков (и users сверх них): msg(user) — что отправить. */
+  function toChannel(id, msg, extra = []) {
+    for (const user of new Set([...store.subscribers(id), ...extra])) {
+      const m = msg(user);
+      if (m) for (const c of onlineDevices(user)) send(c, m);
+    }
+  }
+  function channelMetaChanged(id, extra = []) {
+    const c = store.getChannel({ id });
+    if (c) toChannel(id, (user) => ({ type: 'channel-meta', channel: channelInfo(c, user) }), extra);
+  }
   const billingInfo = () => (billing ? { plans: billing.plans, packs: billing.packs, currencies: billing.currencies, testnet: billing.testnet } : null);
 
   function deliverQueue(username, device) {
@@ -344,6 +373,7 @@ export function startServer({
           // Устройство входит в аккаунт, которого больше нет, — его удалил администратор
           if (!msg.register && msg.deviceId != null && !msg.newDevice) return error(conn, 'account_deleted');
           if (!msg.register) return error(conn, 'unknown_account');
+          if (store.channelHandleTaken(username)) return error(conn, 'username_taken'); // занято публичным каналом
           keys = await readDeviceKeys(identity, msg.register);
           if (!keys) return error(conn, 'bad_keys');
           mode = 'register';
@@ -414,6 +444,7 @@ export function startServer({
           premium: premiumOf(p.username),
           gifts: store.giftsOf(p.username, Date.now() - GIFT_RECENT),
           coins: store.coinsOf(p.username),
+          channels: store.channelsOf(p.username).map((id) => store.getChannel({ id })).filter(Boolean).map((c) => channelInfo(c, p.username)),
           billing: billingInfo(),
           blocks: store.blocksOf(p.username),
           vapidKey: vapid ? vapid.publicKey : null,
@@ -708,6 +739,124 @@ export function startServer({
         }
       }
 
+      // ----- каналы -----
+      case 'channel-create':
+      case 'channel-get':
+      case 'channel-join':
+      case 'channel-leave':
+      case 'channel-update':
+      case 'channel-delete':
+      case 'channel-post':
+      case 'channel-del-post':
+      case 'channel-history':
+      case 'channel-admin': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!take(state.channel, RATE.channelPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        const fail = (code) => error(conn, code, { reqId: msg.reqId });
+        const reply = (obj) => send(conn, { type: 'channel-ok', reqId: msg.reqId, ...obj });
+        const me = state.user;
+        if (msg.type === 'channel-create') {
+          const isPublic = msg.public === true;
+          const meta = String(msg.meta || '');
+          if (!B64_RE.test(meta) || meta.length > CHANNEL_META_MAX) return fail('bad_channel');
+          let handle = null;
+          let key = null;
+          if (isPublic) {
+            handle = String(msg.handle || '').trim().replace(/^@/, '').toLowerCase();
+            if (!CHANNEL_HANDLE_RE.test(handle)) return fail('bad_channel_handle');
+            if (store.channelHandleTaken(handle) || store.getUser(handle)) return fail('channel_handle_taken');
+            if (!isKey32(msg.key)) return fail('bad_channel');
+            key = msg.key;
+          }
+          if (store.channelsOwnedBy(me) >= CHANNELS_PER_USER) return fail('too_many_channels');
+          // id придумывает клиент: им «подписано» зашифрованное название
+          const id = String(msg.id || '');
+          if (!CHANNEL_ID_RE.test(id) || store.getChannel({ id })) return fail('bad_channel');
+          store.createChannel({ id, owner: me, handle, isPublic, key, meta });
+          say(isPublic ? 'создан публичный канал' : 'создан приватный канал');
+          const info = channelInfo(store.getChannel({ id }), me);
+          for (const c of onlineDevices(me)) if (c !== conn) send(c, { type: 'channel-meta', channel: info });
+          return reply({ channel: info });
+        }
+        // Остальное — с существующим каналом: по id или (для поиска) по @имени
+        let c = null;
+        if (msg.type === 'channel-get' && msg.handle != null) {
+          const handle = String(msg.handle).trim().replace(/^@/, '').toLowerCase();
+          if (CHANNEL_HANDLE_RE.test(handle)) c = store.getChannel({ handle });
+          if (c && !c.public) c = null;
+        } else if (CHANNEL_ID_RE.test(String(msg.id || ''))) c = store.getChannel({ id: String(msg.id) });
+        if (!c) return fail('channel_not_found');
+        const role = channelInfo(c, me).role;
+        const admin = role === 'owner' || role === 'admin';
+        switch (msg.type) {
+          case 'channel-get':
+            // Приватный — тому, у кого есть его id (он — в ссылке-приглашении вместе с ключом)
+            return reply({ channel: channelInfo(c, me), posts: store.channelTail(c.id, 20) });
+          case 'channel-join':
+            if (!role) {
+              store.subscribe(c.id, me);
+              channelMetaChanged(c.id); // число подписчиков
+            }
+            return reply({ channel: channelInfo(store.getChannel({ id: c.id }), me) });
+          case 'channel-leave':
+            if (role === 'owner') return fail('channel_owner');
+            store.unsubscribe(c.id, me);
+            for (const d of onlineDevices(me)) if (d !== conn) send(d, { type: 'channel-left', id: c.id });
+            channelMetaChanged(c.id);
+            return reply({});
+          case 'channel-update': {
+            if (!admin) return fail('channel_not_admin');
+            const meta = msg.meta == null ? null : String(msg.meta);
+            if (meta != null && (!B64_RE.test(meta) || meta.length > CHANNEL_META_MAX)) return fail('bad_channel');
+            store.updateChannel(c.id, { meta });
+            channelMetaChanged(c.id);
+            return reply({ channel: channelInfo(store.getChannel({ id: c.id }), me) });
+          }
+          case 'channel-delete': {
+            if (role !== 'owner') return fail('channel_not_admin');
+            const subs = store.subscribers(c.id);
+            store.deleteChannel(c.id);
+            for (const u of subs) for (const d of onlineDevices(u)) send(d, { type: 'channel-deleted', id: c.id });
+            say('канал удалён');
+            return reply({});
+          }
+          case 'channel-post': {
+            if (!admin) return fail('channel_not_admin');
+            const data = String(msg.data || '');
+            if (!B64_RE.test(data) || data.length > CHANNEL_POST_MAX) return fail('bad_channel');
+            const blobIds = (Array.isArray(msg.blobs) ? msg.blobs : []).map(String).filter((b) => /^[0-9a-f]{32}$/.test(b)).slice(0, 10);
+            const post = { ...store.addChannelPost(c.id, me, data, blobIds), data };
+            toChannel(c.id, () => ({ type: 'channel-post', id: c.id, post }));
+            return reply({ seq: post.seq, ts: post.ts });
+          }
+          case 'channel-del-post': {
+            if (!admin) return fail('channel_not_admin');
+            const seq = Number(msg.seq);
+            if (!Number.isSafeInteger(seq) || seq < 1) return fail('bad_channel');
+            if (store.deleteChannelPost(c.id, seq)) toChannel(c.id, () => ({ type: 'channel-del', id: c.id, seqs: [seq] }));
+            return reply({});
+          }
+          case 'channel-history': {
+            const after = Math.max(0, Number(msg.after) || 0);
+            const limit = Math.min(CHANNEL_PAGE, Math.max(1, Number(msg.limit) || CHANNEL_PAGE));
+            const delSince = Number.isFinite(msg.delSince) ? msg.delSince : null;
+            // Первый раз — только последние посты, а не весь архив
+            const h = msg.tail ? { posts: store.channelTail(c.id, limit), deleted: [] } : store.channelHistory(c.id, after, limit, delSince);
+            return reply({ ...h, seq: c.seq, now: Date.now() });
+          }
+          case 'channel-admin': {
+            if (role !== 'owner') return fail('channel_not_admin');
+            const user = String(msg.user || '').trim().replace(/^@/, '').toLowerCase();
+            if (!USERNAME_RE.test(user) || user === me) return fail('bad_username');
+            if (msg.on !== false && !store.isSubscribed(c.id, user)) return fail('channel_not_subscriber');
+            store.setChannelAdmin(c.id, user, msg.on !== false);
+            channelMetaChanged(c.id, [user]);
+            return reply({ channel: channelInfo(store.getChannel({ id: c.id }), me) });
+          }
+        }
+        return;
+      }
+
       // Премиум за монеты (себе или в подарок): списание и продление — одной транзакцией
       case 'premium-coins': {
         if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
@@ -995,7 +1144,7 @@ export function startServer({
       (conn) => {
         conn.meta = { ip, since: Date.now() }; // для панели администратора, на диск не пишется
         allConns.add(conn);
-        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], diag: [], pids: [], watching: new Set() };
+        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], channel: [], diag: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
           if (!take(state.msgs, RATE.msgsPerSec, 1000)) return error(conn, 'rate_limited');
