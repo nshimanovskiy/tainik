@@ -7,6 +7,7 @@ import { CallManager, CALL_RESULT_TEXT } from './call.js';
 import { t, LANG, LOCALE, setLang, translateDom, LANGS as LANG_LIST } from '/shared/i18n.js';
 import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
 import { linkify } from '/shared/linkify.js';
+import { loadIcons, icon } from './icons.js';
 import { VERSION } from '/shared/version.js';
 
 const $ = (id) => document.getElementById(id);
@@ -152,7 +153,8 @@ function paintAvatar(node, username, photo = username && client.account ? client
 }
 // Звезда подписки Премиум рядом с именем
 function premiumStar() {
-  const s = el('span', 'premium-star', '★');
+  const s = el('span', 'premium-star');
+  s.append(icon('star'));
   s.title = t('Подписка Премиум');
   s.setAttribute('aria-label', t('Подписка Премиум'));
   return s;
@@ -201,7 +203,18 @@ function toast(text, ms = 3500) {
   clearTimeout(toastTimer);
   if (ms) toastTimer = setTimeout(() => (box.hidden = true), ms);
 }
-const STATUS_ICON = { sending: '⏳', sent: '✓', delivered: '✓✓', failed: t('⚠ не отправлено') };
+/** Иконка + текст в элементе (статусы ключа, блокировки и т. п.). */
+function iconText(node, name, text) {
+  node.replaceChildren(icon(name), text);
+  return node;
+}
+const withIcon = (cls, name, text) => iconText(el('span', cls), name, text);
+const STATUS_ICON = { sending: 'clock', sent: 'check', delivered: 'check2' };
+/** Значок статуса доставки: иконка или текст «не отправлено». */
+function setStatusIcon(node, status) {
+  if (status === 'failed') return node.replaceChildren(t('⚠ не отправлено'));
+  node.replaceChildren(...(STATUS_ICON[status] ? [icon(STATUS_ICON[status])] : []));
+}
 const STATUS_TEXT = { online: t('в сети'), connecting: t('подключение…'), offline: t('нет связи'), replaced: t('открыт в другом месте') };
 
 function callText(ct) {
@@ -600,7 +613,7 @@ async function renderContacts() {
     const li = el('li', 'archive-head');
     const b = el('button', 'archive-row');
     b.type = 'button';
-    b.append(el('span', 'archive-ico', '←'), el('span', 'archive-title', t('Архив')));
+    b.append(icon('back', 'archive-ico'), el('span', 'archive-title', t('Архив')));
     b.addEventListener('click', () => {
       showArchive = false;
       renderContacts();
@@ -614,7 +627,9 @@ async function renderContacts() {
     const unread = archived.reduce((n, c) => n + (c.username !== current ? c.unread || 0 : 0), 0);
     const body = el('div', 'c-body');
     body.append(el('div', 'c-top', t('Архив')), el('div', 'c-preview', archived.map((c) => nameOf(c.username)).join(', ')));
-    b.append(el('span', 'avatar archive-av', '📦'), body);
+    const av = el('span', 'avatar archive-av');
+    av.append(icon('archive'));
+    b.append(av, body);
     if (unread) b.append(el('span', 'badge muted-badge', String(unread)));
     b.addEventListener('click', () => {
       showArchive = true;
@@ -635,13 +650,13 @@ async function renderContacts() {
     const top = el('div', 'c-top');
     const cn = el('span', 'c-name');
     setName(cn, c.username, client.isVerified(c.username));
-    if (c.group) cn.prepend(el('span', 'g-ico', '👥'));
-    if (c.channel) cn.prepend(el('span', 'g-ico', '📢'));
+    if (c.group) cn.prepend(icon('group', 'g-ico'));
+    if (c.channel) cn.prepend(icon('channel', 'g-ico'));
     top.append(cn);
-    if (client.isBlocked(c.username)) top.append(el('span', 'shield warn', t('🚫 заблокирован')));
-    else if (c.keyChanged) top.append(el('span', 'shield warn', t('⚠ ключ изменён')));
-    else if (c.verified) top.append(el('span', 'shield', t('✔ проверен')));
-    if (c.top) top.append(el('span', 'c-pin', '📌'));
+    if (client.isBlocked(c.username)) top.append(withIcon('shield warn', 'block', t('заблокирован')));
+    else if (c.keyChanged) top.append(withIcon('shield warn', 'warning', t('ключ изменён')));
+    else if (c.verified) top.append(withIcon('shield', 'check', t('проверен')));
+    if (c.top) top.append(icon('pin', 'c-pin'));
     body.append(top, el('div', 'c-preview', previewOf(lasts[i])));
     btn.append(avWrap, body);
     if (c.unread && c.username !== current) btn.append(el('span', 'badge', String(c.unread)));
@@ -789,7 +804,7 @@ function openChatFolders(chat) {
       cb.type = 'checkbox';
       cb.value = f.id;
       cb.checked = f.chats.includes(chat);
-      label.append(cb, el('span', 'p-name', '📁 ' + f.name));
+      label.append(cb, icon('folder'), el('span', 'p-name', f.name));
       li.append(label);
       return li;
     })
@@ -861,7 +876,9 @@ const LANGS = LANG_LIST;
     b.type = 'button';
     b.setAttribute('role', 'radio');
     b.setAttribute('aria-checked', String(code === LANG));
-    b.append(el('span', 'set-label', name), el('span', 'set-check', code === LANG ? '✓' : ''));
+    const check = el('span', 'set-check');
+    if (code === LANG) check.append(icon('check'));
+    b.append(el('span', 'set-label', name), check);
     b.addEventListener('click', async () => {
       if (code === LANG) return;
       setLang(code);
@@ -904,13 +921,13 @@ async function renderHeader() {
   }
   if (c.keyChanged) {
     v.className = 'peer-verify bad';
-    v.textContent = t('⚠ ключ изменился — сверьте код');
+    iconText(v, 'warning', t('ключ изменился — сверьте код'));
   } else if (c.verified) {
     v.className = 'peer-verify ok';
-    v.textContent = t('✔ ключ проверен');
+    iconText(v, 'check', t('ключ проверен'));
   } else {
     v.className = 'peer-verify';
-    v.textContent = t('🔒 ключ не проверен');
+    iconText(v, 'lock', t('ключ не проверен'));
   }
   renderPresence();
   $('key-banner').hidden = !c.keyChanged;
@@ -961,7 +978,8 @@ async function updateComposer(c) {
   $('channel-bar-btn').hidden = system;
   if (chReader) {
     $('composer').hidden = true;
-    $('channel-bar-text').textContent = ch.gone ? t('Канал удалён или вы больше не подписаны') : t('📢 Вы читаете канал');
+    if (ch.gone) $('channel-bar-text').textContent = t('Канал удалён или вы больше не подписаны');
+    else iconText($('channel-bar-text'), 'channel', t('Вы читаете канал'));
     $('channel-bar-btn').textContent = ch.gone ? t('Удалить чат') : t('О канале');
   } else if (system) {
     $('composer').hidden = true;
@@ -1110,12 +1128,14 @@ function messageNode(m) {
   const acts = el('div', 'msg-actions');
   const noReply = isChannelChat(current) || isSystemChat(current) || isSupportChat(current);
   if (noReply) li.classList.add('post'); // пост канала и уведомление «Тайника»: без ответа
-  const rb = el('button', '', '↩︎');
+  const rb = el('button');
+  rb.append(icon('reply'));
   rb.type = 'button';
   rb.dataset.act = 'reply';
   rb.title = t('Ответить');
   rb.setAttribute('aria-label', t('Ответить'));
-  const mb = el('button', '', '⋯');
+  const mb = el('button');
+  mb.append(icon('more-h'));
   mb.type = 'button';
   mb.dataset.act = 'menu';
   mb.title = t('Ещё');
@@ -1125,7 +1145,11 @@ function messageNode(m) {
   li.append(acts);
   const meta = el('div', 'meta');
   meta.append(el('span', '', timeFmt.format(new Date(m.ts))));
-  if (m.dir === 'out') meta.append(el('span', 'st', STATUS_ICON[m.status] || ''));
+  if (m.dir === 'out') {
+    const st = el('span', 'st');
+    setStatusIcon(st, m.status);
+    meta.append(st);
+  }
   li.append(meta);
   return li;
 }
@@ -1178,8 +1202,8 @@ async function renderForward() {
       const body = el('div', 'm-body');
       const nm = el('span', 'm-name');
       setName(nm, c.username, client.isVerified(c.username));
-      if (c.group) nm.prepend(el('span', 'g-ico', '👥'));
-      if (c.channel) nm.prepend(el('span', 'g-ico', '📢'));
+      if (c.group) nm.prepend(icon('group', 'g-ico'));
+      if (c.channel) nm.prepend(icon('channel', 'g-ico'));
       body.append(nm, el('span', 'm-sub', c.group || c.channel ? '' : '@' + c.username));
       b.append(av, body);
       b.addEventListener('click', () => doForward(c.username));
@@ -1386,7 +1410,7 @@ function mediaNode(f) {
   card.title = t('Скачать');
   const info = el('span', 'file-info');
   info.append(el('span', 'file-name', f.name), el('span', 'file-size', sizeText(f.size)));
-  card.append(el('span', 'file-icon', f.kind === 'audio' ? '🎵' : '📄'), info, el('span', 'ring'));
+  card.append(icon(f.kind === 'audio' ? 'music' : 'file', 'file-icon'), info, el('span', 'ring'));
   return card;
 }
 
@@ -1569,13 +1593,14 @@ function uploadNode(up) {
     const card = el('div', 'file-card');
     const info = el('span', 'file-info');
     info.append(el('span', 'file-name', up.name), el('span', 'file-size', sizeText(up.size)));
-    card.append(el('span', 'file-icon', up.as === 'voice' ? '🎤' : '📄'), info);
+    card.append(icon(up.as === 'voice' ? 'mic' : 'file', 'file-icon'), info);
     bubble.append(card);
   }
   const bar = el('div', 'up-bar');
   const fill = el('span', 'up-fill');
   fill.style.width = Math.round(up.progress * 100) + '%';
-  const x = el('button', 'up-cancel', '✕');
+  const x = el('button', 'up-cancel');
+  x.append(icon('close'));
   x.type = 'button';
   x.dataset.act = 'cancel-upload';
   x.dataset.up = up.key;
@@ -1742,7 +1767,7 @@ async function pickFiles(list) {
       img.alt = '';
       img.src = p.url;
       li.append(img);
-    } else li.append(el('span', 'file-icon', '📄'));
+    } else li.append(icon('file', 'file-icon'));
     const info = el('span', 'file-info');
     info.append(el('span', 'file-name', p.file.name || 'file'), el('span', 'file-size', sizeText(p.file.size)));
     li.append(info);
@@ -1844,7 +1869,7 @@ async function fillGallery(reset) {
   if (reset) {
     asItems = new Map();
     asDone = false;
-    grid.replaceChildren(galleryTile('camera', '📷', t('Камера')), galleryTile('more', '🖼', t('Все фото')));
+    grid.replaceChildren(galleryTile('camera', 'camera', t('Камера')), galleryTile('more', 'image', t('Все фото')));
   }
   await loadGalleryPage();
 }
@@ -1852,7 +1877,7 @@ function galleryTile(act, ico, label) {
   const b = el('button', 'as-cell as-action');
   b.type = 'button';
   b.dataset.asAct = act;
-  b.append(el('span', 'as-action-ico', ico), el('span', 'as-action-label', label));
+  b.append(icon(ico, 'as-action-ico'), el('span', 'as-action-label', label));
   return b;
 }
 async function loadGalleryPage() {
@@ -2357,7 +2382,8 @@ let playing = null; // { id: сообщение, f: вложение, el: <audio
 function voiceNode(f) {
   const box = el('div', 'voice');
   box.dataset.mediaId = f.id;
-  const btn = el('button', 'vplay', '▶');
+  const btn = el('button', 'vplay');
+  btn.append(icon('play'));
   btn.type = 'button';
   btn.dataset.act = 'vplay';
   btn.setAttribute('aria-label', t('Воспроизвести голосовое сообщение'));
@@ -2404,7 +2430,7 @@ function paintPlay() {
     n.classList.toggle('playing', p.f.as === 'note' || !p.el.paused);
     n.classList.toggle('paused', p.el.paused);
     if (p.f.as === 'voice') {
-      n.querySelector('.vplay').textContent = p.el.paused ? '▶' : '❚❚';
+      n.querySelector('.vplay').replaceChildren(icon(p.el.paused ? 'play' : 'pause'));
       const bars = n.querySelectorAll('.vwave i');
       bars.forEach((b, i) => b.classList.toggle('on', i < frac * bars.length));
       n.querySelector('.vtime').textContent = `${fmtClock(p.el.currentTime)} / ${fmtClock(p.f.dur || d)}`;
@@ -2421,7 +2447,7 @@ function resetPlayNodes(p) {
   for (const n of playNodes(p.f.id)) {
     n.classList.remove('playing', 'paused');
     if (p.f.as === 'voice') {
-      n.querySelector('.vplay').textContent = '▶';
+      n.querySelector('.vplay').replaceChildren(icon('play'));
       n.querySelectorAll('.vwave i').forEach((b) => b.classList.remove('on'));
       n.querySelector('.vtime').textContent = fmtClock(p.f.dur || 0);
     } else {
@@ -2664,7 +2690,7 @@ async function renderProfileChannels() {
       renderProfileChannels();
     });
     const label = el('span', 'set-label');
-    label.append(el('span', '', '📢 ' + (ch.title || t('Канал'))), el('span', 'small muted', ' · ' + (ch.public ? ch.ref : t('приватный канал'))));
+    label.append(icon('channel'), el('span', '', ' ' + (ch.title || t('Канал'))), el('span', 'small muted', ' · ' + (ch.public ? ch.ref : t('приватный канал'))));
     row.append(label, cb);
     box.append(row);
   }
@@ -2676,7 +2702,7 @@ function updateProfilePhoto() {
   const shown = pendingAvatar === undefined ? client.avatarOf(client.account.username) : premium ? pendingAvatar : null;
   paintAvatar($('prof-avatar'), client.account.username, shown);
   $('prof-photo-pick').hidden = !premium;
-  $('prof-photo-pick').textContent = has ? t('📷 Сменить фото') : t('📷 Выбрать фото');
+  $('prof-photo-pick').replaceChildren(icon('camera'), has ? t('Сменить фото') : t('Выбрать фото'));
   $('prof-photo-clear').hidden = !has;
   $('prof-photo-actions').hidden = !premium && !has;
   $('prof-photo-locked').hidden = premium || !client.billing;
@@ -2936,7 +2962,9 @@ function fillPremium() {
       b.type = 'button';
       const price =
         premCurrency === 'COINS' ? coinsText(p.coins) : premCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[premCurrency] || premCurrency);
-      b.append(el('span', 'set-ico', '🗓'), el('span', 'set-label', planName(p.days)), el('span', 'set-value', price));
+      const ico = el('span', 'set-ico');
+    ico.append(icon('calendar'));
+    b.append(ico, el('span', 'set-label', planName(p.days)), el('span', 'set-value', price));
       b.addEventListener('click', () => buyPlan(p, b));
       return b;
     })
@@ -3030,7 +3058,9 @@ function fillCoins() {
       const b = el('button', 'set-row prem-plan');
       b.type = 'button';
       const price = coinCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[coinCurrency] || coinCurrency);
-      b.append(el('span', 'set-ico', '🪙'), el('span', 'set-label', t('{0} монет', p.coins.toLocaleString(LOCALE))), el('span', 'set-value', price));
+      const ico = el('span', 'set-ico');
+    ico.append(icon('coin'));
+    b.append(ico, el('span', 'set-label', t('{0} монет', p.coins.toLocaleString(LOCALE))), el('span', 'set-value', price));
       b.addEventListener('click', () => buyPack(p, b));
       return b;
     })
@@ -3173,7 +3203,7 @@ async function renderDevices() {
   ul.replaceChildren(
     ...list.map((d) => {
       const li = el('li');
-      li.append(el('span', 'd-ico', /Приложение|^App /.test(d.name) ? '🖥' : /Android|iOS/.test(d.name) ? '📱' : '🌐'));
+      li.append(icon(/Приложение|^App /.test(d.name) ? 'monitor' : /Android|iOS/.test(d.name) ? 'smartphone' : 'globe', 'd-ico'));
       const body = el('div', 'd-body');
       const meta = el('div', 'd-meta', seenText(d));
       // Версия приложения на устройстве (старые версии её не сообщают)
@@ -3460,7 +3490,7 @@ client.on('status-change', ({ contact, id, status }) => {
   const node = document.querySelector(`.msg.out[data-id="${CSS.escape(id)}"]`);
   if (!node) return;
   node.classList.toggle('failed', status === 'failed');
-  node.querySelector('.st').textContent = STATUS_ICON[status] || '';
+  setStatusIcon(node.querySelector('.st'), status);
 });
 client.on('key-changed', (c) => toast(t('⚠ Ключ пользователя {0} изменился', c.username), 6000));
 /** Стереть аккаунт на этом устройстве (ключи, переписку) и показать причину на экране входа. */
@@ -3842,6 +3872,18 @@ function acquireInstanceLock() {
     });
   });
 }
+
+// Адрес сервера для HTTP: ws(s)://хост/ws → http(s)://хост
+const httpOrigin = (wsUrl) => {
+  try {
+    const u = new URL(wsUrl);
+    return (u.protocol === 'wss:' ? 'https://' : 'http://') + u.host;
+  } catch {
+    return '';
+  }
+};
+// Иконки: в вебе — с этого же сервера; в приложениях — встроенные сразу и свежие с сервера аккаунта
+loadIcons(desktop ? httpOrigin(activeAccount()?.server || DEFAULT_SERVER) : '');
 
 (async () => {
   if (!(await acquireInstanceLock())) {
@@ -4486,7 +4528,7 @@ async function openMenu(id, x, y) {
   menu.querySelector('[data-act="reply"]').hidden = isChannelChat(current) || sys;
   menu.querySelector('[data-act="pin"]').hidden = sys;
   const pinnedId = (await client.contacts())[current]?.pinned?.id;
-  menu.querySelector('[data-act="pin"]').textContent = pinnedId === id ? t('📌 Открепить') : t('📌 Закрепить');
+  menu.querySelector('[data-act="pin"]').replaceChildren(icon('pin'), pinnedId === id ? t('Открепить') : t('Закрепить'));
   menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys;
   menu.querySelector('[data-act="copy"]').hidden = !!m?.content?.file && !m.content.body;
   menu.hidden = false;
@@ -4636,7 +4678,8 @@ async function renderProfile() {
   const prof = c?.profile;
   paintAvatar($('pf-avatar'), name);
   setName($('pf-name'), name, client.isVerified(name));
-  $('pf-status').textContent = client.isBlocked(name) ? t('🚫 заблокирован') : presenceText(client.presenceOf(name)) || '';
+  if (client.isBlocked(name)) iconText($('pf-status'), 'block', t('заблокирован'));
+  else $('pf-status').textContent = presenceText(client.presenceOf(name)) || '';
   $('pf-status').classList.toggle('online', !!client.presenceOf(name)?.online && !client.isBlocked(name));
   $('pf-username').textContent = '@' + name;
   $('pf-bio-row').hidden = !prof?.bio;
@@ -4649,7 +4692,9 @@ async function renderProfile() {
       b.type = 'button';
       const text = el('span', 'pf-info-text');
       text.append(el('b', '', ch.title || t('Канал')), el('span', 'small muted', ch.ref.startsWith('@') ? t('Канал · {0}', ch.ref) : t('Канал · приватный')));
-      b.append(el('span', 'set-ico', '📢'), text, el('span', 'set-chev', '›'));
+      const ico = el('span', 'set-ico');
+      ico.append(icon('channel'));
+      b.append(ico, text, el('span', 'set-chev', '›'));
       b.addEventListener('click', () => {
         $('profile-dialog').close();
         openChannels(ch.ref);
@@ -4657,14 +4702,18 @@ async function renderProfile() {
       return b;
     })
   );
-  $('pf-key').textContent = c?.keyChanged ? t('⚠ ключ изменился — сверьте код') : c?.verified ? t('✔ ключ проверен') : t('🔒 ключ не проверен');
+  if (c?.keyChanged) iconText($('pf-key'), 'warning', t('ключ изменился — сверьте код'));
+  else if (c?.verified) iconText($('pf-key'), 'check', t('ключ проверен'));
+  else iconText($('pf-key'), 'lock', t('ключ не проверен'));
   const noCall = !c || !!c.keyChanged || client.isBlocked(name) || client.status !== 'online' || !window.RTCPeerConnection;
   $('pf-call').disabled = noCall;
   $('pf-video').disabled = noCall;
   $('pf-gift').hidden = !client.billing?.plans?.length || client.isBlocked(name);
   const blocked = client.isBlocked(name);
   $('pf-block').classList.toggle('danger', !blocked);
-  $('pf-block').replaceChildren(el('span', 'set-ico', blocked ? '✓' : '🚫'), el('span', 'set-label', blocked ? t('Разблокировать') : t('Заблокировать')));
+  const blockIco = el('span', 'set-ico');
+  blockIco.append(icon(blocked ? 'check' : 'block'));
+  $('pf-block').replaceChildren(blockIco, el('span', 'set-label', blocked ? t('Разблокировать') : t('Заблокировать')));
   for (const b of document.querySelectorAll('#profile-dialog .pf-tab')) b.classList.toggle('active', b.dataset.tab === profileTab);
   // Медиа и файлы из переписки (новые сверху)
   const files = (await client.messages(name)).filter((m) => m.content?.t === 'file' && m.content.file).reverse();
@@ -4706,7 +4755,7 @@ async function renderProfile() {
         b.dataset.msg = m.id;
         const info = el('span', 'file-info');
         info.append(el('span', 'file-name', f.name), el('span', 'file-size', `${sizeText(f.size)} · ${dayLabel(m.ts)}`));
-        b.append(el('span', 'file-icon', f.kind === 'audio' ? '🎵' : '📄'), info);
+        b.append(icon(f.kind === 'audio' ? 'music' : 'file', 'file-icon'), info);
         li.append(b);
         return li;
       })

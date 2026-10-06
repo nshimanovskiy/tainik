@@ -122,6 +122,8 @@ function serveStatic(req, res) {
     res.writeHead(200, {
       'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
       'Cache-Control': 'no-cache',
+      // Набор иконок забирают и приложения (со своих адресов app://, appassets…)
+      ...(rel === '/icons.json' ? { 'Access-Control-Allow-Origin': '*' } : {}),
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'X-Frame-Options': 'DENY',

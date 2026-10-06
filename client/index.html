@@ -62,7 +62,7 @@
                pattern="[a-zA-Z0-9_]{3,32}" placeholder="например, alice" spellcheck="false" autocapitalize="none">
         <p class="hint">3–32 символа: латиница, цифры, «_». По нему вас найдут; изменить его нельзя. Имя для показа можно задать потом в настройках.</p>
         <button type="submit" class="primary wide" id="auth-btn">Создать ключи и войти</button>
-        <a id="ios-install" class="ios-install" href="/ios" hidden>📲 Установить Тайник на iPhone — как приложение, с уведомлениями</a>
+        <a id="ios-install" class="ios-install" href="/ios" hidden><i class="ic" data-icon="download"></i>Установить Тайник на iPhone — как приложение, с уведомлениями</a>
         <p id="auth-error" class="error" role="alert"></p>
       </form>
 
@@ -78,7 +78,7 @@
         <p id="link-error" class="error" role="alert"></p>
       </div>
 
-      <button type="button" id="auth-cancel" class="ghost wide" hidden>← Вернуться к своим аккаунтам</button>
+      <button type="button" id="auth-cancel" class="ghost wide" hidden><i class="ic" data-icon="back"></i>Вернуться к своим аккаунтам</button>
       <p class="hint fine">Ключи создаются на устройстве и не покидают ваших устройств. Если удалить данные приложения на всех устройствах, аккаунт будет утерян — резервной копии нет.</p>
     </div>
   </section>
@@ -97,45 +97,45 @@
             <span class="status"><span id="status-dot" class="dot"></span><span id="status-text"></span></span>
           </span>
         </button>
-        <button id="menu-btn" class="icon-btn" title="Меню" aria-label="Меню">⋯</button>
+        <button id="menu-btn" class="icon-btn" title="Меню" aria-label="Меню"><i class="ic" data-icon="more-h"></i></button>
       </header>
       <form id="add-form" class="add-form" autocomplete="off">
         <input id="add-input" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм собеседника">
         <button class="icon-btn accent" title="Добавить" aria-label="Добавить">+</button>
-        <button type="button" id="new-group-btn" class="icon-btn" title="Новая группа" aria-label="Новая группа">👥</button>
-        <button type="button" id="new-channel-btn" class="icon-btn" title="Каналы: найти или создать" aria-label="Каналы">📢</button>
+        <button type="button" id="new-group-btn" class="icon-btn" title="Новая группа" aria-label="Новая группа"><i class="ic" data-icon="group"></i></button>
+        <button type="button" id="new-channel-btn" class="icon-btn" title="Каналы: найти или создать" aria-label="Каналы"><i class="ic" data-icon="channel"></i></button>
       </form>
       <p id="add-error" class="error small" role="alert"></p>
       <div id="folder-tabs" class="folder-tabs" role="tablist" aria-label="Папки" hidden></div>
       <div id="notif-offer" class="notif-offer" hidden>
-        <span>🔔 Включить уведомления о новых сообщениях и звонках?</span>
+        <span><i class="ic" data-icon="bell"></i>Включить уведомления о новых сообщениях и звонках?</span>
         <span class="notif-offer-actions">
           <button type="button" id="notif-offer-yes" class="primary">Включить</button>
-          <button type="button" id="notif-offer-no" class="icon-btn" aria-label="Не сейчас" title="Не сейчас">✕</button>
+          <button type="button" id="notif-offer-no" class="icon-btn" aria-label="Не сейчас" title="Не сейчас"><i class="ic" data-icon="close"></i></button>
         </span>
       </div>
       <div id="upd-banner" class="notif-offer upd-banner" hidden>
         <span id="upd-banner-text"></span>
         <span class="notif-offer-actions">
           <button type="button" id="upd-banner-go" class="primary"></button>
-          <button type="button" id="upd-banner-no" class="icon-btn" aria-label="Позже" title="Позже">✕</button>
+          <button type="button" id="upd-banner-no" class="icon-btn" aria-label="Позже" title="Позже"><i class="ic" data-icon="close"></i></button>
         </span>
       </div>
       <ul id="contacts" class="contacts"></ul>
-      <p id="folder-empty" class="muted empty-side" hidden>В этой папке пока нет чатов. Добавьте их: меню чата → «📁 Папки…» или долгое нажатие на вкладку папки.</p>
+      <p id="folder-empty" class="muted empty-side" hidden>В этой папке пока нет чатов. Добавьте их: меню чата → «Папки…» или долгое нажатие на вкладку папки.</p>
       <p id="no-contacts" class="muted empty-side">Пока никого. Добавьте собеседника по юзернейму — он должен быть зарегистрирован.</p>
     </aside>
 
     <main id="chat">
       <div id="chat-empty" class="chat-empty">
-        <div class="lock-big">🔒</div>
+        <div class="lock-big"><i class="ic" data-icon="lock"></i></div>
         <p>Выберите собеседника слева.</p>
         <p class="muted small">Сообщения шифруются на вашем устройстве и расшифровываются только у получателя.</p>
       </div>
 
       <div id="chat-view" hidden>
         <header class="chat-head">
-          <button id="back-btn" class="icon-btn back" aria-label="Назад">←</button>
+          <button id="back-btn" class="icon-btn back" aria-label="Назад"><i class="ic" data-icon="back"></i></button>
           <span class="avatar" id="peer-avatar" role="button" tabindex="0" title="Профиль"></span>
           <div class="peer" id="peer-open" role="button" tabindex="0" title="Профиль">
             <div id="peer-name" class="peer-name"></div>
@@ -147,16 +147,16 @@
           <button id="call-video-btn" class="icon-btn call-btn" title="Видеозвонок" aria-label="Видеозвонок">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h11a2 2 0 0 1 2 2v1.6l3.4-2.3A1 1 0 0 1 22 8.1v7.8a1 1 0 0 1-1.6.8L17 14.4V16a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
           </button>
-          <button id="safety-btn" class="ghost" title="Код безопасности"><span class="lbl">Код безопасности</span><span class="ico" aria-hidden="true">🔑</span></button>
-          <button id="chat-menu-btn" class="icon-btn" title="Ещё" aria-label="Действия с чатом">⋮</button>
+          <button id="safety-btn" class="ghost" title="Код безопасности"><span class="lbl">Код безопасности</span><span class="ico" aria-hidden="true"><i class="ic" data-icon="key"></i></span></button>
+          <button id="chat-menu-btn" class="icon-btn" title="Ещё" aria-label="Действия с чатом"><i class="ic" data-icon="more-v"></i></button>
         </header>
 
         <div id="pin-bar" class="pin-bar" hidden>
           <button type="button" id="pin-open" class="pin-open">
-            <span class="pin-ico" aria-hidden="true">📌</span>
+            <span class="pin-ico" aria-hidden="true"><i class="ic" data-icon="pin"></i></span>
             <span class="pin-text"><b>Закреплённое сообщение</b><span id="pin-body"></span></span>
           </button>
-          <button type="button" id="pin-close" class="icon-btn" aria-label="Открепить" title="Открепить">✕</button>
+          <button type="button" id="pin-close" class="icon-btn" aria-label="Открепить" title="Открепить"><i class="ic" data-icon="close"></i></button>
         </div>
         <div id="key-banner" class="banner danger" hidden>
           <div>
@@ -178,14 +178,14 @@
             <div id="reply-name" class="rb-name"></div>
             <div id="reply-text" class="rb-text"></div>
           </div>
-          <button type="button" id="reply-cancel" class="icon-btn" aria-label="Отменить ответ">✕</button>
+          <button type="button" id="reply-cancel" class="icon-btn" aria-label="Отменить ответ"><i class="ic" data-icon="close"></i></button>
         </div>
         <div id="channel-bar" class="blocked-bar" hidden>
           <span id="channel-bar-text"></span>
           <button type="button" id="channel-bar-btn" class="ghost"></button>
         </div>
         <div id="blocked-bar" class="blocked-bar" hidden>
-          <span>🚫 Вы заблокировали этого пользователя</span>
+          <span><i class="ic" data-icon="block"></i>Вы заблокировали этого пользователя</span>
           <button type="button" id="unblock-btn" class="ghost">Разблокировать</button>
         </div>
         <form id="composer" class="composer">
@@ -196,16 +196,16 @@
           <textarea id="text" rows="1" placeholder="Сообщение" aria-label="Сообщение"></textarea>
           <button type="button" id="voice-btn" class="icon-btn rec-btn" aria-label="Записать голосовое сообщение" title="Удерживайте, чтобы записать голосовое"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg></button>
           <button type="button" id="note-btn" class="icon-btn rec-btn" aria-label="Записать видеосообщение" title="Удерживайте, чтобы записать видеосообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h12a1 1 0 0 1 1 1v3.5l4.4-2.9A1 1 0 0 1 22 7.4v9.2a1 1 0 0 1-1.6.8L16 14.5V18a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 2v10h10V7z"/></svg></button>
-          <button id="send-btn" class="primary send" aria-label="Отправить">➤</button>
+          <button id="send-btn" class="primary send" aria-label="Отправить"><i class="ic" data-icon="send"></i></button>
           <div id="rec-info" class="rec-info">
-            <button type="button" id="rec-cancel" class="icon-btn" aria-label="Отменить запись" title="Отменить">✕</button>
+            <button type="button" id="rec-cancel" class="icon-btn" aria-label="Отменить запись" title="Отменить"><i class="ic" data-icon="close"></i></button>
             <span class="rec-dot" aria-hidden="true"></span>
             <span id="rec-time" class="rec-time">0:00</span>
             <span id="rec-hint" class="rec-hint">‹ Влево — отмена</span>
             <canvas id="rec-wave" class="rec-wave" width="300" height="36" aria-hidden="true"></canvas>
           </div>
-          <button type="button" id="rec-send" class="primary send rec-send" aria-label="Отправить запись" title="Отправить">➤</button>
-          <div id="rec-lock" class="rec-lock" aria-hidden="true"><span class="lk">🔒</span><span class="ar">⌃</span></div>
+          <button type="button" id="rec-send" class="primary send rec-send" aria-label="Отправить запись" title="Отправить"><i class="ic" data-icon="send"></i></button>
+          <div id="rec-lock" class="rec-lock" aria-hidden="true"><span class="lk"><i class="ic" data-icon="lock"></i></span><span class="ar"><i class="ic" data-icon="chevron-up"></i></span></div>
         </form>
         <div id="note-preview" class="note-preview" hidden>
           <video id="note-video" muted playsinline autoplay></video>
@@ -233,9 +233,9 @@
   <dialog id="menu-dialog" class="settings">
     <form method="dialog" class="settings-form">
       <header class="set-head">
-        <button type="button" id="set-back" class="icon-btn" aria-label="Назад" hidden>←</button>
+        <button type="button" id="set-back" class="icon-btn" aria-label="Назад" hidden><i class="ic" data-icon="back"></i></button>
         <h2 id="set-title">Настройки</h2>
-        <button value="close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+        <button value="close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
       </header>
 
       <div class="set-page" data-page="main">
@@ -249,35 +249,35 @@
           <span class="set-chev" aria-hidden="true">›</span>
         </button>
         <div class="set-group" id="row-premium-group" hidden>
-        <button type="button" data-go="premium" class="set-row"><span class="set-ico" aria-hidden="true">⭐</span><span class="set-label">Тайник Премиум</span><span class="set-value" id="set-premium-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="coins" class="set-row" id="row-coins" hidden><span class="set-ico" aria-hidden="true">🪙</span><span class="set-label">Монеты</span><span class="set-value" id="set-coins-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="premium" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Тайник Премиум</span><span class="set-value" id="set-premium-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="coins" class="set-row" id="row-coins" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="coin"></i></span><span class="set-label">Монеты</span><span class="set-value" id="set-coins-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="set-group">
-        <button type="submit" value="accounts" class="set-row"><span class="set-ico" aria-hidden="true">👥</span><span class="set-label">Аккаунты</span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="submit" value="devices" class="set-row"><span class="set-ico" aria-hidden="true">💻</span><span class="set-label">Устройства</span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="backup" class="set-row"><span class="set-ico" aria-hidden="true">💾</span><span class="set-label">Перенос переписки</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="submit" value="accounts" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="group"></i></span><span class="set-label">Аккаунты</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="submit" value="devices" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="laptop"></i></span><span class="set-label">Устройства</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="backup" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="save"></i></span><span class="set-label">Перенос переписки</span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="set-group">
-        <button type="button" data-go="privacy" class="set-row"><span class="set-ico" aria-hidden="true">🔒</span><span class="set-label">Конфиденциальность</span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="media" class="set-row"><span class="set-ico" aria-hidden="true">🎧</span><span class="set-label">Звук и микрофон</span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="notif" class="set-row"><span class="set-ico" aria-hidden="true">🔔</span><span class="set-label">Уведомления</span><span class="set-value" id="set-notif-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="proxy" class="set-row" id="row-proxy" hidden><span class="set-ico" aria-hidden="true">🛡</span><span class="set-label">Прокси</span><span class="set-value" id="set-proxy-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="bg" class="set-row" id="row-bg" hidden><span class="set-ico" aria-hidden="true">🔋</span><span class="set-label">Работа в фоне</span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="lang" class="set-row"><span class="set-ico" aria-hidden="true">🌐</span><span class="set-label">Язык</span><span class="set-value" id="set-lang-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
-        <button type="button" data-go="upd" class="set-row" id="row-upd" hidden><span class="set-ico" aria-hidden="true">⬆️</span><span class="set-label">Обновления</span><span class="set-value" id="set-upd-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="privacy" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="lock"></i></span><span class="set-label">Конфиденциальность</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="media" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="headphones"></i></span><span class="set-label">Звук и микрофон</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="notif" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="bell"></i></span><span class="set-label">Уведомления</span><span class="set-value" id="set-notif-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="proxy" class="set-row" id="row-proxy" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="shield"></i></span><span class="set-label">Прокси</span><span class="set-value" id="set-proxy-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="bg" class="set-row" id="row-bg" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="battery"></i></span><span class="set-label">Работа в фоне</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="lang" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="globe"></i></span><span class="set-label">Язык</span><span class="set-value" id="set-lang-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="upd" class="set-row" id="row-upd" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="update"></i></span><span class="set-label">Обновления</span><span class="set-value" id="set-upd-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="set-group">
-          <a class="set-row" href="https://t.me/tainavpn_bot" target="_blank" rel="noopener"><span class="set-ico" aria-hidden="true">🛡</span><span class="set-label">VPN — бот @tainavpn_bot</span><span class="set-chev" aria-hidden="true">↗</span></a>
-          <a class="set-row" href="https://t.me/SteelProxyBot?start=r_43172017" target="_blank" rel="noopener"><span class="set-ico" aria-hidden="true">🧦</span><span class="set-label">Купить прокси — @SteelProxyBot</span><span class="set-chev" aria-hidden="true">↗</span></a>
+          <a class="set-row" href="https://t.me/tainavpn_bot" target="_blank" rel="noopener"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="shield"></i></span><span class="set-label">VPN — бот @tainavpn_bot</span><span class="set-chev" aria-hidden="true"><i class="ic" data-icon="external"></i></span></a>
+          <a class="set-row" href="https://t.me/SteelProxyBot?start=r_43172017" target="_blank" rel="noopener"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="cart"></i></span><span class="set-label">Купить прокси — @SteelProxyBot</span><span class="set-chev" aria-hidden="true"><i class="ic" data-icon="external"></i></span></a>
         </div>
         <div class="set-group">
-        <button type="button" id="support-btn" class="set-row"><span class="set-ico" aria-hidden="true">💬</span><span class="set-label">Поддержка</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" id="support-btn" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="chat"></i></span><span class="set-label">Поддержка</span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="about" class="set-row"><span class="set-ico" aria-hidden="true">ℹ️</span><span class="set-label">О Тайнике</span><span class="set-chev" aria-hidden="true">›</span></button>
-          <a class="set-row" id="get-apps-row" href="/?home#download" target="_blank" rel="noopener" hidden><span class="set-ico" aria-hidden="true">📲</span><span class="set-label">Скачать приложения</span><span class="set-chev" aria-hidden="true">›</span></a>
+          <a class="set-row" id="get-apps-row" href="/?home#download" target="_blank" rel="noopener" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="download"></i></span><span class="set-label">Скачать приложения</span><span class="set-chev" aria-hidden="true">›</span></a>
         </div>
         <div class="set-group">
-          <button id="reset-btn" type="submit" value="reset" class="set-row danger"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Выйти на этом устройстве</span></button>
-          <button id="delacc-btn" type="button" class="set-row danger"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить аккаунт</span></button>
+          <button id="reset-btn" type="submit" value="reset" class="set-row danger"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="logout"></i></span><span class="set-label">Выйти на этом устройстве</span></button>
+          <button id="delacc-btn" type="button" class="set-row danger"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Удалить аккаунт</span></button>
         </div>
       </div>
 
@@ -285,11 +285,11 @@
         <div class="prof-photo">
           <span class="avatar huge" id="prof-avatar"></span>
           <div class="prof-photo-actions" id="prof-photo-actions">
-            <button type="button" id="prof-photo-pick" class="ghost">📷 Выбрать фото</button>
+            <button type="button" id="prof-photo-pick" class="ghost"><i class="ic" data-icon="camera"></i>Выбрать фото</button>
             <button type="button" id="prof-photo-clear" class="ghost">Убрать фото</button>
             <input type="file" id="prof-photo-input" accept="image/*" hidden>
           </div>
-          <button type="button" id="prof-photo-locked" class="ghost-link" data-go="premium" hidden>⭐ Фото профиля — с подпиской Премиум</button>
+          <button type="button" id="prof-photo-locked" class="ghost-link" data-go="premium" hidden><i class="ic" data-icon="star"></i>Фото профиля — с подпиской Премиум</button>
         </div>
         <div class="set-group set-pad">
           <label class="set-field"><span>Имя</span><input id="prof-name" maxlength="64" autocomplete="off" placeholder="Как вас называть"></label>
@@ -308,19 +308,19 @@
 
       <div class="set-page" data-page="premium" data-title="Тайник Премиум" hidden>
         <div class="prem-hero">
-          <span class="prem-star" aria-hidden="true">⭐</span>
+          <span class="prem-star" aria-hidden="true"><i class="ic" data-icon="star"></i></span>
           <b>Тайник Премиум</b>
           <p id="prem-status" class="small"></p>
         </div>
         <h3 class="set-sub">Что даёт подписка</h3>
         <div class="set-group">
-          <div class="set-row set-static"><span class="set-ico" aria-hidden="true">🖼</span><span class="set-label">Фото профиля — его видят ваши собеседники</span></div>
-          <div class="set-row set-static"><span class="set-ico" aria-hidden="true">⭐</span><span class="set-label">Звезда рядом с именем</span></div>
-          <div class="set-row set-static"><span class="set-ico" aria-hidden="true">✨</span><span class="set-label">Новые возможности — по мере появления</span></div>
+          <div class="set-row set-static"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="image"></i></span><span class="set-label">Фото профиля — его видят ваши собеседники</span></div>
+          <div class="set-row set-static"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Звезда рядом с именем</span></div>
+          <div class="set-row set-static"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="sparkles"></i></span><span class="set-label">Новые возможности — по мере появления</span></div>
         </div>
         <div class="prem-curs prem-for" id="prem-for" role="radiogroup" aria-label="Для кого">
           <button type="button" class="prem-cur active" data-for="me" role="radio" aria-checked="true">Себе</button>
-          <button type="button" class="prem-cur" data-for="gift" role="radio" aria-checked="false">🎁 В подарок</button>
+          <button type="button" class="prem-cur" data-for="gift" role="radio" aria-checked="false"><i class="ic" data-icon="gift"></i>В подарок</button>
         </div>
         <div class="set-group set-pad prem-gift" id="prem-gift" hidden>
           <label class="small" for="prem-gift-to">Кому подарить</label>
@@ -344,14 +344,14 @@
 
       <div class="set-page" data-page="coins" data-title="Монеты" hidden>
         <div class="prem-hero">
-          <span class="prem-star" aria-hidden="true">🪙</span>
+          <span class="prem-star" aria-hidden="true"><i class="ic" data-icon="coin"></i></span>
           <b id="coins-balance" class="coins-balance">0</b>
           <p class="small" id="coins-balance-text">монет на балансе</p>
         </div>
         <h3 class="set-sub">На что потратить</h3>
         <div class="set-group">
-          <button type="button" data-go="premium" class="set-row" id="coins-to-premium"><span class="set-ico" aria-hidden="true">⭐</span><span class="set-label">Тайник Премиум — себе или в подарок</span><span class="set-chev" aria-hidden="true">›</span></button>
-          <div class="set-row set-static"><span class="set-ico" aria-hidden="true">🎁</span><span class="set-label">Подарки собеседникам — скоро</span></div>
+          <button type="button" data-go="premium" class="set-row" id="coins-to-premium"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Тайник Премиум — себе или в подарок</span><span class="set-chev" aria-hidden="true">›</span></button>
+          <div class="set-row set-static"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="gift"></i></span><span class="set-label">Подарки собеседникам — скоро</span></div>
         </div>
         <h3 class="set-sub" id="coins-buy-title">Купить монеты</h3>
         <div class="prem-curs" id="coins-curs" role="radiogroup" aria-label="Валюта оплаты"></div>
@@ -369,8 +369,8 @@
       <div class="set-page" data-page="backup" data-title="Перенос переписки" hidden>
         <p class="set-note">Сохраните переписку в файл и откройте его на другом устройстве этого аккаунта — прошлые чаты появятся и там. Файл зашифрован ключами вашего аккаунта: импортировать его можно только в этот же аккаунт, другой аккаунт его не прочитает.</p>
         <div class="set-group">
-          <button type="button" id="backup-export" class="set-row"><span class="set-ico" aria-hidden="true">📤</span><span class="set-label">Экспортировать переписку</span></button>
-          <button type="button" id="backup-import" class="set-row"><span class="set-ico" aria-hidden="true">📥</span><span class="set-label">Импортировать из файла</span></button>
+          <button type="button" id="backup-export" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="export"></i></span><span class="set-label">Экспортировать переписку</span></button>
+          <button type="button" id="backup-import" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="import"></i></span><span class="set-label">Импортировать из файла</span></button>
         </div>
         <input type="file" id="backup-file" hidden>
         <p id="backup-status" class="set-note" role="status"></p>
@@ -382,9 +382,9 @@
           <label class="set-row set-toggle"><span class="set-label">Показывать, что я в сети и когда был(а)</span><input type="checkbox" id="presence-visible"></label>
         </div>
         <p class="set-note">Если выключить, собеседники видят «был(а) недавно».</p>
-        <button type="button" id="presence-locked" class="ghost-link" data-go="premium" hidden>⭐ Скрывать статус «в сети» — с подпиской Премиум</button>
+        <button type="button" id="presence-locked" class="ghost-link" data-go="premium" hidden><i class="ic" data-icon="star"></i>Скрывать статус «в сети» — с подпиской Премиум</button>
         <div class="set-group">
-        <button type="button" data-go="blocked" class="set-row"><span class="set-ico" aria-hidden="true">🚫</span><span class="set-label">Заблокированные</span><span class="set-value" id="set-blocked-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="blocked" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="block"></i></span><span class="set-label">Заблокированные</span><span class="set-value" id="set-blocked-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <h3 class="set-sub">Отпечаток ключа личности</h3>
         <div class="set-group set-pad"><code id="my-fp" class="fp"></code></div>
@@ -404,7 +404,7 @@
           <label class="set-field vol-field"><span>Громкость моего голоса <b class="vol-val" id="vol-mic-val"></b></span><input type="range" id="vol-mic" class="vol-range" min="0" max="200" step="5"></label>
           <label class="set-field vol-field"><span>Громкость собеседника <b class="vol-val" id="vol-peer-val"></b></span><input type="range" id="vol-peer" class="vol-range" min="0" max="200" step="5"></label>
           <label class="set-field" id="dev-speaker-row"><span>Динамик или наушники</span><select id="dev-speaker" class="dev-select"></select></label>
-          <button type="button" id="dev-speaker-test" class="ghost">🔊 Проверить звук</button>
+          <button type="button" id="dev-speaker-test" class="ghost"><i class="ic" data-icon="speaker"></i>Проверить звук</button>
         </div>
         <p class="set-note" id="dev-speaker-note" hidden>Устройство вывода звука на этом устройстве выбирается в настройках системы.</p>
         <button type="button" id="dev-allow" class="ghost-link" hidden>Разрешить доступ к микрофону, чтобы увидеть названия устройств</button>
@@ -475,7 +475,7 @@
           <p class="small">Протокол: X3DH + Double Ratchet, несколько устройств (v3).</p>
         </div>
         <div class="set-group">
-          <a class="set-row" id="home-link" href="/?home" target="_blank" rel="noopener"><span class="set-ico" aria-hidden="true">🏠</span><span class="set-label">Главная страница Тайника</span><span class="set-chev" aria-hidden="true">›</span></a>
+          <a class="set-row" id="home-link" href="/?home" target="_blank" rel="noopener"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="home"></i></span><span class="set-label">Главная страница Тайника</span><span class="set-chev" aria-hidden="true">›</span></a>
         </div>
         <p class="set-note">«Выйти на этом устройстве» стирает ключи и переписку только здесь; лучше сначала отвязать устройство с другого.</p>
       </div>
@@ -505,7 +505,7 @@
         <input id="link-input" placeholder="Код с нового устройства" spellcheck="false" autocapitalize="characters" aria-label="Код привязки">
         <button class="primary">Привязать</button>
       </form>
-      <button type="button" id="scan-btn" class="primary wide">📷 Сканировать QR-код</button>
+      <button type="button" id="scan-btn" class="primary wide"><i class="ic" data-icon="camera"></i>Сканировать QR-код</button>
       <p id="link-form-error" class="error small" role="alert"></p>
       <p class="hint">Новое устройство получит ключ вашей личности и список контактов. История переписки не переносится. Не вводите код, который прислал кто-то другой.</p>
       <div class="dialog-actions">
@@ -518,7 +518,7 @@
   <dialog id="scanner" class="scanner">
     <div class="scanner-bar">
       <b>Наведите камеру на QR-код</b>
-      <button type="button" id="scanner-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+      <button type="button" id="scanner-close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
     </div>
     <div class="scanner-view">
       <video id="scanner-video" playsinline muted></video>
@@ -526,20 +526,20 @@
       <p id="scanner-status" class="scanner-status"></p>
     </div>
     <div class="scanner-actions">
-      <button type="button" id="scanner-switch" class="ghost" hidden>🔄 Другая камера</button>
-      <button type="button" id="scanner-file" class="ghost">🖼 Из картинки</button>
+      <button type="button" id="scanner-switch" class="ghost" hidden><i class="ic" data-icon="switch-camera"></i>Другая камера</button>
+      <button type="button" id="scanner-file" class="ghost"><i class="ic" data-icon="image"></i>Из картинки</button>
       <input type="file" id="scanner-file-input" accept="image/*" hidden>
     </div>
   </dialog>
 
   <!-- Меню сообщения -->
   <div id="msg-menu" class="msg-menu" role="menu" hidden>
-    <button type="button" data-act="reply" role="menuitem">↩︎ Ответить</button>
-    <button type="button" data-act="forward" role="menuitem">↪ Переслать</button>
-    <button type="button" data-act="pin" role="menuitem">📌 Закрепить</button>
-    <button type="button" data-act="copy" role="menuitem">⧉ Копировать</button>
-    <button type="button" data-act="save" role="menuitem">⤓ Сохранить файл</button>
-    <button type="button" data-act="delete" role="menuitem" class="danger">🗑 Удалить</button>
+    <button type="button" data-act="reply" role="menuitem"><i class="ic" data-icon="reply"></i>Ответить</button>
+    <button type="button" data-act="forward" role="menuitem"><i class="ic" data-icon="forward"></i>Переслать</button>
+    <button type="button" data-act="pin" role="menuitem"><i class="ic" data-icon="pin"></i>Закрепить</button>
+    <button type="button" data-act="copy" role="menuitem"><i class="ic" data-icon="copy"></i>Копировать</button>
+    <button type="button" data-act="save" role="menuitem"><i class="ic" data-icon="download"></i>Сохранить файл</button>
+    <button type="button" data-act="delete" role="menuitem" class="danger"><i class="ic" data-icon="trash"></i>Удалить</button>
   </div>
 
   <!-- Переслать: выбор чата -->
@@ -547,7 +547,7 @@
     <div class="settings-form">
       <header class="set-head">
         <h2>Переслать</h2>
-        <button type="button" id="fw-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+        <button type="button" id="fw-close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
       </header>
       <div class="set-page">
         <input id="fw-search" placeholder="Поиск чата" aria-label="Поиск чата" autocomplete="off" spellcheck="false">
@@ -576,25 +576,25 @@
     <div class="viewer-bar">
       <span id="viewer-name" class="viewer-name"></span>
       <button type="button" id="viewer-save" class="icon-btn" aria-label="Сохранить" title="Сохранить">⤓</button>
-      <button type="button" id="viewer-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+      <button type="button" id="viewer-close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
     </div>
     <div id="viewer-body" class="viewer-body"></div>
   </dialog>
 
   <!-- Действия с чатом (шапка чата или правый клик по чату в списке) -->
   <div id="chat-menu" class="msg-menu" role="menu" hidden>
-    <button type="button" data-act="profile" role="menuitem">👤 Профиль</button>
-    <button type="button" data-act="group" role="menuitem">👥 О группе</button>
-    <button type="button" data-act="channel" role="menuitem">📢 О канале</button>
-    <button type="button" data-act="top" role="menuitem">📌 Закрепить</button>
-    <button type="button" data-act="untop" role="menuitem">📌 Открепить</button>
-    <button type="button" data-act="folders" role="menuitem">📁 Папки…</button>
-    <button type="button" data-act="archive" role="menuitem">📦 В архив</button>
-    <button type="button" data-act="unarchive" role="menuitem">📤 Из архива</button>
-    <button type="button" data-act="leave" role="menuitem" class="danger">🚪 Покинуть группу</button>
-    <button type="button" data-act="block" role="menuitem" class="danger">🚫 Заблокировать</button>
-    <button type="button" data-act="unblock" role="menuitem">✓ Разблокировать</button>
-    <button type="button" data-act="delete-chat" role="menuitem" class="danger">🗑 Удалить чат</button>
+    <button type="button" data-act="profile" role="menuitem"><i class="ic" data-icon="user"></i>Профиль</button>
+    <button type="button" data-act="group" role="menuitem"><i class="ic" data-icon="group"></i>О группе</button>
+    <button type="button" data-act="channel" role="menuitem"><i class="ic" data-icon="channel"></i>О канале</button>
+    <button type="button" data-act="top" role="menuitem"><i class="ic" data-icon="pin"></i>Закрепить</button>
+    <button type="button" data-act="untop" role="menuitem"><i class="ic" data-icon="pin"></i>Открепить</button>
+    <button type="button" data-act="folders" role="menuitem"><i class="ic" data-icon="folder"></i>Папки…</button>
+    <button type="button" data-act="archive" role="menuitem"><i class="ic" data-icon="archive"></i>В архив</button>
+    <button type="button" data-act="unarchive" role="menuitem"><i class="ic" data-icon="unarchive"></i>Из архива</button>
+    <button type="button" data-act="leave" role="menuitem" class="danger"><i class="ic" data-icon="logout"></i>Покинуть группу</button>
+    <button type="button" data-act="block" role="menuitem" class="danger"><i class="ic" data-icon="block"></i>Заблокировать</button>
+    <button type="button" data-act="unblock" role="menuitem"><i class="ic" data-icon="check"></i>Разблокировать</button>
+    <button type="button" data-act="delete-chat" role="menuitem" class="danger"><i class="ic" data-icon="trash"></i>Удалить чат</button>
   </div>
 
   <!-- Профиль собеседника, как в Telegram -->
@@ -602,7 +602,7 @@
     <div class="settings-form">
       <header class="set-head">
         <h2>Профиль</h2>
-        <button type="button" id="pf-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+        <button type="button" id="pf-close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
       </header>
       <div class="set-page">
         <div class="pf-top">
@@ -611,16 +611,16 @@
           <div id="pf-status" class="pf-status"></div>
         </div>
         <div class="pf-actions">
-          <button type="button" id="pf-chat"><span aria-hidden="true">💬</span>Написать</button>
-          <button type="button" id="pf-call"><span aria-hidden="true">📞</span>Звонок</button>
-          <button type="button" id="pf-video"><span aria-hidden="true">🎥</span>Видео</button>
+          <button type="button" id="pf-chat"><span aria-hidden="true"><i class="ic" data-icon="chat"></i></span>Написать</button>
+          <button type="button" id="pf-call"><span aria-hidden="true"><i class="ic" data-icon="phone"></i></span>Звонок</button>
+          <button type="button" id="pf-video"><span aria-hidden="true"><i class="ic" data-icon="video"></i></span>Видео</button>
         </div>
         <div class="set-group">
           <button type="button" class="set-row pf-info" id="pf-username-row" title="Скопировать"><span class="set-ico" aria-hidden="true">@</span><span class="pf-info-text"><b id="pf-username"></b><span class="small muted">Юзернейм</span></span></button>
           <div class="set-row set-static pf-info" id="pf-bio-row" hidden><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="pf-bio" class="pf-bio"></span><span class="small muted">О себе</span></span></div>
           <div id="pf-channels"></div>
-          <button type="button" class="set-row" id="pf-gift" hidden><span class="set-ico" aria-hidden="true">🎁</span><span class="set-label">Подарить Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
-          <button type="button" class="set-row pf-info" id="pf-key-row"><span class="set-ico" aria-hidden="true">🔑</span><span class="pf-info-text"><span id="pf-key"></span><span class="small muted">Код безопасности</span></span><span class="set-chev" aria-hidden="true">›</span></button>
+          <button type="button" class="set-row" id="pf-gift" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="gift"></i></span><span class="set-label">Подарить Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
+          <button type="button" class="set-row pf-info" id="pf-key-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="key"></i></span><span class="pf-info-text"><span id="pf-key"></span><span class="small muted">Код безопасности</span></span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="pf-tabs" role="tablist">
           <button type="button" class="pf-tab active" data-tab="media" role="tab">Медиа</button>
@@ -631,7 +631,7 @@
         <p id="pf-empty" class="set-note" hidden></p>
         <div class="set-group">
           <button type="button" class="set-row" id="pf-block"></button>
-          <button type="button" class="set-row danger" id="pf-delete"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить чат</span></button>
+          <button type="button" class="set-row danger" id="pf-delete"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Удалить чат</span></button>
         </div>
       </div>
     </div>
@@ -665,16 +665,16 @@
       <div id="as-gallery" class="as-page">
         <div id="as-grid" class="as-grid" hidden></div>
         <div id="as-gallery-empty" class="as-empty" hidden>
-          <span class="as-empty-ico" aria-hidden="true">🖼</span>
+          <span class="as-empty-ico" aria-hidden="true"><i class="ic" data-icon="image"></i></span>
           <p id="as-gallery-text" class="small muted"></p>
           <button type="button" id="as-gallery-allow" class="primary" hidden>Разрешить доступ к галерее</button>
           <button type="button" id="as-gallery-pick" class="primary">Выбрать фото или видео</button>
-          <button type="button" id="as-camera" class="ghost">📷 Снять на камеру</button>
+          <button type="button" id="as-camera" class="ghost"><i class="ic" data-icon="camera"></i>Снять на камеру</button>
         </div>
       </div>
       <div id="as-files" class="as-page" hidden>
         <div class="as-empty">
-          <span class="as-empty-ico" aria-hidden="true">📄</span>
+          <span class="as-empty-ico" aria-hidden="true"><i class="ic" data-icon="file"></i></span>
           <p class="small muted">Документы, архивы, музыка — любой файл. Он отправляется как есть, без сжатия.</p>
           <button type="button" id="as-files-pick" class="primary">Выбрать файл</button>
         </div>
@@ -683,8 +683,8 @@
         <button type="button" id="as-send" class="primary"></button>
       </div>
       <nav class="as-tabs" role="tablist">
-        <button type="button" class="as-tab active" data-as-tab="gallery" role="tab"><span aria-hidden="true">🖼</span>Галерея</button>
-        <button type="button" class="as-tab" data-as-tab="files" role="tab"><span aria-hidden="true">📄</span>Файлы</button>
+        <button type="button" class="as-tab active" data-as-tab="gallery" role="tab"><span aria-hidden="true"><i class="ic" data-icon="image"></i></span>Галерея</button>
+        <button type="button" class="as-tab" data-as-tab="files" role="tab"><span aria-hidden="true"><i class="ic" data-icon="file"></i></span>Файлы</button>
       </nav>
     </div>
   </dialog>
@@ -736,7 +736,7 @@
     <div class="settings-form">
       <header class="set-head">
         <h2>Канал</h2>
-        <button type="button" id="ci-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+        <button type="button" id="ci-close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
       </header>
       <div class="set-page">
         <div class="pf-top">
@@ -746,7 +746,7 @@
         </div>
         <div class="set-group">
           <div class="set-row set-static pf-info" id="ci-about-row"><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="ci-about" class="pf-bio"></span><span class="small muted">Описание</span></span></div>
-          <button type="button" class="set-row pf-info" id="ci-link-row" title="Скопировать"><span class="set-ico" aria-hidden="true">🔗</span><span class="pf-info-text"><span id="ci-link" class="ci-link"></span><span class="small muted" id="ci-link-label"></span></span></button>
+          <button type="button" class="set-row pf-info" id="ci-link-row" title="Скопировать"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="link"></i></span><span class="pf-info-text"><span id="ci-link" class="ci-link"></span><span class="small muted" id="ci-link-label"></span></span></button>
         </div>
         <div class="set-group set-pad ci-edit" id="ci-edit" hidden>
           <label class="set-field"><span>Название</span><input id="ci-title-input" maxlength="64" autocomplete="off"></label>
@@ -765,8 +765,8 @@
         </div>
         <p class="set-note" id="ci-note"></p>
         <div class="set-group">
-          <button type="button" class="set-row danger" id="ci-leave"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Отписаться</span></button>
-          <button type="button" class="set-row danger" id="ci-delete"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить канал</span></button>
+          <button type="button" class="set-row danger" id="ci-leave"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="logout"></i></span><span class="set-label">Отписаться</span></button>
+          <button type="button" class="set-row danger" id="ci-delete"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Удалить канал</span></button>
         </div>
       </div>
     </div>
@@ -777,7 +777,7 @@
     <div class="settings-form">
       <header class="set-head">
         <h2>О группе</h2>
-        <button type="button" id="gd-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+        <button type="button" id="gd-close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
       </header>
       <div class="set-page">
         <div class="pf-top">
@@ -799,8 +799,8 @@
         </div>
         <p class="set-note" id="gd-note"></p>
         <div class="set-group">
-          <button type="button" class="set-row danger" id="gd-leave"><span class="set-ico" aria-hidden="true">🚪</span><span class="set-label">Покинуть группу</span></button>
-          <button type="button" class="set-row danger" id="gd-delete"><span class="set-ico" aria-hidden="true">🗑</span><span class="set-label">Удалить чат</span></button>
+          <button type="button" class="set-row danger" id="gd-leave"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="logout"></i></span><span class="set-label">Покинуть группу</span></button>
+          <button type="button" class="set-row danger" id="gd-delete"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Удалить чат</span></button>
         </div>
       </div>
     </div>
@@ -915,11 +915,11 @@
         <span class="avatar call-avatar" id="call-avatar"></span>
         <div id="call-name" class="call-name"></div>
         <div id="call-status" class="call-status"></div>
-        <div class="call-e2e">🔒 Сквозное шифрование</div>
+        <div class="call-e2e"><i class="ic" data-icon="lock"></i>Сквозное шифрование</div>
       </div>
       <div id="call-topbar" class="call-topbar" hidden>
         <span id="call-top-name"></span> · <span id="call-top-status"></span>
-        <span class="call-e2e-mini" title="Сквозное шифрование">🔒</span>
+        <span class="call-e2e-mini" title="Сквозное шифрование"><i class="ic" data-icon="lock"></i></span>
       </div>
       <div class="local-previews">
         <div id="sharing-badge" class="sharing-badge" hidden>Вы показываете экран</div>
