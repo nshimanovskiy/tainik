@@ -203,6 +203,16 @@ export class Store {
       const mark = this.db.prepare('UPDATE users SET verified = 1 WHERE name = ?');
       for (const n of DEFAULT_VERIFIED) mark.run(n);
     }
+    // Номер пользователя (виден только в панели администратора): по порядку регистрации, не переиспользуется
+    if (!cols.includes('uid')) {
+      this.db.exec('ALTER TABLE users ADD COLUMN uid INTEGER');
+      this.db.exec('UPDATE users SET uid = rowid');
+    }
+    this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_uid ON users(uid)');
+    if (this.db.prepare("SELECT value FROM meta WHERE key = 'next_uid'").get() == null) {
+      const max = this.db.prepare('SELECT COALESCE(MAX(uid), 0) AS m FROM users').get().m;
+      this.db.prepare("INSERT INTO meta(key, value) VALUES ('next_uid', ?)").run(String(max + 1));
+    }
     const dcols = this.db.prepare("SELECT name FROM pragma_table_info('devices')").all().map((r) => r.name);
     if (!dcols.includes('last_ip')) this.db.exec('ALTER TABLE devices ADD COLUMN last_ip TEXT'); // последний IP устройства
     if (!dcols.includes('app_version')) this.db.exec('ALTER TABLE devices ADD COLUMN app_version TEXT'); // версия приложения при последнем входе
@@ -219,7 +229,7 @@ export class Store {
     const q = (sql) => this.db.prepare(sql);
     this.s = {
       user: q('SELECT name, identity_dh, identity_sign, next_device_id FROM users WHERE name = ?'),
-      insUser: q('INSERT INTO users(name, identity_dh, identity_sign, next_device_id, created_at) VALUES (?, ?, ?, 2, ?)'),
+      insUser: q('INSERT INTO users(name, identity_dh, identity_sign, next_device_id, created_at, uid) VALUES (?, ?, ?, 2, ?, ?)'),
       bumpDevice: q('UPDATE users SET next_device_id = next_device_id + 1 WHERE name = ?'),
       deviceIds: q('SELECT id FROM devices WHERE user = ? ORDER BY id'),
       device: q('SELECT id, name, spk, created_at, last_seen FROM devices WHERE user = ? AND id = ?'),
@@ -294,7 +304,7 @@ export class Store {
       delPushOthers: q('DELETE FROM push_subs WHERE endpoint = ? AND NOT (user = ? AND device = ?)'),
       delPushIf: q('DELETE FROM push_subs WHERE user = ? AND device = ? AND endpoint = ?'),
       adminUsers: q(
-        `SELECT u.name, u.created_at, u.presence_hidden AS hidden, u.verified AS verified,
+        `SELECT u.name, u.uid, u.created_at, u.presence_hidden AS hidden, u.verified AS verified,
            (SELECT until FROM premium p WHERE p.user = u.name) AS premium_until,
            (SELECT balance FROM coins c WHERE c.user = u.name) AS coins,
            (SELECT COUNT(*) FROM queue q WHERE q.user = u.name) AS queued,
@@ -342,7 +352,9 @@ export class Store {
     return this.tx(() => {
       if (this.s.user.get(name)) return null;
       const now = Date.now();
-      this.s.insUser.run(name, identity.dh, identity.sign, now);
+      const uid = Number(this.db.prepare("SELECT value FROM meta WHERE key = 'next_uid'").get()?.value || 1);
+      this.db.prepare("INSERT INTO meta(key, value) VALUES ('next_uid', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(uid + 1));
+      this.s.insUser.run(name, identity.dh, identity.sign, now, uid);
       if (DEFAULT_VERIFIED.includes(name)) this.s.setVerified.run(1, name);
       this._insertDevice(name, 1, keys, now);
       return 1;
@@ -757,6 +769,7 @@ export class Store {
     }
     return this.s.adminUsers.all().map((u) => ({
       name: u.name,
+      uid: u.uid,
       createdAt: u.created_at,
       presenceHidden: !!u.hidden,
       verified: !!u.verified,

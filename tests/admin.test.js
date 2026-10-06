@@ -256,3 +256,21 @@ test('официальная галочка: старая база получа�
   assert.equal(store.getPresence('admin').verified, true);
   assert.equal(store.getPresence('alice').verified, false);
 });
+
+test('панель: у каждого пользователя свой номер, по порядку и без повторов', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { Store } = await import('../server/store.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tainik-uid-'));
+  const store = new Store(dir);
+  const id = { dh: 'a'.repeat(44), sign: 'b'.repeat(44) };
+  const keys = { name: 'x', spk: { id: 1, pub: 'k', sig: 's' }, opks: [] };
+  store.createAccount('first', id, keys);
+  store.createAccount('second', id, keys);
+  store.deleteUser('second');
+  store.createAccount('third', id, keys);
+  const uids = Object.fromEntries(store.adminOverview().map((u) => [u.name, u.uid]));
+  assert.deepEqual(uids, { first: 1, third: 3 }, 'номер удалённого не достаётся новому');
+  fs.rmSync(dir, { recursive: true, force: true });
+});

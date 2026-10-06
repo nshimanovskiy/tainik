@@ -112,6 +112,7 @@ function render() {
       (u) =>
         !q ||
         u.name.includes(q) ||
+        String(u.uid) === q.replace(/^#/, '') ||
         (q === 'галочка' && u.verified) ||
         (q === 'премиум' && u.premiumUntil > now) ||
         u.devices.some((d) => d.name.toLowerCase().includes(q) || (d.ip || '').includes(q) || (d.lastIp || '').includes(q))
@@ -123,7 +124,7 @@ function render() {
     const name = el('td', 'name');
     const b = el('b', '', u.name);
     if (u.verified) b.append(verifiedBadge());
-    name.append(b);
+    name.append(el('span', 'tag uid', `ID ${u.uid ?? '—'}`), b);
     if (u.push) name.append(el('span', 'tag', 'push'));
     if (u.presenceHidden) name.append(el('span', 'tag', 'статус скрыт'));
     const prem = u.premiumUntil && u.premiumUntil > now;

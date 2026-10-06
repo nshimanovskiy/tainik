@@ -832,4 +832,6 @@ export default {
   'Выбрать файл': 'Choose file',
   'Галерея': 'Gallery',
   'Прикрепить': 'Attach',
+  'VPN — бот @tainavpn_bot': 'VPN — @tainavpn_bot',
+  'Купить прокси — @SteelProxyBot': 'Buy a proxy — @SteelProxyBot',
 };
