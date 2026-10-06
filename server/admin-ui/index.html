@@ -34,6 +34,15 @@
     </nav>
 
     <div id="tab-chats" hidden>
+      <section class="bans" id="news-box" hidden>
+        <h2>Канал «Обновления Тайника» <span id="news-handle" class="muted small"></span></h2>
+        <p class="muted small">Патчноут каждой новой версии сервер публикует сюда сам (раздел из CHANGELOG.md) — после обновления сервера. На канал подписаны все пользователи. Здесь можно опубликовать свой пост.</p>
+        <form id="news-form" class="ban-form" autocomplete="off">
+          <textarea id="news-text" rows="3" maxlength="3800" placeholder="Текст поста"></textarea>
+          <button type="submit">Опубликовать</button>
+        </form>
+        <p id="news-status" class="error small" role="alert"></p>
+      </section>
       <section class="toolbar">
         <input id="chat-search" type="search" placeholder="Поиск по ID, @имени, названию или владельцу" spellcheck="false" autocomplete="off">
         <label class="check"><input id="only-verified" type="checkbox"> только с галочкой</label>

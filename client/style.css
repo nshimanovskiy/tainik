@@ -972,3 +972,9 @@ dialog.sheet[open] { animation: sheet-up .18s ease-out; }
 a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; word-break: break-word; }
 .msg.out .bubble a.lnk { color: inherit; }
 .set-note.error { color: var(--danger); }
+/* Архив чатов */
+.contacts .archive-row .archive-av { background: var(--line); color: var(--muted); font-size: 20px; }
+.contacts .archive-row .c-top { font-weight: 600; }
+.badge.muted-badge { background: var(--muted); }
+.contacts .archive-head .archive-row { padding: 8px 12px; gap: 10px; font-weight: 600; }
+.archive-ico { font-size: 18px; color: var(--muted); }

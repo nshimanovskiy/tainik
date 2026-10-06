@@ -137,7 +137,7 @@ function paintAvatar(node, username, photo = username && client.account ? client
     node.style.backgroundImage = `url("${photo}")`; // только проверенный data:-URL (validAvatar)
     return;
   }
-  if (isSystemChat(username)) {
+  if (isSystemChat(username) || (client.account && client.isOfficial(username))) {
     node.classList.add('photo');
     node.textContent = '';
     node.style.background = '';
@@ -564,12 +564,17 @@ $('link-copy').addEventListener('click', async () => {
 // внутри ждут хранилище. Строим список целиком и применяем только последнюю
 // перерисовку — иначе вызовы перемешиваются и в списке появляются дубли.
 let contactsGen = 0;
+let showArchive = false; // в списке — архив, а не обычные чаты
 async function renderContacts() {
   const gen = ++contactsGen;
   // Удалённые чаты не показываем (ключ собеседника хранится — чат вернётся с новым сообщением)
-  const all = Object.values(await client.contacts())
+  const visible = Object.values(await client.contacts())
     .filter((c) => !c.hidden || c.username === current)
     .sort((a, b) => b.lastTs - a.lastTs);
+  // Архив: отдельный список; в обычном — строка «Архив» сверху
+  const archived = visible.filter((c) => c.archived);
+  if (showArchive && !archived.length) showArchive = false;
+  const all = visible.filter((c) => !!c.archived === showArchive);
   const lasts = [];
   for (const c of all) {
     const msgs = await client.messages(c.username);
@@ -578,6 +583,33 @@ async function renderContacts() {
   }
   if (gen !== contactsGen) return;
   const frag = document.createDocumentFragment();
+  if (showArchive) {
+    const li = el('li', 'archive-head');
+    const b = el('button', 'archive-row');
+    b.type = 'button';
+    b.append(el('span', 'archive-ico', '←'), el('span', 'archive-title', t('Архив')));
+    b.addEventListener('click', () => {
+      showArchive = false;
+      renderContacts();
+    });
+    li.append(b);
+    frag.append(li);
+  } else if (archived.length) {
+    const li = el('li');
+    const b = el('button', 'archive-row');
+    b.type = 'button';
+    const unread = archived.reduce((n, c) => n + (c.username !== current ? c.unread || 0 : 0), 0);
+    const body = el('div', 'c-body');
+    body.append(el('div', 'c-top', t('Архив')), el('div', 'c-preview', archived.map((c) => nameOf(c.username)).join(', ')));
+    b.append(el('span', 'avatar archive-av', '📦'), body);
+    if (unread) b.append(el('span', 'badge muted-badge', String(unread)));
+    b.addEventListener('click', () => {
+      showArchive = true;
+      renderContacts();
+    });
+    li.append(b);
+    frag.append(li);
+  }
   all.forEach((c, i) => {
     const li = el('li');
     const btn = el('button', c.username === current ? 'active' : '');
@@ -605,8 +637,8 @@ async function renderContacts() {
     frag.append(li);
   });
   $('contacts').replaceChildren(frag);
-  $('no-contacts').hidden = all.length > 0;
-  ownUnread = all.reduce((n, c) => n + (c.unread || 0), 0);
+  $('no-contacts').hidden = visible.length > 0;
+  ownUnread = visible.reduce((n, c) => n + (c.unread || 0), 0);
   setUnread(ownUnread + othersUnread());
 }
 
@@ -4918,6 +4950,9 @@ function openChatMenu(name, x, y) {
   menu.querySelector('[data-act="group"]').hidden = !group;
   menu.querySelector('[data-act="channel"]').hidden = !chan;
   menu.querySelector('[data-act="leave"]').hidden = !group;
+  const arch = client.isArchived(name);
+  menu.querySelector('[data-act="archive"]').hidden = arch;
+  menu.querySelector('[data-act="unarchive"]').hidden = !arch;
   menu.hidden = false;
   menu.style.left = Math.max(8, Math.min(x, innerWidth - menu.offsetWidth - 8)) + 'px';
   menu.style.top = Math.max(8, Math.min(y, innerHeight - menu.offsetHeight - 8)) + 'px';
@@ -4969,6 +5004,15 @@ $('chat-menu').addEventListener('click', (e) => {
   const name = chatMenuFor;
   closeChatMenu();
   if (b.dataset.act === 'unblock') return setBlocked(name, false);
+  if (b.dataset.act === 'archive' || b.dataset.act === 'unarchive') {
+    const on = b.dataset.act === 'archive';
+    client.setArchived(name, on).then(() => {
+      toast(on ? t('Чат в архиве') : t('Чат возвращён из архива'));
+      // Убрали открытый чат в архив на телефоне — назад к списку
+      if (on && name === current && $('app').classList.contains('in-chat') && matchMedia('(max-width: 720px)').matches) $('back-btn').click();
+    });
+    return;
+  }
   if (b.dataset.act === 'profile') return openProfile(name);
   if (b.dataset.act === 'group') return openGroup(name);
   if (b.dataset.act === 'channel') return openChannelInfo(name);

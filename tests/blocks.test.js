@@ -148,3 +148,45 @@ test('удаление чата: у себя на всех устройства�
   assert.ok((await bob.contacts()).alice);
   assert.ok(!(await bob.contacts()).alice.hidden);
 });
+
+test('архив: только у себя, синхронизируется между устройствами и переносится на новое', async (t) => {
+  const { mk } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  const alice2 = mk();
+  await link(alice2, alice);
+  await alice.addContact('bob');
+  await bob.addContact('alice');
+  const hi = incoming(alice2, 'привет');
+  await bob.sendText('alice', 'привет');
+  await hi;
+
+  const synced = waitFor(alice2, 'archived', (d) => d.chat === 'bob' && d.on);
+  await alice.setArchived('bob', true);
+  assert.equal(alice.isArchived('bob'), true);
+  await synced;
+  assert.equal(alice2.isArchived('bob'), true);
+  assert.equal(bob.isArchived('alice'), false, 'собеседник об архиве не знает');
+
+  // Новое сообщение в архивный чат: чат остаётся в архиве, счётчик растёт
+  const more = incoming(alice, 'ещё');
+  await bob.sendText('alice', 'ещё');
+  await more;
+  assert.equal(alice.isArchived('bob'), true);
+  assert.ok((await alice.contacts()).bob.unread >= 1);
+
+  // Третье устройство получает архив при привязке
+  const alice3 = mk();
+  await link(alice3, alice);
+  assert.equal(alice3.isArchived('bob'), true);
+
+  // Вернули из архива на втором — на первом тоже
+  const back = waitFor(alice, 'archived', (d) => d.chat === 'bob' && !d.on);
+  await alice2.setArchived('bob', false);
+  await back;
+  assert.equal(alice.isArchived('bob'), false);
+  // Старая отметка не перебивает новую
+  assert.equal(await alice._applyArchive(await alice.contacts(), 'bob', true, 1), false);
+  assert.equal(alice.isArchived('bob'), false);
+});

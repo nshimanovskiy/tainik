@@ -107,6 +107,7 @@ export const isGroupChat = (chat) => typeof chat === 'string' && chat.startsWith
 // администратора. Писать в этот чат нельзя. Ключ '~tainik' не пересекается с юзернеймами.
 export const SYSTEM_CHAT = '~tainik';
 export const isSystemChat = (chat) => chat === SYSTEM_CHAT;
+const NEWS_OWNER = '~tainik'; // владелец официального канала обновлений (см. server/news.js)
 export const NOTICE_TEXT_MAX = 2000;
 const NOTICE_KINDS = new Set(['welcome', 'device', 'verified', 'coins-buy', 'coins-admin', 'premium', 'premium-gift', 'gift-sent', 'premium-admin', 'premium-off', 'premium-ended', 'premium-soon', 'admin']);
 const int = (n) => (Number.isSafeInteger(n) ? n : 0);
@@ -625,6 +626,9 @@ export class MessengerClient extends Emitter {
       if (!CHANNEL_ID_RE.test(String(ch?.id)) || !isKey32(ch.key)) continue;
       contacts[channelKey(ch.id)] = { username: channelKey(ch.id), unread: 0, lastTs: Date.now(), pending: [], hidden: true, channel: { id: ch.id, key: ch.key, lastSeq: 0 } };
     }
+    for (const chat of Array.isArray(p.archived) ? p.archived.slice(0, 5000) : []) {
+      if (typeof chat === 'string' && contacts[chat]) Object.assign(contacts[chat], { archived: true, archivedTs: 1 });
+    }
     await this.storage.set('contacts', contacts);
     this._indexNames(contacts);
     this.profile = cleanProfile(p.profile) || { name: '', bio: '', v: 0 };
@@ -661,7 +665,11 @@ export class MessengerClient extends Emitter {
     const channels = Object.values(await this.contacts())
       .filter((c) => c.channel?.key && !c.channel.gone)
       .map((c) => ({ id: c.channel.id, key: c.channel.key }));
-    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, groups, channels, profile: this.profile };
+    // Архив: какие чаты убраны в архив — и на новом устройстве они будут там же
+    const archived = Object.values(await this.contacts())
+      .filter((c) => c.archived)
+      .map((c) => c.username);
+    const payload = { v: 1, username: this.account.username, identity: this.account.identity, contacts, groups, channels, archived, profile: this.profile };
     let sealed;
     try {
       sealed = await sealProvision(link, payload);
@@ -1383,8 +1391,12 @@ export class MessengerClient extends Emitter {
     this._names.clear();
     this._avatars.clear();
     (this._verifiedChats ||= new Set()).clear();
+    (this._archived ||= new Set()).clear();
+    (this._official ||= new Set()).clear();
     for (const c of Object.values(all || {})) {
       if ((c.group && c.verifiedMark) || c.channel?.verified) this._verifiedChats.add(c.username);
+      if (c.archived) this._archived.add(c.username);
+      if (c.channel?.owner === NEWS_OWNER) this._official.add(c.username);
       if (c.group) this._names.set(c.username, c.group.name);
       if (c.system) this._names.set(c.username, t('Тайник'));
       if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
@@ -1628,6 +1640,40 @@ export class MessengerClient extends Emitter {
       await this.storage.set('outbox', outbox);
     });
     this._pumpOutbox();
+  }
+
+  // ---------- Архив ----------
+  // Чат, группа или канал в архиве не показываются в общем списке (только в «Архиве»). Это
+  // отметка только для вас: собеседники о ней не знают. Синхронизируется между вашими устройствами.
+
+  /** Убрать чат в архив (on) или вернуть из архива. */
+  async setArchived(chat, on) {
+    const ts = Date.now();
+    await this._serial(async () => {
+      if (!(await this._applyArchive(await this.contacts(), chat, !!on, ts))) return;
+      await this._queueToSelf({ t: 'sync-archive', chat, on: !!on, ts });
+    });
+    this._pumpOutbox();
+  }
+
+  /** Официальный канал сервера («Обновления Тайника»): его ведёт сам сервер. */
+  isOfficial(chat) {
+    return isSystemChat(chat) || this._official?.has(chat) || false;
+  }
+
+  isArchived(chat) {
+    return this._archived?.has(chat) || false;
+  }
+
+  async _applyArchive(all, chat, on, ts) {
+    const c = all[chat];
+    if (!c || !Number.isFinite(ts) || (c.archivedTs && c.archivedTs >= ts)) return false;
+    c.archivedTs = ts; // последнее изменение побеждает (если на двух устройствах меняли почти одновременно)
+    if (on) c.archived = true;
+    else delete c.archived;
+    await this._saveContacts(all);
+    this.emit('archived', { chat, on });
+    return true;
   }
 
   async _applyPin(all, chat, id, ts) {
@@ -2796,6 +2842,10 @@ export class MessengerClient extends Emitter {
       }
       if (c?.t === 'sync-delete-chat' && typeof c.chat === 'string') {
         await this._clearChat(c.chat, true);
+        return ack(false);
+      }
+      if (c?.t === 'sync-archive' && typeof c.chat === 'string') {
+        await this._applyArchive(await this.contacts(), c.chat, c.on === true, c.ts);
         return ack(false);
       }
       if (c?.t === 'sync-pin' && typeof c.chat === 'string') {

@@ -14,6 +14,7 @@ import { createAdmin } from './admin.js';
 import { createWebclipHandler } from './webclip.js';
 import { createReleases } from './releases.js';
 import { createBlobs } from './blobs.js';
+import { createNews } from './news.js';
 import { createBilling, parsePlans, parseCurrencies, parsePacks } from './billing.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
@@ -162,6 +163,9 @@ export function startServer({
   // Подписка «Тайник Премиум» через xRocket Pay (см. server/billing.js). Без токена — выключена.
   // { token, webhookSecret, testnet, apiUrl, plans, publicUrl, fetch }
   billing: billingOpts = null,
+  // Официальный канал «Обновления Тайника» с патчноутами (см. server/news.js). В тестах выключен.
+  news: newsOn = false,
+  changelogPath = path.join(ROOT, 'CHANGELOG.md'),
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -437,6 +441,7 @@ export function startServer({
           if (!deviceId) return error(conn, 'username_taken');
           say('новый аккаунт');
           notice(p.username, 'welcome');
+          news?.subscribe(p.username); // канал обновлений — у всех
         } else {
           const u = store.getUser(p.username);
           if (!u || !sameIdentity(u.identity, p.identity)) return error(conn, 'username_taken');
@@ -963,6 +968,15 @@ export function startServer({
     }
   }
 
+  // Канал обновлений: создаётся при первом запуске, патчноут версии публикуется один раз
+  const news = newsOn
+    ? createNews({ store, version: VERSION, changelogPath, say, notify: (id, post) => toChannel(id, () => ({ type: 'channel-post', id, post })) })
+    : null;
+  news
+    ?.ensure()
+    .then(() => news.publishRelease())
+    .catch((e) => say('канал обновлений: ошибка', e?.message));
+
   const startedAt = Date.now();
   // Данные для панели администратора: IP — только у открытых сейчас соединений
   // Название публичного канала (его ключ у сервера) — для панели; приватные и группы зашифрованы
@@ -1015,6 +1029,7 @@ export function startServer({
     });
     return {
       chats: adminChats(), // промис — панель дожидается (названия публичных каналов расшифровываются)
+      news: news?.id ? { id: news.id, handle: store.getChannel({ id: news.id })?.handle || null } : null,
       version: VERSION,
       now,
       startedAt,
@@ -1085,6 +1100,14 @@ export function startServer({
       if (name && (!USERNAME_RE.test(name) || !store.getUser(name))) throw new Error('Нет такого пользователя');
       notice(name || null, 'admin', { text });
       say(name ? 'администратор отправил уведомление' : 'администратор отправил уведомление всем');
+    },
+    // Пост в канал «Обновления Тайника» от имени канала
+    async postNews(text) {
+      if (!news) throw new Error('Канал обновлений выключен');
+      text = String(text ?? '').trim();
+      if (!text) throw new Error('Пустой пост');
+      if (!(await news.post(text))) throw new Error('Канал обновлений не создан');
+      say('администратор опубликовал пост в канале обновлений');
     },
     // Галочка каналу или группе: id канала (32 hex) или группы (24 hex)
     setChatVerified(id, on) {
@@ -1366,6 +1389,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
               (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
           },
     domain: env.DOMAIN || null,
+    news: env.NEWS_CHANNEL !== '0', // канал «Обновления Тайника»; NEWS_CHANNEL=0 — выключить
     uploads: { maxMb: Number(env.MAX_UPLOAD_MB) || 100, maxTotalGb: Number(env.MAX_STORAGE_GB) || 20 },
     releases: env.RELEASES_REPO ? { repo: env.RELEASES_REPO.trim(), token: env.GITHUB_TOKEN || null } : null,
     admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,

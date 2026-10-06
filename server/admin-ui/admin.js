@@ -333,6 +333,8 @@ function verifyButton(kind, item, label) {
 function renderChats() {
   if (!data?.chats) return;
   const { channels = [], groups = [] } = data.chats;
+  $('news-box').hidden = !data.news;
+  $('news-handle').textContent = data.news?.handle ? '@' + data.news.handle : '';
   $('tab-users-n').textContent = data.totals ? String(data.totals.users) : '';
   $('tab-chats-n').textContent = String(channels.length + groups.length);
   const q = $('chat-search').value.trim().toLowerCase().replace(/^#/, '');
@@ -402,5 +404,22 @@ $('notice-form').addEventListener('submit', async (e) => {
   } catch (err) {
     $('notice-error').className = 'error small';
     $('notice-error').textContent = err.message;
+  }
+});
+
+// Канал обновлений: пост от имени канала
+$('news-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('news-text').value.trim();
+  if (!text) return;
+  if (!confirm('Опубликовать пост в канале обновлений? Его увидят все подписчики.')) return;
+  try {
+    await act('news', { text });
+    $('news-text').value = '';
+    $('news-status').className = 'muted small';
+    $('news-status').textContent = 'Опубликовано';
+  } catch (err) {
+    $('news-status').className = 'error small';
+    $('news-status').textContent = err.message;
   }
 });

@@ -353,10 +353,10 @@ export class Store {
            (SELECT balance FROM coins c WHERE c.user = u.name) AS coins,
            (SELECT COUNT(*) FROM queue q WHERE q.user = u.name) AS queued,
            (SELECT COUNT(*) FROM push_subs p WHERE p.user = u.name) AS push
-         FROM users u ORDER BY u.name`
+         FROM users u WHERE u.name NOT LIKE '~%' ORDER BY u.name`
       ),
       adminDevices: q('SELECT user, id, name, created_at, last_seen, last_ip, app_version FROM devices ORDER BY user, id'),
-      stats: q('SELECT (SELECT COUNT(*) FROM users) AS users, (SELECT COUNT(*) FROM devices) AS devices, (SELECT COUNT(*) FROM queue) AS queued'),
+      stats: q("SELECT (SELECT COUNT(*) FROM users WHERE name NOT LIKE '~%') AS users, (SELECT COUNT(*) FROM devices) AS devices, (SELECT COUNT(*) FROM queue) AS queued"),
     };
   }
 

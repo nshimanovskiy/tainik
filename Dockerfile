@@ -12,6 +12,7 @@ COPY package.json ./
 COPY server ./server
 COPY shared ./shared
 COPY client ./client
+COPY CHANGELOG.md ./
 
 RUN mkdir -p /data && chown node:node /data
 USER node

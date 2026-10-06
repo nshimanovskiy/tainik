@@ -880,4 +880,9 @@ export default {
   "Готово: новых чатов — {0}, сообщений — {1}": "Done: new chats — {0}, messages — {1}",
   "Всё из этого файла уже есть на устройстве": "Everything from this file is already on this device",
   "Это переписка аккаунта @{0}. Импортировать её можно только в него.": "These are the chats of @{0}. They can only be imported into that account.",
+  "Архив": "Archive",
+  "📦 В архив": "📦 Archive",
+  "📤 Из архива": "📤 Unarchive",
+  "Чат в архиве": "Chat archived",
+  "Чат возвращён из архива": "Chat unarchived",
 };
