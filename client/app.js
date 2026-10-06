@@ -1183,7 +1183,74 @@ function clearPicked() {
   $('attach-list').replaceChildren();
 }
 
-function pickFiles(list) {
+// Тип файла по первым байтам. На Android файл из галереи часто приходит без типа (и без
+// расширения в имени) — тогда фото и видео ушли бы обычными файлами.
+const EXT_OF = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/avif': 'avif', 'image/heic': 'heic', 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/3gpp': '3gp', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg' };
+const TYPE_OF_EXT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', heic: 'image/heic', heif: 'image/heic', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', '3gp': 'video/3gpp', m4a: 'audio/mp4', mp3: 'audio/mpeg', ogg: 'audio/ogg', opus: 'audio/ogg' };
+async function sniffType(file) {
+  let b;
+  try {
+    b = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+  } catch {
+    return null;
+  }
+  const str = (from, to) => String.fromCharCode(...b.subarray(from, to));
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (str(0, 8) === '\x89PNG\r\n\x1a\n') return 'image/png';
+  if (str(0, 4) === 'GIF8') return 'image/gif';
+  if (str(0, 4) === 'RIFF' && str(8, 12) === 'WEBP') return 'image/webp';
+  if (b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3) return 'video/webm';
+  if (str(0, 4) === 'OggS') return 'audio/ogg';
+  if (str(0, 3) === 'ID3') return 'audio/mpeg';
+  if (str(4, 8) === 'ftyp') {
+    const brand = str(8, 12);
+    if (brand === 'avif' || brand === 'avis') return 'image/avif';
+    if (['heic', 'heix', 'hevc', 'heim', 'heis', 'mif1', 'msf1'].includes(brand)) return 'image/heic';
+    if (brand === 'qt  ') return 'video/quicktime';
+    if (brand === 'M4A ') return 'audio/mp4';
+    if (brand.startsWith('3g')) return 'video/3gpp';
+    return 'video/mp4';
+  }
+  return null;
+}
+/** HEIC (фото многих телефонов) браузеры показать не умеют — пробуем перевести в JPEG. */
+async function heicToJpeg(file) {
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+    const c = document.createElement('canvas');
+    c.width = bmp.width;
+    c.height = bmp.height;
+    c.getContext('2d').drawImage(bmp, 0, 0);
+    const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.9));
+    if (!blob) return null;
+    return new File([blob], file.name.replace(/\.(heic|heif)$/i, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified });
+  } catch {
+    return null;
+  } finally {
+    bmp?.close?.();
+  }
+}
+/** Файл с правильным типом (и расширением в имени): фото и видео — медиа, а не «файл». */
+async function withRealType(file) {
+  let type = String(file.type || '').toLowerCase();
+  // Нет типа, общий тип или нестандартный («image/jpg» у некоторых галерей) — смотрим в сам файл
+  if (kindOf(type) === 'file') {
+    const ext = /\.([a-z0-9]{2,5})$/i.exec(file.name || '')?.[1]?.toLowerCase();
+    const sniffed = await sniffType(file);
+    if (sniffed) type = sniffed;
+    else if (!type || type === 'application/octet-stream') type = TYPE_OF_EXT[ext] || type;
+  }
+  if (type === 'image/heif') type = 'image/heic';
+  if (type !== 'image/heic' && type === file.type && /\.[a-z0-9]{2,5}$/i.test(file.name || '')) return file;
+  let name = file.name || 'file';
+  if (EXT_OF[type] && !/\.[a-z0-9]{2,5}$/i.test(name)) name += '.' + EXT_OF[type];
+  const fixed = new File([file], name, { type, lastModified: file.lastModified });
+  if (type === 'image/heic') return (await heicToJpeg(fixed)) || fixed;
+  return fixed;
+}
+
+async function pickFiles(list) {
   if (!current || !client.account) return;
   let files = [...list].filter((f) => f.size > 0);
   if (files.length < list.length) toast(ERROR_TEXT.bad_size);
@@ -1192,6 +1259,7 @@ function pickFiles(list) {
     toast(t('За один раз — не больше {0} файлов', MAX_PICK));
     files = files.slice(0, MAX_PICK);
   }
+  files = await Promise.all(files.map(withRealType));
   clearPicked();
   picked = files.map((file) => ({ file, url: kindOf(String(file.type).toLowerCase()) === 'image' ? URL.createObjectURL(file) : null }));
   for (const p of picked) {
