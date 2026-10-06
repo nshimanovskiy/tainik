@@ -216,6 +216,11 @@ function cleanText(c, tsFallback = Date.now()) {
     if (KINDS.includes(r.kind)) out.reply.kind = r.kind;
     if ((r.as === 'voice' && r.kind === 'audio') || (r.as === 'note' && r.kind === 'video')) out.reply.as = r.as;
   }
+  // Пересланное: от кого (имя для показа)
+  if (typeof c?.fwd === 'string') {
+    const fwd = cleanProfileText(c.fwd, NAME_MAX).replace(/\n/g, ' ');
+    if (fwd) out.fwd = fwd;
+  }
   return out;
 }
 
@@ -1417,6 +1422,55 @@ export class MessengerClient extends Emitter {
    * Отправить текст. replyTo — id сообщения, на которое отвечаем (цитата
    * шифруется вместе с текстом, чтобы её видели и устройства без оригинала).
    */
+  /**
+   * Переслать сообщения (из любого чата) в chat. Текст и вложения уходят как новые сообщения
+   * с пометкой «Переслано от …»; файлы заново не загружаются — пересылается ключ к тому же вложению.
+   */
+  async forwardMessages(chat, msgs, source = '') {
+    for (const m of msgs) {
+      const c = m?.content;
+      if (!c || m.dir === 'sys' || (c.t !== 'text' && c.t !== 'file')) continue;
+      const fwd = c.fwd || (m.dir === 'out' ? this.nameOf(this.account.username) : m.from ? this.nameOf(m.from) : this.nameOf(source));
+      const base = c.t === 'file' ? { t: 'file', body: c.body || '', file: c.file, fwd } : { t: 'text', body: c.body, fwd };
+      await this._sendContent(chat, base, null);
+    }
+  }
+
+  // ---------- Закреплённое сообщение ----------
+  // Одно на чат. В личном чате и в группе закрепление видят все (уходит E2E-сообщением),
+  // в канале — только вы. Свои устройства получают sync-pin.
+
+  /** Закрепить (id) или открепить (null) сообщение в чате. */
+  async pinMessage(chat, id) {
+    id = id == null ? null : String(id).slice(0, 64);
+    const ts = Date.now();
+    await this._serial(async () => {
+      const all = await this.contacts();
+      const c = all[chat];
+      if (!c) return;
+      await this._applyPin(all, chat, id, ts);
+      const me = this.account.username;
+      const outbox = (await this.storage.get('outbox')) || [];
+      if (c.group && !c.group.left) {
+        for (const m of c.group.members) if (m !== me) outbox.push({ id: randomId(), to: m, kind: 'ctl', content: { t: 'gpin', g: c.group.id, pin: id, ts }, attempts: 0 });
+      } else if (!c.group && !c.channel && !c.keyChanged && !this.isBlocked(chat)) {
+        outbox.push({ id: randomId(), to: chat, kind: 'ctl', content: { t: 'pin', pin: id, ts }, attempts: 0 });
+      }
+      outbox.push({ id: randomId(), to: me, kind: 'ctl', content: { t: 'sync-pin', chat, pin: id, ts }, attempts: 0 });
+      await this.storage.set('outbox', outbox);
+    });
+    this._pumpOutbox();
+  }
+
+  async _applyPin(all, chat, id, ts) {
+    const c = all[chat];
+    if (!c || !Number.isFinite(ts) || (c.pinned && c.pinned.ts >= ts)) return false;
+    c.pinned = { id: typeof id === 'string' && id ? id.slice(0, 64) : null, ts };
+    await this._saveContacts(all);
+    this.emit('pinned', { chat, id: c.pinned.id });
+    return true;
+  }
+
   async sendText(username, text, { replyTo = null } = {}) {
     text = String(text);
     if (!text.trim()) return;
@@ -1444,7 +1498,7 @@ export class MessengerClient extends Emitter {
       const outbox = (await this.storage.get('outbox')) || [];
       this._shareProfileTo(c, outbox); // профиль — перед первым сообщением
       outbox.push({ id, to: username, kind: 'msg', content, attempts: 0 });
-      const sync = { t: 'sync-sent', to: username, body: content.body, ts, reply: content.reply };
+      const sync = { t: 'sync-sent', to: username, body: content.body, ts, reply: content.reply, fwd: content.fwd };
       if (content.file) sync.file = content.file;
       outbox.push({ id, to: this.account.username, kind: 'sync', content: sync, attempts: 0 });
       await this.storage.set('outbox', outbox);
@@ -1886,7 +1940,7 @@ export class MessengerClient extends Emitter {
         this._shareProfileTo(c, outbox);
         outbox.push({ id, to: m, chat, kind: 'msg', content: { t: 'gmsg', g: g.id, m: content }, attempts: 0 });
       }
-      const sync = { t: 'sync-sent', to: chat, body: content.body, ts, reply: content.reply };
+      const sync = { t: 'sync-sent', to: chat, body: content.body, ts, reply: content.reply, fwd: content.fwd };
       if (content.file) sync.file = content.file;
       outbox.push({ id, to: me, kind: 'sync', content: sync, attempts: 0 });
       await this.storage.set('outbox', outbox);
@@ -1935,6 +1989,11 @@ export class MessengerClient extends Emitter {
     }
     if (gc.t === 'group-leave') {
       if (g) await this._applyLeave(all, key, from, from);
+      else await this._saveContacts(all);
+      return false;
+    }
+    if (gc.t === 'gpin') {
+      if (g && !g.left && g.members.includes(from)) await this._applyPin(all, key, gc.pin ?? null, gc.ts);
       else await this._saveContacts(all);
       return false;
     }
@@ -2469,6 +2528,10 @@ export class MessengerClient extends Emitter {
         await this._clearChat(c.chat, true);
         return ack(false);
       }
+      if (c?.t === 'sync-pin' && typeof c.chat === 'string') {
+        await this._applyPin(await this.contacts(), c.chat, c.pin ?? null, c.ts);
+        return ack(false);
+      }
       if (c?.t === 'sync-delete' && typeof c.chat === 'string' && Array.isArray(c.ids)) {
         await this._removeMessages(c.chat, c.ids.map(String).slice(0, MAX_DELETE));
         return ack(false);
@@ -2564,7 +2627,7 @@ export class MessengerClient extends Emitter {
     // Заблокирован: сервер такое уже не доставляет, а пришедшее до блокировки — отбрасываем
     // (расшифровали, чтобы не сбить храповик на случай разблокировки)
     if (this.isBlocked(from)) return ack(false);
-    if (['gmsg', 'group', 'group-leave', 'gdelete'].includes(res.content?.t)) {
+    if (['gmsg', 'group', 'group-leave', 'gdelete', 'gpin'].includes(res.content?.t)) {
       if (!known) c.hidden = true; // участник группы, с которым нет личного чата
       return ack(await this._onGroupContent(all, from, res));
     }
@@ -2611,6 +2674,10 @@ export class MessengerClient extends Emitter {
         await this._saveContacts(all); // собеседник мог быть добавлен только что
         this.emit('call-signal', { from, fromDevice: res.fromDevice, data: res.content });
       }
+      return ack(false);
+    }
+    if (res.content?.t === 'pin') {
+      await this._applyPin(all, from, res.content.pin ?? null, res.content.ts);
       return ack(false);
     }
     if (res.content?.t === 'delete' && Array.isArray(res.content.ids)) {

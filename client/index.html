@@ -149,6 +149,13 @@
           <button id="chat-menu-btn" class="icon-btn" title="Ещё" aria-label="Действия с чатом">⋮</button>
         </header>
 
+        <div id="pin-bar" class="pin-bar" hidden>
+          <button type="button" id="pin-open" class="pin-open">
+            <span class="pin-ico" aria-hidden="true">📌</span>
+            <span class="pin-text"><b>Закреплённое сообщение</b><span id="pin-body"></span></span>
+          </button>
+          <button type="button" id="pin-close" class="icon-btn" aria-label="Открепить" title="Открепить">✕</button>
+        </div>
         <div id="key-banner" class="banner danger" hidden>
           <div>
             <b>Ключ собеседника изменился.</b>
@@ -508,10 +515,27 @@
   <!-- Меню сообщения -->
   <div id="msg-menu" class="msg-menu" role="menu" hidden>
     <button type="button" data-act="reply" role="menuitem">↩︎ Ответить</button>
+    <button type="button" data-act="forward" role="menuitem">↪ Переслать</button>
+    <button type="button" data-act="pin" role="menuitem">📌 Закрепить</button>
     <button type="button" data-act="copy" role="menuitem">⧉ Копировать</button>
     <button type="button" data-act="save" role="menuitem">⤓ Сохранить файл</button>
     <button type="button" data-act="delete" role="menuitem" class="danger">🗑 Удалить</button>
   </div>
+
+  <!-- Переслать: выбор чата -->
+  <dialog id="forward-dialog" class="settings profile">
+    <div class="settings-form">
+      <header class="set-head">
+        <h2>Переслать</h2>
+        <button type="button" id="fw-close" class="icon-btn" aria-label="Закрыть" title="Закрыть">✕</button>
+      </header>
+      <div class="set-page">
+        <input id="fw-search" placeholder="Поиск чата" aria-label="Поиск чата" autocomplete="off" spellcheck="false">
+        <ul id="fw-list" class="set-group gd-members fw-list"></ul>
+        <p id="fw-empty" class="set-note" hidden>Нет подходящих чатов</p>
+      </div>
+    </div>
+  </dialog>
 
   <!-- Отправка файлов -->
   <dialog id="attach-dialog">

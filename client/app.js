@@ -714,6 +714,7 @@ function messageNode(m) {
     q.append(el('b', '', r.from === client.account.username ? t('Вы') : nameOf(r.from)), el('span', '', label));
     bubble.append(q);
   }
+  if (m.content?.fwd) bubble.append(el('div', 'fwd', t('Переслано от {0}', m.content.fwd)));
   if (m.content?.t === 'file' && m.content.file) {
     bubble.classList.add('has-media');
     if (m.content.file.as === 'note') bubble.classList.add('has-note');
@@ -745,6 +746,80 @@ function messageNode(m) {
   return li;
 }
 
+// ---------- Закреплённое сообщение и пересылка ----------
+async function renderPin() {
+  if (!current) return;
+  const c = (await client.contacts())[current];
+  const id = c?.pinned?.id;
+  const m = id && (await client.messages(current)).find((x) => x.id === id);
+  $('pin-bar').hidden = !id;
+  if (!id) return;
+  $('pin-body').textContent = m ? textOf(m.content).replace(/\s+/g, ' ').slice(0, 120) || t('Сообщение') : t('Сообщение удалено');
+}
+$('pin-open').addEventListener('click', async () => {
+  const id = (await client.contacts())[current]?.pinned?.id;
+  const target = id && $('messages').querySelector(`.msg[data-id="${CSS.escape(id)}"]`);
+  if (!target) return toast(t('Сообщение удалено'));
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.remove('flash');
+  void target.offsetWidth;
+  target.classList.add('flash');
+});
+$('pin-close').addEventListener('click', () => current && client.pinMessage(current, null).catch((err) => toast(err.message)));
+client.on('pinned', ({ chat }) => chat === current && renderPin());
+
+let forwardIds = null;
+async function openForward(id) {
+  forwardIds = { chat: current, ids: [id] };
+  $('fw-search').value = '';
+  await renderForward();
+  $('forward-dialog').showModal();
+  if (!('ontouchstart' in window)) $('fw-search').focus();
+}
+async function renderForward() {
+  const q = $('fw-search').value.trim().toLowerCase();
+  const list = Object.values(await client.contacts())
+    .filter((c) => !c.hidden && !c.keyChanged && !client.isBlocked(c.username))
+    .filter((c) => !c.group?.left && (!c.channel || isChAdmin(c.channel)))
+    .filter((c) => !q || nameOf(c.username).toLowerCase().includes(q) || c.username.includes(q))
+    .sort((a, b) => b.lastTs - a.lastTs);
+  $('fw-empty').hidden = list.length > 0;
+  $('fw-list').replaceChildren(
+    ...list.map((c) => {
+      const li = el('li');
+      const b = el('button', 'fw-item');
+      b.type = 'button';
+      const av = el('span', 'avatar');
+      paintAvatar(av, c.username);
+      const body = el('div', 'm-body');
+      const nm = el('span', 'm-name');
+      setName(nm, c.username, client.isVerified(c.username));
+      if (c.group) nm.prepend(el('span', 'g-ico', '👥'));
+      if (c.channel) nm.prepend(el('span', 'g-ico', '📢'));
+      body.append(nm, el('span', 'm-sub', c.group || c.channel ? '' : '@' + c.username));
+      b.append(av, body);
+      b.addEventListener('click', () => doForward(c.username));
+      li.append(b);
+      return li;
+    })
+  );
+}
+$('fw-search').addEventListener('input', renderForward);
+$('fw-close').addEventListener('click', () => $('forward-dialog').close());
+async function doForward(target) {
+  const f = forwardIds;
+  if (!f) return;
+  $('forward-dialog').close();
+  try {
+    const all = await client.messages(f.chat);
+    const msgs = f.ids.map((id) => all.find((m) => m.id === id)).filter(Boolean);
+    await client.forwardMessages(target, msgs, f.chat);
+    if (target !== current) toast(t('Переслано: {0}', nameOf(target)));
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 let chatGen = 0;
 async function renderChat() {
   if (!current) return;
@@ -753,6 +828,7 @@ async function renderChat() {
   const list = await client.messages(current);
   const ch = isChannelChat(current) ? await client.channelOf(current) : null;
   if (gen !== chatGen) return;
+  renderPin();
   const ol = $('messages');
   const note = ch
     ? ch.public
@@ -3882,6 +3958,9 @@ async function openMenu(id, x, y) {
   if (menuFor !== id) return;
   menu.querySelector('[data-act="save"]').hidden = !m?.content?.file;
   menu.querySelector('[data-act="reply"]').hidden = isChannelChat(current);
+  const pinnedId = (await client.contacts())[current]?.pinned?.id;
+  menu.querySelector('[data-act="pin"]').textContent = pinnedId === id ? t('📌 Открепить') : t('📌 Закрепить');
+  menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys';
   menu.querySelector('[data-act="copy"]').hidden = !!m?.content?.file && !m.content.body;
   menu.hidden = false;
   const w = menu.offsetWidth;
@@ -3950,6 +4029,11 @@ $('msg-menu').addEventListener('click', async (e) => {
   const id = menuFor;
   closeMenu();
   if (b.dataset.act === 'reply') return replyTo(id);
+  if (b.dataset.act === 'forward') return openForward(id);
+  if (b.dataset.act === 'pin') {
+    const c = (await client.contacts())[current];
+    return client.pinMessage(current, c?.pinned?.id === id ? null : id).catch((err) => toast(err.message));
+  }
   if (b.dataset.act === 'save') {
     const m = await findMsg(id);
     if (m?.content?.file) saveMedia(m.content.file);
@@ -3991,6 +4075,7 @@ $('delete-dialog').addEventListener('close', async () => {
 });
 
 client.on('deleted', async ({ contact, ids, chat }) => {
+  if (contact === current) renderPin();
   if (reply && ids.includes(reply.id) && contact === current) setReply(null);
   // Чат удалён (здесь или на другом своём устройстве) — закрываем его
   if (chat && contact === current && (await client.contacts())[contact]?.hidden) {

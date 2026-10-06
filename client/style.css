@@ -951,3 +951,19 @@ dialog.sheet[open] { animation: sheet-up .18s ease-out; }
 .as-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; font-size: 12px; color: var(--muted); border-radius: 10px; }
 .as-tab span { font-size: 22px; }
 .as-tab.active { color: var(--accent); font-weight: 600; }
+
+/* ---------- Пересылка и закреплённое ---------- */
+.bubble .fwd { font-size: 12.5px; font-weight: 600; opacity: .8; margin-bottom: 2px; }
+.msg.out .bubble .fwd { color: inherit; }
+.msg.in .bubble .fwd { color: var(--accent); }
+.bubble.has-media .fwd { padding: 4px 6px 2px; }
+.pin-bar { display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 12px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.pin-bar[hidden] { display: none; }
+.pin-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 4px 0; text-align: left; color: inherit; }
+.pin-ico { font-size: 16px; }
+.pin-text { display: flex; flex-direction: column; min-width: 0; font-size: 13px; border-left: 2px solid var(--accent); padding-left: 8px; }
+.pin-text b { color: var(--accent); font-size: 12.5px; }
+.pin-text span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+#fw-search { margin: 4px 0 10px; }
+.fw-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 4px; text-align: left; color: inherit; border-radius: 10px; }
+.fw-item:hover { background: var(--accent-soft); }
