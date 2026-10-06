@@ -1,38 +1,46 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на 5 октября 2026, версия **0.33.0** (`main`): меню скрепки с галереей; 0.32.1 — тип вложений по содержимому (галерея Android); 0.32.0 —: ответ из уведомления (Android, macOS), фиксированный масштаб интерфейса; до этого — публичные и приватные каналы; монеты (внутренняя валюта) и фото профиля на весь экран; Премиум в подарок; голосовые и квадратные видеосообщения (запись удержанием с закреплением, перемотка, смена камеры), статус «в сети» только когда приложение на экране; до этого — прокси в приложениях (SOCKS5/HTTP с паролем), исправление самообновления, групповые чаты, громкость и выбор устройств в звонке, подписка «Тайник Премиум» (xRocket Pay), версия приложения у устройств, страница проверки сети `/diag.html`. Сервер работает на `https://chat.sdsds.top`.
+Состояние на **6 октября 2026**, версия **0.46.0** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
-Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано и что известно плохого. Подробности для пользователей — в `README.md` / `README.ru.md`, развёртывание — в `DEPLOY.md`, выпуски — в `RELEASING.md`, история — в `CHANGELOG.md`.
+Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
 ---
 
 ## 1. Что это
 
-**Тайник (Tainik)** — мессенджер со сквозным шифрованием на модели Signal: X3DH + Double Ratchet, несколько устройств на аккаунт. Свой сервер (self-hosted), без сторонних зависимостей во время работы.
+**Тайник (Tainik)** — мессенджер со сквозным шифрованием на модели Signal: X3DH + Double Ratchet, несколько устройств на аккаунт. Свой сервер (self-hosted), **без сторонних зависимостей во время работы**.
 
-- Репозиторий: `github.com/nshimanovskiy/tainik` (публичный), ветка `main`.
-- Платформы: **веб** (`/app`), **десктоп** Electron (Windows, macOS, Linux), **Android** (Kotlin-оболочка вокруг WebView), **iPhone** — веб-клип (профиль .mobileconfig, «как VK и MAX»).
-- Интерфейс и крипто-ядро **одни на все платформы** (`client/` + `shared/`).
-- Языки интерфейса: русский (исходный) и английский.
+- Репозиторий: `github.com/nshimanovskiy/tainik` (публичный), ветка `main`. Владелец — пользователь `nshimanovskiy`, общается по-русски.
+- Платформы: **веб** (`/app`), **десктоп** Electron (Windows, macOS, Linux), **Android** (Kotlin-оболочка вокруг WebView), **iPhone** — веб-клип/PWA (профиль `.mobileconfig`).
+- Интерфейс и крипто-ядро **одни на все платформы** (`client/` + `shared/`); платформенные различия — только в мосте `window.desktop`.
+- Языки интерфейса: русский (исходный), английский, испанский, японский.
 
-Возможности:
-- текст, ответы с цитатой, удаление «у меня» / «у всех»;
-- фото, видео и файлы (E2E, до 100 МБ);
-- голосовые сообщения и квадратные видеосообщения, записанные прямо в чате;
-- каналы: публичные (по @имени) и приватные (по ссылке-приглашению с ключом);
-- аудио- и видеозвонки и показ экрана (WebRTC), свернуть звонок и переписываться;
-- статус «в сети», скрытие статуса;
-- до 5 устройств на аккаунт, синхронизация отправленного, удалений и прочтения между ними;
-- несколько аккаунтов на одном устройстве, все онлайн;
-- юзернейм и имя, «о себе», профиль собеседника как в Telegram;
-- блокировка пользователей, удаление чата;
-- официальные «галочки»;
-- платная подписка «Тайник Премиум» (оплата криптовалютой через xRocket Pay); пока даёт фото профиля и звезду ★;
-- панель администратора;
-- главная страница с загрузками;
-- самообновление приложений;
-- встроенный сканер QR;
-- уведомления: Web Push в браузере, трей на десктопе, постоянное соединение на Android (без Google/FCM).
+### Возможности (на 0.46.0)
+
+**Переписка**
+- Текст, ответы с цитатой, **пересылка**, **закреплённое сообщение** в чате, удаление «у меня» / «у всех», копирование, **кликабельные ссылки**.
+- Фото, видео, файлы (E2E, до 100 МБ), меню скрепки как в Telegram (галерея / файлы; на Android — снимки телефона прямо в панели).
+- Голосовые и **квадратные видеосообщения** (запись удержанием, вверх — закрепить, влево — отмена; перемотка; смена камеры).
+- Группы (до 50, сервер содержимое не видит), каналы (публичные по @имени, приватные по ссылке-приглашению), администраторы каналов.
+- Звонки аудио/видео и показ экрана (WebRTC, TURN).
+
+**Список чатов**
+- **Закреплённые чаты** (до 10), **папки-вкладки** под поиском (до 10, свои названия), **архив**. Всё синхронно на своих устройствах.
+- Служебный чат **«Тайник»** (уведомления сервера), чат **«Поддержка»** (переписка с администратором), официальный канал **«Обновления Тайника»** (@tainik) с патчноутами.
+
+**Аккаунт**
+- Юзернейм, имя, «о себе», фото профиля (Премиум), **до двух своих каналов в профиле**.
+- До 5 устройств, привязка по QR; **перенос переписки** файлом, зашифрованным ключами аккаунта; **удаление своего аккаунта**.
+- Несколько аккаунтов на одном устройстве («в сети» — только открытый).
+- Блокировка, официальные галочки (у пользователей, каналов и групп).
+
+**Монетизация**: «Тайник Премиум» (xRocket Pay, криптовалюта): фото профиля, ★, **скрытие статуса «в сети»**; подарок Премиума; **монеты** (внутренняя валюта).
+
+**Прочее**
+- Уведомления: Web Push в браузере, трей на десктопе, постоянное соединение на Android (без Google/FCM); ответ из уведомления (Android, macOS) — с цитатой сообщения.
+- Самообновление приложений (подпись Ed25519), прокси (SOCKS5/HTTP с паролем) в приложениях.
+- Панель администратора: пользователи, каналы и группы, поддержка, уведомления, канал обновлений, Премиум/монеты, баны IP.
+- Главная страница с загрузками. **Свои SVG-иконки**, набор загружается с сервера.
 
 ---
 
@@ -43,157 +51,111 @@
  │ веб (браузер)   Electron (app://)   Android WebView        │
  │                                     (https://appassets…)   │
  └───────────────┬───────────────────────────────┬────────────┘
-                 │ WebSocket /ws (JSON)          │ HTTPS /api/blob (вложения, шифротекст)
+                 │ WebSocket /ws (JSON)          │ HTTPS /api/blob (вложения, шифротекст),
+                 │                               │ /icons.json, /api/pay/xrocket, …
           ┌──────▼───────────────────────────────▼──────┐
           │ server/ (Node 22, node:sqlite, без npm-зависимостей) │
-          │ ретрансляция конвертов, очередь, prekeys,   │
-          │ присутствие, push, вложения, админка, релизы│
+          │ ретрансляция конвертов, очередь, prekeys, присутствие, │
+          │ push, вложения, каналы, реестр групп, уведомления,    │
+          │ поддержка, канал обновлений, биллинг, админка, релизы │
           └──────────────────┬──────────────────────────┘
                      nginx (TLS) на VPS → Docker (127.0.0.1:8787)
 ```
 
 ### 2.1 Протокол (`shared/protocol/`)
 
-- **X3DH** (`x3dh.js`): ключ личности (X25519 для DH + Ed25519 для подписи), подписанный prekey (SPK) и одноразовые prekeys (OPK). Сессия заводится, даже если собеседник офлайн.
+- **X3DH** (`x3dh.js`): ключ личности (X25519 для DH + Ed25519 для подписи), подписанный prekey (SPK), одноразовые prekeys (OPK). Сессия заводится, даже если собеседник офлайн.
 - **Double Ratchet** (`ratchet.js`, `session.js`): AES-256-GCM, новый ключ на каждое сообщение, пропущенные ключи (MAX_SKIP).
-- **Несколько устройств, как в Signal.** Личность у аккаунта одна, а prekeys и сессии у каждого устройства свои. Сообщение шифруется отдельно для каждого устройства собеседника и копией для каждого своего устройства.
-  - Сервер сверяет список устройств; при расхождении отвечает `mismatched_devices`, клиент досылает недостающее.
-- **Привязка устройства** (`provision.js`):
-  - Новое устройство показывает QR или 64-символьный код: pid + одноразовый X25519, Crockford base32, префикс `TAINIK1:`.
-  - Старое устройство шифрует для него ключ личности, контакты и профиль (`sealProvision`) и шлёт через сервер (`provision-send`).
-  - Сервер не может прочитать или подменить содержимое: код передаётся вне сервера.
-- **Код безопасности** (`safety.js`): 60 цифр, как в Signal. Если ключ собеседника сменился (`keyChanged`), отправка останавливается до подтверждения.
-- Вход на сервер: подпись challenge ключом устройства (`AUTH_CONTEXT = 'tainik/v3/auth'`), без паролей.
+- **Несколько устройств, как в Signal.** Личность у аккаунта одна (одинаковые закрытые ключи на всех устройствах), prekeys и сессии — у каждого устройства свои. Сообщение шифруется отдельно для каждого устройства собеседника и копией для каждого своего. Сервер сверяет список устройств; при расхождении — `mismatched_devices`, клиент досылает.
+- **Привязка устройства** (`provision.js`): новое устройство показывает QR / 64-символьный код (`TAINIK1:`, pid + одноразовый X25519); старое шифрует ключ личности, контакты, группы, каналы, профиль, **архив, закрепления и папки** (`sealProvision`) и шлёт через сервер. Сервер прочитать/подменить не может.
+- **Код безопасности** (`safety.js`): 60 цифр. Сменился ключ собеседника (`keyChanged`) — отправка стоп до подтверждения.
+- Вход: подпись challenge ключом устройства (`AUTH_CONTEXT = 'tainik/v3/auth'`), без паролей.
 
-### 2.2 Ядро клиента (`shared/client-core.js`, класс `MessengerClient`)
+### 2.2 Ядро клиента (`shared/client-core.js`, класс `MessengerClient`, ~3300 строк)
 
-Без привязки к UI. На вход:
-- `storage` с методами `get/set/del/clear`, значения в JSON;
-- `WebSocketImpl`;
-- `fetchImpl` — для вложений.
+Без привязки к UI. На вход: `storage` (`get/set/del/clear`, JSON), `WebSocketImpl`, `fetchImpl`.
 
-Ключи в хранилище:
+**Ключи чатов** (это и ключи в `contacts`, и суффиксы `chat:<…>`):
+
+| Ключ | Что |
+|---|---|
+| `alice` | личный чат (юзернейм, `[a-z0-9_]{3,32}`) |
+| `#<24 hex>` | группа |
+| `!<32 hex>` | канал |
+| `~tainik` | служебный чат «Тайник» (`SYSTEM_CHAT`, `isSystemChat`) |
+| `~support` | чат поддержки (`SUPPORT_CHAT`, `isSupportChat`) |
+
+Символ `~` не встречается в юзернеймах, поэтому служебные ключи ни с чем не пересекаются. Везде, где UI/ядро ведут себя иначе для служебных чатов, есть проверки `isSystemChat` / `isSupportChat` (меню, шапка, композер, профиль, провижининг, удаление «у всех», импорт копии).
+
+**Ключи хранилища:**
 
 | Ключ | Что там |
 |---|---|
 | `account` | `{v:3, username, deviceId, identity, pub, …}` |
-| `contacts` | объект `username → {keys, verified, unread, lastTs, pending, keyChanged?, hidden?, profile?, shareProfile?, profileSentV?}`; группы — под ключом `'#<id>'` с полем `group: {id, name, members, admins, v, left?}` (без `keys`) |
-| `gsent`, `gpend:<id>` | id своих групповых сообщений → чат (для «доставлено»); сообщения группы, пришедшие раньше её состава |
-| `chat:<name>` | массив сообщений `{id, dir:'in'|'out'|'sys', ts, content, status}` |
+| `contacts` | `ключ чата → контакт`. Общие поля: `unread, lastTs, pending, hidden?, pinned? {id, ts}` (закреплённое сообщение), `top?/topTs?` (закреплённый чат), `archived?/archivedTs?`. Личный: `keys, verified, keyChanged?, profile?, shareProfile?, profileSentV?`. Группа: `group {id, name, members, admins, v, left?, removed?}`, `verifiedMark?`. Канал: `channel {id, public, handle, key, title, about, role, subs, seq, lastSeq, syncedAt, owner, admins, verified, gone?}`. Служебные: `system: true` / `support: true` |
+| `chat:<ключ>` | сообщения `{id, dir:'in'|'out'|'sys', ts, content, status, from?}` |
 | `outbox` | очередь отправки `{id, to, kind:'msg'|'sync'|'ctl', content, attempts}` |
-| `deleted:<chat>` | id удалённых (чтобы запоздавшая копия не воскресла) |
-| `seen`, `devices:<name>`, `session:<addr>`, `prekeys` | служебное |
-| `profile` | свой профиль `{name, bio, avatar?, v}`; `avatar` — data:-URL JPEG 160×160 до `AVATAR_MAX` (20 000 символов) |
+| `deleted:<ключ>` | id удалённых (запоздавшая копия не воскреснет; импорт копии их не возвращает) |
+| `folders` | `{v: ts, list: [{id, name, chats}]}` — папки (последнее изменение побеждает) |
+| `notice-last`, `support-last` | id последнего полученного уведомления / сообщения поддержки |
+| `gifts-seen`, `gsent`, `gpend:<id>` | подарки, свои групповые сообщения, отложенные сообщения групп |
+| `profile`, `photo:<имя>` | свой профиль `{name, bio, avatar?, photo?, channels?, v}`; большое фото собеседника |
+| `seen`, `devices:<имя>`, `session:<addr>`, `prekeys` | служебное |
 
-Типы содержимого внутри зашифрованного конверта (`content.t`):
-- `text`, `file` — сообщения. Вложение — `{t:'file', body: подпись, file:{id,key,size,name,mime,kind,w,h,dur,thumb}}`.
-- `call` — сигнализация звонков, отправляется **эфемерно**: только устройствам в сети, без очереди.
-- `delete` — удалить у всех.
-- `clear-chat` — удалить чат у собеседника.
-- `profile` — имя, «о себе» и фото (`avatar`, проверяет `validAvatar`). Профиль той же версии, но с фото, тоже принимается.
-- `profile-req` — «пришли профиль ещё раз» (`v` — версия, что у нас есть): шлётся, когда у собеседника подписка, а фото у нас нет; отвечают только тем, кому пишут (`shareProfile`).
-- Группы (см. ниже): `gmsg` (`{g, m: text|file}`), `group` (состояние `{g, name, members, admins, v}`), `group-leave`, `gdelete`.
-- Синхронизация своих устройств: `sync-sent` (для группы `to: '#<id>'`), `sync-read`, `sync-delete`, `sync-delete-chat`, `sync-profile`; `group` и `group-leave` тоже уходят своим устройствам.
+**Типы содержимого (`content.t`)** внутри зашифрованного конверта:
+- сообщения: `text`, `file` (`{body: подпись, file:{id,key,size,name,mime,kind,w,h,dur,thumb,as?,wave?}, reply?, fwd?}`);
+- `call` (эфемерно, без очереди), `delete`, `clear-chat`, `profile`, `profile-req`, `pin` (закрепить сообщение у собеседника);
+- группы: `gmsg`, `group`, `group-leave`, `gdelete`, `gpin`;
+- свои устройства: `sync-sent`, `sync-read`, `sync-delete`, `sync-delete-chat`, `sync-profile`, `sync-channel`, `sync-pin`, `sync-archive`, `sync-top`, `sync-folders`;
+- локальные системные (`dir:'sys'`): `call`, `group` (события, в т.ч. `ev:'deleted'` — группа удалена администратором сервера), `gift`, `rejected`, `key-accepted`; уведомления «Тайника» — `{t:'notice', kind, …}` (`dir:'in'`).
 
-**Группы** (`createGroup`, `updateGroup`, `leaveGroup`, `groupOf`): рассылка по парным сессиям, как старые группы Signal; сервер о них не знает. Сообщение — по элементу очереди на каждого участника (`kind:'msg', to: участник, chat: '#id'`, `cid = id:to`) и `sync-sent` себе. Состояние принимается, только если `v` больше текущего и отправитель — администратор по нашему последнему состоянию (свои устройства — всегда). Участники без личного чата заводятся скрытыми контактами (`hidden`). Сообщение от неизвестной группы или ещё не добавленного участника откладывается в `gpend:<id>` и показывается, когда придёт состояние. «Удалить у всех» — только свои сообщения (`gdelete`, получатель проверяет `from`). Выход: участники убирают ушедшего; если админов не осталось — админ первый оставшийся. До 50 участников (`GROUP_MAX`).
-- Локальные системные: `rejected`, `key-accepted`.
+Все изменения состояния — строго по очереди через `_serial()` (храповик не терпит гонок). Отправка — `_pumpOutbox()`. Любые новые поля проходят «чистильщики»: `cleanText`, `cleanFile`, `cleanProfile`, `cleanGroup`, `cleanNotice`, `cleanFolders` и т. д. — принимаются только известные поля.
 
-Все изменения состояния идут строго по очереди через `_serial()`, потому что храповик не терпит гонок. Очередь отправки — `_pumpOutbox()`.
+Основные подсистемы ядра (по методам): группы (`createGroup/updateGroup/leaveGroup`, рассылка по парным сессиям; реестр на сервере — `_syncGroups`), каналы (`createChannel/joinChannel/_syncChannel/...`), уведомления (`_onNotices`), поддержка (`openSupport/_sendSupport/_onSupport`), архив/закрепление/папки (`setArchived/setChatPinned/setFolders`), перенос (`exportBackup/importBackup`), каналы профиля (`ownChannels/setProfileChannels`), удаление аккаунта (`deleteAccount`), пересылка, закрепление сообщений (`pinMessage`).
 
 ### 2.3 Сервер (`server/`)
 
-- `server.js` — HTTP (статика, `/healthz`, `/api/releases`, `/download/*`, `/api/blob/*`, веб-клип iOS, админка) и WebSocket `/ws`. Сокет реализован в `ws.js` своими силами.
-- WS-сообщения:
-  - `auth` (с `appVersion` — версия приложения, хранится в `devices.app_version`), `auth-proof`;
-  - `upload-prekeys`, `get-identity`, `get-bundles`;
-  - `send`, `send-ephemeral`, `ack`;
-  - `list-devices`, `unlink-device`, `provision-open`, `provision-send`;
-  - `presence-subscribe`, `set-presence-visibility`, `set-active` (приложение на экране или в фоне; «в сети» — только если хоть одно подключение активно, `conn.meta.active`; то же поле `active` есть в `auth`);
-  - `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`;
-  - каналы: `channel-create {id, public, handle?, key? (только публичный), meta}` (id придумывает клиент — им «подписано» зашифрованное название), `channel-get {id|handle}` (описание + последние 20 постов, без подписки), `channel-join`, `channel-leave`, `channel-update {meta}`, `channel-delete`, `channel-post {data, blobs}` (вложения закрепляются: `blobs.pin`), `channel-del-post {seq}`, `channel-history {after, delSince, tail}`, `channel-admin {user, on}`; ответ — `channel-ok`; события `channel-post`, `channel-del`, `channel-meta`, `channel-deleted`, `channel-left`; в `ready` — `channels` (подписки). Пишут владелец и админы (проверяет сервер); посты и `meta` — AES-256-GCM ключом канала, AAD `tainik/channel/<id>`.
-  - `premium-coins {plan, cost, giftTo?}` — Премиум за монеты (`store.premiumForCoins`: списание + продление в одной транзакции, запись в `payments` с валютой COINS; `cost` — цена, которую видел клиент, иначе `price_changed`);
-  - `premium-buy` (счёт на тариф или на пакет монет `<N>c` — пакет без подарка; `giftTo` — подарок другому: получатель должен существовать и не блокировать дарителя), `premium-check` (сверить оплату).
-  - Сервер шлёт: `ready` (там же `verified`, `blocks`, `premium {active, until}`, `gifts` — оплаченные подарки за 30 дней, где вы даритель или получатель, и `billing {plans, testnet}`), `gift {gift: {id, from, to, days, at}}` сразу после оплаты подарка — обоим; `coins {balance}` — баланс монет изменился (в `ready` — `coins`); `message`, `sent`, `delivered`, `presence` (с `verified` и `premium`), `blocks`, `verified`, `premium`, `devices-changed`, `prekey-count`, `error`.
-- `store.js` — SQLite (`node:sqlite`), файл `data/tainik.db`. Таблицы:
-  - `users` (с колонками `presence_hidden`, `verified`);
-  - `devices` (с `last_ip`, `app_version`);
-  - `opks`, `queue`, `meta`, `push_subs`;
-  - `blobs`, `ip_bans`, `blocks`;
-  - `premium` (user → until, каскадно с аккаунтом), `payments` (счета xRocket: наш id = clientInvoiceId, тариф, сумма-строка, статус, `gift_to` — получатель подарка; не удаляются с аккаунтом). Подарок: `markPaymentPaid` продлевает `gift_to` (если его аккаунт удалён — плательщика). Клиент (`_onGifts`) кладёт в чат служебную запись `{t:'gift'}` один раз — id подарков помнит в `gifts-seen`.
-  - `channels` (owner, handle — только у публичных, не пересекается с юзернеймами; key — только у публичных; meta; seq), `channel_admins`, `channel_subs`, `channel_posts` (seq, ts, data; удалённые — `data = NULL` + `deleted_at`, чтобы удаление дошло до офлайн-устройств).
-  - `coins` (баланс, CHECK ≥ 0, каскадно с аккаунтом) и `coin_log` (журнал всех изменений, остаётся); `payments.coins` — счёт на пакет монет.
-  - Миграции — через `ALTER TABLE … ADD COLUMN` при старте.
-- `blobs.js` — вложения.
-  - `blob-new` (WS) выдаёт `{id, token, chunk}`.
-  - Загрузка: `PUT /api/blob/<id>?offset=N` частями по 768 КБ с заголовком `X-Blob-Token`.
-  - Скачивание: `GET` с Range, CORS `*`.
-  - Удаление через `QUEUE_TTL_DAYS`. Квоты: `MAX_UPLOAD_MB`, `MAX_STORAGE_GB`, 2 ГБ в сутки на пользователя.
-- `webpush.js` — Web Push без библиотек: VAPID + RFC 8291. В пуше только зашифрованное имя отправителя, без текста.
-- `admin.js` + `admin-ui/` — панель на `ADMIN_PATH`, по умолчанию `/adminadminadmin`, пароль `ADMIN_PASSWORD`. Умеет:
-  - показывать пользователей, статус, устройства, текущий и последний IP, объём файлов;
-  - удалять аккаунты;
-  - ставить «галочки»;
-  - блокировать IP.
-- `billing.js` — подписка через xRocket Pay (`XROCKET_PAY_TOKEN` и др.).
-  - `premium-buy {plan, currency}` → для не основной валюты курс `GET /api/v1/rates?base=<PREMIUM_CURRENCY>&assets=<валюта>` (rate — сколько base стоит 1 единица; кэш 2 мин), сумма `convertPrice` с округлением вверх; затем `POST /api/v1/invoices` (сумма, валюта, наш `clientInvoiceId`, `callback.callbackUrl = https://DOMAIN/api/pay/xrocket`; юзернейм не передаётся). Неоплаченный счёт на тот же тариф отдаётся повторно.
-  - Вебхук `POST /api/pay/xrocket` (обрабатывается до проверки банов): подпись `hex(HMAC-SHA256(webhook_secret, "{Signature-Timestamp}.{raw body}"))`, `Signature-Version: v1`, окно 5 минут; сверка суммы и валюты; `markPaymentPaid` в транзакции — один счёт продлевает ровно один раз.
-  - Запасной путь — опрос `GET /api/v1/invoice?clientInvoiceId=`: `premium-check` и фоновая сверка раз в 5 минут (лимит API — 20 запросов в минуту на метод). Там же оповещение об истёкших подписках.
-  - Админка: `setPremium(name, days)` (0 — отключить), блок «Подписка» со счетами.
-- `releases.js` — ретрансляция релизов GitHub (`RELEASES_REPO`) для страницы загрузок и самообновления; поддерживает докачку.
-- `webclip.js` — профиль iOS `.mobileconfig`; его подписывает `deploy/sign-profile.sh` сертификатом Let's Encrypt.
-- TURN для звонков: coturn, временные учётные данные (`TURN_SECRET`), `deploy/setup-calls.sh`.
+- `server.js` (~1500 строк) — HTTP (статика `client/`, `/healthz`, `/api/releases`, `/download/*`, `/api/blob/*`, `/api/pay/xrocket`, веб-клип iOS, админка, `/diag`) и WebSocket `/ws` (свой `ws.js`).
+- **WS-запросы:** `auth`, `auth-proof`, `upload-prekeys`, `get-identity`, `get-bundles`, `send`, `send-ephemeral`, `ack`, `list-devices`, `unlink-device`, `provision-open`, `provision-send`, `presence-subscribe`, `set-presence-visibility` (скрыть — только с Премиум, иначе `premium_presence`), `set-active`, `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`, `diag-echo`; каналы — `channel-create/get/join/leave/update/delete/post/del-post/history/admin`; `group-sync` (реестр групп, ответ `{verified, removed}`); `premium-buy`, `premium-check`, `premium-coins`; `support-send`; `delete-account {confirm: юзернейм}`.
+- **События от сервера:** `ready` (в нём `premium`, `coins`, `gifts`, `notices` за 30 дней, `support` (последние 300), `channels`, `blocks`, `billing`, `verified`, `presenceHidden`), `message`, `sent`, `delivered`, `presence`, `blocks`, `verified`, `premium`, `coins`, `gift`, `notice`, `support`, `channel-post/del/meta/deleted/left`, `group-verified`, `group-removed`, `devices-changed`, `prekey-count`, `error` (`account_deleted` с `self` — удалил сам).
+- `store.js` (~1000 строк) — SQLite (`node:sqlite`), `data/tainik.db`. Таблицы: `users` (`uid`, `presence_hidden`, `verified`), `devices` (`last_ip`, `app_version`), `opks`, `queue`, `meta`, `push_subs`, `blobs`, `ip_bans`, `blocks`, `premium`, `payments`, `coins`, `coin_log`, `channels` (`uid`, `verified`), `channel_admins`, `channel_subs`, `channel_posts`, **`notices`** (уведомления «Тайника», `user NULL` — всем, хранятся 90 дней), **`groups`** (`uid`, `owner`, `name`, `members`, `verified`, `deleted_at`) + **`group_members`**, **`support`**. Миграции — `ALTER TABLE … ADD COLUMN` при старте. Номера (`uid`) каналов и групп — общий счётчик `meta.next_chat_uid`, пользователей — `meta.next_uid`.
+- `news.js` — **канал «Обновления Тайника»**: служебный владелец `~tainik` (запись в `users` без ключей; такой юзернейм нельзя зарегистрировать и он скрыт из панели), публичный канал с галочкой, ключ на сервере → сервер сам шифрует посты. При старте публикует патчноуты **всех версий** между `meta.news_version` и текущей (раздел `## x.y.z` из `CHANGELOG.md`, Markdown → простой текст); при первом запуске — только текущую. Новые пользователи подписываются при регистрации. `NEWS_CHANNEL=0` — выключить. `CHANGELOG.md` копируется в Docker-образ (`!CHANGELOG.md` в `.dockerignore`).
+- `blobs.js` — вложения (`blob-new` → `PUT /api/blob/<id>?offset=N` частями по 768 КБ, `GET` с Range, CORS `*`, удаление через `QUEUE_TTL_DAYS`).
+- `webpush.js` — Web Push без библиотек (VAPID + RFC 8291). В пуше только тип (`msg/call/notice/support`) и имя отправителя.
+- `billing.js` — xRocket Pay: счета, вебхук `POST /api/pay/xrocket` (HMAC), опрос раз в 5 минут, пакеты монет, курсы.
+- `admin.js` + `admin-ui/` — панель на `ADMIN_PATH` (по умолчанию `/adminadminadmin`), пароль `ADMIN_PASSWORD`. Вкладки: **Пользователи** (ID, статус, устройства, IP, галочка, Премиум, монеты, «Написать…», удалить), **Каналы и группы** (ID, названия, галочки, удалить, пост в канал обновлений), **Поддержка** (обращения, переписка, ответ); блоки «Уведомление всем», подписка/счета, баны IP. API: `POST /api/<действие>` с заголовком `X-Tainik-Admin: 1` (CSRF), `GET /api/overview`.
+- `releases.js` — ретрансляция релизов GitHub для загрузок и самообновления; `webclip.js` — профиль iOS; `backup.js`.
 
 ### 2.4 Интерфейс (`client/`)
 
-- `index.html` + `app.js` (~2900 строк) + `style.css` — весь мессенджер. В `call.js` — `CallManager` для WebRTC. Микрофон — `calls.micId` / `setMicrophone(id)` (replaceTrack на лету); динамик — `setSinkId` у `#remote-audio` и у AudioContext гудков. Громкость своего голоса — `calls.setMicGain()` (микрофон → GainNode → ограничитель → MediaStreamDestination, только если не 100%); собеседника — `audio.volume` до 100%, больше — WebAudio (элемент играет без звука). Выбор хранится в настройках устройства: `audio-in` / `audio-out` / `mic-gain` / `peer-volume` (проценты); страница ⋯ → «Звук и микрофон» (`data-page="media"`), в звонке — кнопка «Звук».
-- Каналы в клиенте: чат `'!<id>'`, `contacts[chat].channel = {id, public, handle, key, title, about, role, subs, seq, lastSeq, syncedAt, gone?}`; посты — сообщения `dir:'in'` с id `p<seq>`. `_onChannels` (при входе) → `_syncChannel` (история после `lastSeq` + удаления после `syncedAt`). Ключ приватного канала своим устройствам — ctl `sync-channel {id, key}` и в данных привязки (`channels`). Ссылки: `channelLink()` / `parseChannelRef()`, в приложении — `/app#ch=…` (`consumeChatLink`). UI: `openChannels()` (найти/создать), `openChannelInfo()`, полоска `#channel-bar` у читателей.
-- Фото профиля: `avatar` (160 px, ≤ 20 000 символов) и `photo` (до 640 px, ≤ 100 000, `validPhoto`) в одном профиле; у собеседников `photo` лежит в `storage['photo:<имя>']`, а не в контактах; в очереди профиль хранится ссылкой `{t:'profile', self:1}` и подставляется при отправке (`_deliver`). `MAX_ENVELOPE` — 192 КБ, `maxPayload` WS — 1 МБ. Просмотр — `openPhoto()` (нажатие на `#pf-avatar` / `#prof-avatar`).
-- Голосовые и видеосообщения — раздел «Голосовые и видеосообщения» в `app.js`: MediaRecorder (сначала mp4, затем webm/ogg), видео — кадр фронтальной камеры, обрезанный до квадрата 384×384 на `<canvas>`, `captureStream(30)` + дорожка микрофона; волна — AnalyserNode, 64 байта в base64. Отправка — `sendFile` с `as: 'voice' | 'note'`, `dur`, `wave` (голос) или `thumb`, `w/h` (видео); `cleanFile` принимает `as` только для audio/video соответственно. Воспроизведение — один элемент `playing` на всю ленту. Запись — удержание кнопки (`onRecDown/Move/Up`, pointer capture; вверх на `LOCK_DY` — `lockRec()`, влево на `CANCEL_DX` — отмена; `pointercancel` закрепляет, чтобы не терять запись); во время записи у `#composer` классы `recording`/`locked`. Смена камеры — `flipCamera()`: `facingMode` exact, иначе следующий `deviceId`; холст рисует из того же `<video>`, поэтому MediaRecorder не перезапускается. Перемотка — `pointerdown` по `.vwave` / `.note-seek`, `seekTo()` (длительность webm — из `f.dur`, пока браузер её не знает).
-- Активность для статуса: `pageActive()` — на Android `desktop.isActive()` (окно на экране, `MainActivity.updateForeground` → `WebHost.setActive` → `__tainikActive`), в браузере и десктопе — `document.visibilityState`; `client.setActive()` шлёт `set-active`.
-- `landing.html/js/css` — главная `/` с вкладками «О Тайнике» и «Скачать». Главная открывается всегда; в мессенджер ведёт кнопка «Перейти в чаты». Сразу в мессенджер попадают только по значку на экране «Домой» и по ссылкам `#chat=`.
-- `ios.html` + `install.js` — установка на iPhone.
-- `idb-storage.js` — хранилище веба: IndexedDB, шифрование неизвлекаемым ключом WebCrypto.
-- `sw.js` — service worker для Web Push и нажатия на уведомление.
-- Настройки (⋯) устроены как в Telegram: одно окно `#menu-dialog` со страницами `.set-page[data-page]` — main, profile, privacy, blocked, notif, bg, lang, upd, about.
-  - Переход — `data-go="…"`, назад — `setBack()`. Esc и кнопка «Назад» на Android работают через `__tainikBack`.
-- Профиль собеседника — `#profile-dialog` (`openProfile(name)`).
-- Сканер QR — `#scanner` (`openScanner(onResult)`).
-- Мост к платформе — `window.desktop`. Его даёт Electron (`desktop/preload.cjs`) или Android (`android/.../assets/native/bridge.js`). Методы:
-  - `storage`, `storageFor(ns)`, `settings`;
-  - `notify`, `dismissNotice`, `onOpenChat`, `setBadge`, `callActive`;
-  - `background`, `version`, `updates`;
-  - `saveFile` — только Android.
-  - Признак Android: `desktop.platform === 'android'`.
+- `index.html` + `app.js` (~5800 строк) + `style.css` — весь мессенджер. `call.js` — `CallManager` (WebRTC).
+- **Иконки** (`icons.js` + `icons.json`, 0.46): в разметке `<i class="ic" data-icon="lock"></i>`, в коде `icon('lock')`; `MutationObserver` дорисовывает новые элементы. Набор: веб — с сервера; приложения — встроенный сразу, затем свежий с сервера аккаунта (`/icons.json`, CORS `*`), кэш в `localStorage['tainik:icons']`. `cleanIconSet` пропускает только `path/circle/rect/line/polyline/polygon/ellipse` и числовые/путевые атрибуты, `fill/stroke` — только `none/currentColor`. Эмодзи остались только в текстах (превью, системные сообщения, уведомления).
+- **Переводы**: ключ — русская строка, `t('…', …args)` с `{0}`; словари `shared/i18n-en.js`, `i18n-es.js`, `i18n-ja.js` с **одинаковым набором ключей** (испанский и японский — машинный перевод, не вычитан носителями). `translateDom` переводит статику HTML.
+- Настройки как в Telegram: `#menu-dialog`, страницы `.set-page[data-page]` (main, profile, premium, coins, privacy, blocked, backup, media, proxy, notif, bg, lang, upd, about), `data-go`, `setBack()`.
+- Список чатов `renderContacts()`: сортировка `top` → `lastTs`; строка «Архив»; вкладки папок `renderFolderTabs()`; меню чата `openChatMenu()`.
+- Уведомления: `notifyMessage()` / `notifyOther()`; первые 4 с после подключения уведомления придерживаются (`stillUnread`), чтобы не всплывало уже прочитанное на другом устройстве; `clearChatNotices()` при прочтении/фокусе/удалении.
+- Копирование — `copyText()` синхронно в обработчике нажатия (`desktop.copyText` на Android → `execCommand` → `navigator.clipboard`).
+- Ссылки — `shared/linkify.js` + `linkNodes()` (только DOM-узлы, только http(s), ссылки `#ch=` открывают канал внутри).
+- Перенос переписки — `shared/backup.js`: AES-GCM ключом `HKDF(закрытые ключи личности)`, заголовок (юзернейм, `accountId` = хеш открытых ключей) в AAD; импорт сливает сообщения без повторов.
+- `landing.*` — главная `/` (вкладки «О Тайнике» / «Скачать», переключатель языков по кругу RU→EN→ES→JA); `ios.html`, `install.*`; `diag.*` — проверка сети; `idb-storage.js` — IndexedDB с неизвлекаемым ключом; `sw.js` — Web Push (тексты на 4 языках, чаты `~tainik`/`~support`).
+- Мост `window.desktop` (Electron `desktop/preload.cjs`, Android `android/.../assets/native/bridge.js`): `storage`, `storageFor`, `settings`, `notify({…, reply, msg})`, `dismissNotice`, `onOpenChat`, `onReply(chat, text, msg)`, `setBadge`, `callActive`, `background`, `version`, `updates`, `proxy`, `gallery` и `saveFile`/`copyText`/`isActive` (Android).
 
 ### 2.5 Десктоп (`desktop/`, Electron)
 
-- `main.cjs`:
-  - протокол `app://app/…`, файлы — из `renderer/` (их копирует `scripts/copy-web.mjs`);
-  - строгий CSP (`lib.cjs`);
-  - трей, автозапуск, уведомления, разрешения камеры и микрофона.
-- `SecureStore` — **один JSON-файл**, зашифрованный через `safeStorage`; у каждого аккаунта свой файл.
-- `updater.cjs` — самообновление с вашего сервера. Ставится **только** если `SHA256SUMS.txt` подписан Ed25519 ключом выпусков (`desktop/release-key.pem`; закрытый ключ — секрет `RELEASE_SIGNING_KEY`). По платформам:
-  - Windows — тихий NSIS;
-  - AppImage и portable — замена файла;
-  - macOS — замена `.app` из `.dmg`;
-  - `.deb` — открывается в установщике.
-- `i18n.cjs` — переводы для главного процесса: трей, окна.
+- `main.cjs`: протокол `app://app/…` (файлы — из `renderer/`, копирует `scripts/copy-web.mjs`), CSP (`lib.cjs`), трей, автозапуск, уведомления (ответ — только macOS, `hasReply`), зум зафиксирован, внешние ссылки — `shell.openExternal` (http/https).
+- `SecureStore` — один JSON-файл на аккаунт, зашифрованный `safeStorage`.
+- `updater.cjs` — самообновление с вашего сервера, только если `SHA256SUMS.txt` подписан Ed25519 (`desktop/release-key.pem`; закрытый ключ — секрет `RELEASE_SIGNING_KEY`).
+- `i18n.cjs` — тексты главного процесса (RU/EN/ES/JA), `knownLang`, `langFromLocale`.
+- `proxy.cjs` — локальный ретранслятор для прокси с паролем.
 
-### 2.6 Android (`android/`, Kotlin, без AndroidX и сторонних библиотек)
+### 2.6 Android (`android/`, Kotlin, без AndroidX — кроме `androidx.webkit` ради прокси)
 
-- `TainikApp` держит `WebHost`, а `WebHost` — WebView. Страница живёт дольше окна, поэтому работает в фоне.
-- `MainActivity` только показывает WebView. В ней же:
-  - запросы разрешений;
-  - `startForResult` для выбора файлов и «Сохранить как».
-- `AssetServer` отдаёт `client/` + `shared/` из ассетов на `https://appassets.androidplatform.net` и ставит CSP. Ассеты копирует задача Gradle.
-- `Bridge.kt` — нативная половина `window.desktop`: хранилище, настройки, уведомления, фон, обновления, сохранение файлов (`save.begin/chunk/end`).
-- `ConnectionService` — foreground-служба с постоянным соединением, без FCM. `Notifier` — уведомления.
-- `SecureStore.kt` — Android Keystore + AES-GCM.
-- `Gallery.kt` — галерея для меню скрепки: `gallery.access/ask/list` в мосте (MediaStore, новые сначала), превью и файлы — `https://appassets…/__gallery/thumb|file/<id>` (отдаёт `shouldInterceptRequest` только нашей странице). В `app.js` — `openAttachSheet()` / `#attach-sheet`.
-- `ReplyReceiver.kt` — ответ из уведомления (RemoteInput, кнопка «Ответить» в `Notifier.show(..., reply)`): текст → `WebHost.sendReply` → очередь `pendingReplies` → страница забирает через `takePendingReplies` / `desktop.onReply` → `replyFromNotice()` в `app.js`. На macOS то же через `Notification({hasReply})` и IPC `notice-reply`.
-- Масштаб: WebView `textZoom = 100`, без зума; Electron — `setZoomFactor(1)`, `setVisualZoomLevelLimits(1,1)`, блок Ctrl +/−/0; в странице — viewport `user-scalable=no`, блок `gesture*`/Ctrl+колесо, поля 16px на сенсорных экранах.
-- `Updater.kt` — скачивает APK с сервера и открывает системный установщик.
-- `WebHost.Chrome`: разрешения камеры и микрофона, `onShowFileChooser`, диалоги.
+- `TainikApp` держит `WebHost` (WebView живёт дольше окна → работает в фоне), `MainActivity` только показывает его.
+- `AssetServer` — `client/` + `shared/` из ассетов на `https://appassets.androidplatform.net`, CSP.
+- `Bridge.kt` — нативная половина `window.desktop`; `copyText` (системный буфер), `notify` (с `msg` — id сообщения для ответа с цитатой).
+- `ConnectionService` — foreground-служба с постоянным соединением (без FCM); `Notifier` — уведомления, `ReplyReceiver` — ответ из уведомления (`EXTRA_MSG`).
+- `I18n.kt` — `tr(ctx, ru, en)`; испанский и японский — словари `ES`/`JA` по английскому тексту (тест проверяет, что каждая строка `I18n.tr` в них есть).
+- `Gallery.kt`, `SecureStore.kt` (Keystore + AES-GCM), `Updater.kt`, `ProxyRelay.kt`.
 
 ---
 
@@ -201,25 +163,26 @@
 
 | Решение | Почему |
 |---|---|
-| Ноль runtime-зависимостей (только WebCrypto, `node:sqlite`, свой WS, свой Web Push, свой QR-кодер и QR-декодер). Исключение — `androidx.webkit` в Android, только ради прокси у WebView | Меньше поверхность атаки и цепочек поставок, проще аудит и развёртывание. Это принцип проекта: новые библиотеки не добавляем без крайней нужды. |
+| Ноль runtime-зависимостей (WebCrypto, `node:sqlite`, свой WS, Web Push, QR-кодер/декодер). Исключение — `androidx.webkit` | Меньше поверхность атаки и цепочек поставок, проще аудит и развёртывание. **Принцип проекта.** |
 | Signal-модель «устройство = отдельная сессия» | Настоящий multi-device без общего секрета на сервере. |
-| Эфемерная сигнализация звонков (не в очередь) | Старые «звонки» не должны звонить через час. Если звонок не дошёл ни до кого — пуш «пропущенный». |
-| Один общий UI на все платформы | Одна кодовая база. Платформенные различия только в `window.desktop`. |
-| Android — WebView + foreground-служба, без FCM | Работа без Google; APK раздаётся через GitHub Releases и ваш сервер. |
-| iPhone — веб-клип, а не App Store | Без Apple Developer; пуши работают через PWA на экране «Домой». |
-| Вложения: AES-256-GCM частями по 768 КБ − 16; nonce = номер части; признак последней части — в AAD; ключ — внутри сообщения храповика | Сервер видит только шифротекст и размер. Подмену, перестановку и обрезку частей видно. Части по 768 КБ проходят через nginx с `client_max_body_size 1m` без правки конфига. |
-| Расшифрованные медиа не пишутся на диск, кэш только в памяти (до 300 МБ) | Хранилище десктопа — один JSON-файл, писать туда мегабайты нельзя. Плюс приватность. Цена — файлы скачиваются заново после перезапуска, а через 30 дней пропадают с сервера. |
-| Профиль (имя, «о себе») — E2E, как в Signal, не на сервере | Сервер не знает имён. Цена — имя видят только те, кому вы писали (ему уходит `profile` перед первым сообщением, флаг `shareProfile`). |
-| Чёрный список — на сервере (таблица `blocks`) | Иначе не скрыть статус и не перестать доставлять сообщения. Заблокированному отвечаем «отправлено» без доставки, как в Telegram. Клиент дополнительно отбрасывает уже пришедшее (после расшифровки, чтобы не сбить храповик). |
-| «Удалить чат» = очистить сообщения + `hidden: true` у контакта, ключ остаётся | Если человек напишет снова, чат вернётся, а проверка ключа (TOFU) продолжит работать. |
-| Самообновление только с подписью Ed25519 | Взломанный сервер не сможет подсунуть приложению свой код. |
-| Последний IP устройства хранится (не история) | Требование пользователя: видно в панели и в «Устройствах». |
-| Админка на `/adminadminadmin`, а не `/admin` | Требование пользователя. |
-| Свой QR-декодер (`shared/qr-scan.js`) + Web Worker; BarcodeDetector — где он есть | В Electron (Windows, Linux) и Android WebView BarcodeDetector нет. Внешнюю библиотеку не берём (принцип нуля зависимостей). |
-| Подписка: оплата через xRocket Pay, признак подписки — на сервере, фото — в E2E-профиле | Сервер не видит фото, но может «выключить» его: клиент показывает фото, только если `presence.premium` (или своя подписка) активна. Поставить новое фото без подписки не даёт клиент (`premium_required`). Цена — сервер и собеседники знают, кто подписчик. |
-| Фото профиля встроено в профиль (data:-URL), а не вложением | Вложения удаляются через 30 дней; встроенное фото живёт с профилем. Размер ограничен, чтобы профиль с копиями на 5 устройств влез в одно WS-сообщение (256 КБ). При привязке устройства фото собеседников передаются в пределах 30 000 символов. |
-| Прокси через локальный ретранслятор (`desktop/proxy.cjs`, `android/.../ProxyRelay.kt`): Chromium ходит в 127.0.0.1 как в HTTP-прокси (CONNECT), ретранслятор — к прокси пользователя (SOCKS5/HTTP с паролем) | Chromium не умеет SOCKS5 с паролем. Electron: `session.setProxy`; Android: `androidx.webkit.ProxyController` (WebView без него прокси не умеет). Пароль — safeStorage / SecureStore `proxy`, странице не отдаётся. Самообновление ходит через тот же ретранслятор. |
-| i18n: ключ — сама русская строка, `t('…', …args)` с `{0}`; EN-словарь в `shared/i18n-en.js` | Не нужно придумывать идентификаторы. Тест ловит любую строку без перевода. |
+| Эфемерная сигнализация звонков | Старые «звонки» не должны звонить через час. |
+| Один UI на все платформы, Android — WebView + foreground-служба без FCM, iPhone — веб-клип | Одна кодовая база; работа без Google и без App Store. |
+| Вложения AES-256-GCM частями по 768 КБ, nonce = номер части, «последняя» — в AAD | Подмену/перестановку/обрезку видно; части проходят через nginx `client_max_body_size 1m`. |
+| Медиа не пишутся на диск, кэш в памяти | Приватность и простое хранилище десктопа. Цена — повторные загрузки. |
+| Профиль — E2E, не на сервере | Сервер не знает имён; цена — имя видят те, кому вы писали. |
+| Чёрный список, признак Премиум, галочки, номера — на сервере | Иначе не скрыть статус/не остановить доставку/не «выключить» фото. |
+| Группы: содержимое E2E, но **реестр на сервере** (id, участники, название от админов группы) — с 0.39/0.42 | Нужно для номера группы, галочки, панели и удаления. Осознанная уступка приватности по запросу владельца; подсказка при создании группы и главная страница это честно говорят. |
+| Удаление группы администратором сервера — сигнал участникам (`group-removed`), выход у них | Сервер не может стереть E2E-переписку; запись помечается `deleted_at`, офлайн-участники узнают при сверке. |
+| Уведомления «Тайника» и чат поддержки — **не E2E**, открытым текстом на сервере | Это сообщения самого сервера / для администратора. В чате поддержки — предупреждение. |
+| Канал обновлений публикует сам сервер, владелец `~tainik` | Не нужен «ботовый» аккаунт с ключами; публичный ключ канала уже у сервера. |
+| Перенос переписки — ключ из ключей личности (HKDF), заголовок в AAD | Импорт возможен только в тот же аккаунт (даже новый аккаунт с тем же юзернеймом не откроет). |
+| Скрытие статуса — Премиум; без подписки выбор хранится, но не действует | Монетизация без потери выбора пользователя. |
+| Закрепления, архив, папки — у себя, синхронизация через `sync-*` (последнее изменение побеждает) | Собеседники не знают; одинаково на всех устройствах. |
+| Иконки — свой набор SVG, загружается с сервера и строго проверяется | Можно менять без выпуска приложений; рисуются без `innerHTML`. |
+| Самообновление только с подписью Ed25519 | Взломанный сервер не подсунет код. |
+| i18n: ключ — русская строка; тест ловит строку без перевода во всех языках | Не нужны идентификаторы; невозможно забыть перевод. |
+| Номера (ID) пользователей, каналов, групп видны только в панели | Требование владельца. |
+| Админка на `/adminadminadmin` | Требование владельца. |
 
 ---
 
@@ -227,181 +190,141 @@
 
 ```
 client/            общий интерфейс (веб, десктоп, Android)
-  app.js           весь мессенджер: чаты, вложения, профиль, настройки, звонки (UI), аккаунты, сканер
-  call.js          CallManager (WebRTC: звонок, показ экрана, свернуть)
-  index.html       разметка мессенджера (/app)
-  style.css        стили мессенджера
-  landing.*        главная страница (/), загрузки
-  ios.html, install.*  установка на iPhone
-  idb-storage.js   зашифрованное хранилище веба (IndexedDB)
-  sw.js            service worker (push)
-  config.js        адрес сервера по умолчанию для приложений (подставляет сборка)
-shared/            общее для клиента (и частично для сервера)
-  client-core.js   MessengerClient: протокол, очередь, контакты, вложения, профиль, блокировка
+  app.js           весь мессенджер (~5800 строк)
+  call.js          CallManager (WebRTC)
+  index.html, style.css
+  icons.js, icons.json   свои иконки (набор отдаёт сервер)
+  landing.*        главная /, загрузки;  ios.html, install.*  — iPhone;  diag.* — проверка сети
+  idb-storage.js   зашифрованное хранилище веба;  sw.js — Web Push;  config.js — сервер для сборок
+shared/
+  client-core.js   MessengerClient (~3300 строк)
   protocol/        X3DH, Double Ratchet, ключи, привязка, код безопасности
-  media.js         шифрование вложений, проверка их описаний
-  qr.js            генератор QR (байтовый режим, уровень M, версии 1–10)
-  qr-scan.js       распознавание QR (версии 1–10, L/M/Q/H), qr-worker.js — фоновый поток
-  i18n.js          t(), LANG, LOCALE, setLang, translateDom
-  i18n-en.js       английский словарь
-server/            Node-сервер (без npm-зависимостей)
-  server.js        HTTP + WS, вся логика ретрансляции
-  store.js         SQLite
-  ws.js            WebSocket-сервер
-  blobs.js         вложения
-  billing.js       подписка «Премиум»: счета и вебхук xRocket Pay
-  webpush.js, admin.js (+admin-ui/), releases.js, webclip.js, backup.js
-desktop/           Electron: main.cjs, preload.cjs, lib.cjs (SecureStore, CSP), updater.cjs, i18n.cjs,
-                   release-key.pem (открытый ключ выпусков), scripts/copy-web.mjs
+  backup.js        шифрование файла переноса переписки
+  media.js         шифрование вложений;  linkify.js — ссылки в тексте
+  qr.js, qr-scan.js, qr-worker.js   QR
+  i18n.js, i18n-en.js, i18n-es.js, i18n-ja.js
+  version.js
+server/
+  server.js        HTTP + WS (~1500 строк)
+  store.js         SQLite (~1000 строк)
+  news.js          канал «Обновления Тайника»
+  billing.js, blobs.js, webpush.js, releases.js, webclip.js, backup.js, ws.js
+  admin.js + admin-ui/   панель администратора
+desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.cjs, release-key.pem
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
-                   Notifier, SecureStore, Updater, I18n; assets/native/bridge.js
-deploy/            setup.sh (nginx+certbot), update.sh, backup.sh, setup-calls.sh (coturn),
-                   sign-profile.sh (подпись профиля iOS), connect-github.sh, nginx-site.conf
-tests/             node:test — протокол, e2e клиент↔сервер, вложения, блокировка, профиль, QR,
-                   админка, релизы, обновления, push, веб-клип, i18n, десктоп, Android-мост
-.github/workflows/ build.yml (тесты + сборки на каждый push), release.yml («Выпуск приложений»),
-                   deploy.yml («Деплой сервера» по SSH)
-docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md
+                   Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
+deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
+tests/             node:test, 117 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+                   уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
+.github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
+docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
 ```
 
 ---
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test`. На 0.32.0 — **94 теста**, все зелёные (подписка — `tests/premium.test.js`, с поддельным xRocket). Нужен Node 22.13+.
-- **Локально:** `npm start` → главная `http://localhost:8080`, мессенджер `/app`. Чтобы проверить вдвоём, откройте обычное окно и окно инкогнито.
-- **CI:** каждый push в `main` запускает `build.yml`: test, docker, desktop×3, android. Статус:
-  `curl -s "https://api.github.com/repos/nshimanovskiy/tainik/actions/runs?branch=main&per_page=1"`
-- **Версия:** в `package.json`, `desktop/package.json` и `shared/version.js` (сверяет `tests/version.test.js`); Android берёт её из тега. Раздел в `CHANGELOG.md` — на каждую версию.
-- **Выпуск приложений:** Actions → «Выпуск приложений» → указать версию (или тег `vX.Y.Z`).
-- **Обновление сервера:** `cd /opt/tainik/e2e-messenger && sudo ./deploy/update.sh`. Скрипт:
-  1. делает бэкап базы;
-  2. выполняет `git fetch` + `reset --hard` на `origin/main`;
-  3. делает `docker compose up -d --build`;
-  4. проверяет `/healthz`;
-  5. заново подписывает профиль iOS.
-
-  Или Actions → «Деплой сервера». Голый `git pull && docker compose up -d --build` тоже работает, но без бэкапа и переподписи.
-- **Коммиты** заканчиваются строками:
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 117 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
+  ```js
+  // devserver.mjs — запуск: node devserver.mjs
+  import { startServer } from './server/server.js';
+  import { parsePlans, parseCurrencies, parsePacks } from './server/billing.js';
+  await startServer({ port: 8090, host: '127.0.0.1', dataDir: '/tmp/tainik-dev', log: true,
+    admin: { password: 'очень-длинный-пароль-123' }, news: true,
+    billing: { token: 't', webhookSecret: 's', plans: parsePlans('30:3'), currencies: parseCurrencies('GRAM,TRX', 'USDT'),
+               packs: parsePacks('100:1,550:5', 'USDT'), apiUrl: 'https://x.invalid', fetch: /* поддельный xRocket */ } });
   ```
-  Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
-  Claude-Session: <ссылка на сессию>
-  ```
+  Проверки интерфейса делались Playwright (headless Chromium, `/opt/pw-browsers`) — регистрация через `#username` + `#auth-btn`, мобильный вид — `viewport 390×760, is_mobile`. Имена пользователей занимаются в базе — для повторных прогонов брать случайный суффикс или чистить `dataDir`.
+- **CI:** каждый push в `main` → `build.yml`: test, docker, desktop×3, android. Статус: `gh run list --limit 1 --workflow "Тесты и сборки"`. Логи CI из этой среды не скачиваются (403), поэтому упавшие тесты выводятся **в аннотацию** запуска: `gh api repos/{owner}/{repo}/check-runs/<job id>/annotations`. Сборка desktop иногда падает по сети GitHub — помогает `gh run rerun <id> --failed`.
+- **Android здесь не компилируется** (нет SDK) — проверяет только CI.
+- **Версия:** `package.json`, `desktop/package.json`, `shared/version.js` (сверяет `tests/version.test.js`); раздел `## x.y.z` в `CHANGELOG.md` — на каждую версию (он же уходит в канал обновлений — писать для пользователей).
+- **Выпуск приложений:** GitHub Actions → «Выпуск приложений» → Run workflow с версией.
+- **Обновление сервера:** `cd /opt/tainik/e2e-messenger && sudo ./deploy/update.sh` (бэкап базы → `git reset --hard origin/main` → `docker compose up -d --build` → `/healthz` → переподпись профиля iOS). Или Actions → «Деплой сервера».
+- **После каждого выпуска** пользователю напоминаем оба шага: `sudo ./deploy/update.sh` и «Выпуск приложений» с номером версии.
+- **Коммиты** заканчиваются строками `Co-Authored-By: …` и `Claude-Session: …` (из системного напоминания текущей сессии).
 
 ### Правила, которые легко нарушить
 
-1. **Никогда не объявлять локальную переменную `t`** в файлах, где есть `t()`. Так сломалась 0.14.0 (TDZ при показе галочки). Тест `i18n.test.js` это ловит.
-2. **Каждая новая русская строка интерфейса** должна попасть в `shared/i18n-en.js`:
-   - строки в `t('…')`;
-   - текст и атрибуты `placeholder/title/aria-label/alt` в HTML;
-   - заголовки разделов настроек (`data-title`).
+1. **Никогда не объявлять локальную переменную `t`** там, где используется `t()` (сломало 0.14.0; ловит тест).
+2. **Каждая новая русская строка интерфейса** (в `t('…')`, текст и `placeholder/title/aria-label/alt` в HTML, `data-title`) → во **все три** словаря `shared/i18n-en.js`, `i18n-es.js`, `i18n-ja.js` с одинаковыми ключами; в переводах не должно быть кириллицы. Десктоп — `desktop/i18n.cjs` (EN/ES/JA), Android — `I18n.tr(ru, en)` + перевод в словари `ES`/`JA` в `I18n.kt`.
+3. **CSP без инлайна.** Новые источники — в трёх местах: `server/server.js`, `desktop/lib.cjs`, `android/.../AssetServer.kt`.
+4. **Пользовательский текст — только `textContent` / DOM-узлы**, никакого `innerHTML`.
+5. **Иконки:** новая иконка — в `client/icons.json` (тест проверяет, что все `data-icon`/`icon('…')` есть в наборе). Не затирать `textContent` у кнопок с иконкой — использовать `replaceChildren(icon(...), текст)` / `iconText()`.
+6. **Новые поля сообщений** — через «чистильщики»; старые клиенты игнорируют неизвестные `content.t` — сохранять совместимость.
+7. **Служебные чаты** (`~tainik`, `~support`) — при новых возможностях чатов проверить, как они ведут себя для них.
+8. Каждое изменение формата на сервере — учесть офлайн-устройства (данные в `ready`, сверка при входе).
 
-   Без этого `npm test` упадёт. Для главного процесса десктопа строки идут в `desktop/i18n.cjs`, для Android — в `I18n.kt`.
-3. **CSP запрещает инлайн-скрипты и инлайн-стили.** Стили задаём через `el.style.…` (CSSOM) или классы, не через атрибут `style`. CSP прописан в трёх местах:
-   - `server.js`;
-   - `desktop/lib.cjs`;
-   - `android/.../AssetServer.kt`.
+### Ограничения со стороны VPS
 
-   Новые источники (blob:, https: для вложений) добавлять во все три.
-4. **Выводить пользовательский текст только через `textContent`** (`el()` в `app.js`), никакого `innerHTML`.
-5. **Android-код в этой среде не компилируется** (нет SDK). Его проверяет только CI (job android). Kotlin писать аккуратно; из AndroidX — только `androidx.webkit` (прокси), новых библиотек не добавлять.
-6. **Новое поле в сообщении** проходит через «чистильщики» (`cleanText`, `cleanFile`, `cleanProfile`): клиент принимает только известные поля.
-7. **Совместимость:** старые клиенты игнорируют неизвестные `content.t`. Новые типы добавлять так, чтобы старые версии не ломались.
+- **Никогда не трогать `ufw`** (однажды отрезало SSH на нестандартном порту).
+- Вход root по SSH запрещён; деплой — через `sudo`.
+- На том же VPS другие сайты (`sdsds.top`, `ai.sdsds.top`) — их nginx-конфиги не ломать.
+- Проект — `/opt/tainik/e2e-messenger`; nginx на хосте, Тайник — Docker на `127.0.0.1:8787`.
 
-### Ограничения со стороны VPS (важно)
+### Переменные окружения сервера (`.env`, см. `.env.example`)
 
-- **Никогда не включать и не трогать `ufw`:** однажды это отрезало SSH на нестандартном порту.
-- Вход root по SSH запрещён (`PermitRootLogin no`). Деплой не должен требовать root-логина, используется `sudo`.
-- На том же VPS работают другие сайты (`sdsds.top`, `ai.sdsds.top`): их nginx-конфиги не ломать.
-- Проект лежит в `/opt/tainik/e2e-messenger`; nginx на хосте, Тайник — в Docker на `127.0.0.1:8787`.
+`DOMAIN`, `ACME_EMAIL`, `TAINIK_PORT`, `QUEUE_TTL_DAYS`, `MAX_UPLOAD_MB`, `MAX_STORAGE_GB`, `MAX_CONN_PER_IP`, `ADMIN_PASSWORD`, `ADMIN_PATH`, `RELEASES_REPO`, `GITHUB_TOKEN`, `XROCKET_PAY_TOKEN`, `XROCKET_WEBHOOK_SECRET`, `XROCKET_TESTNET`, `PREMIUM_PLANS`, `PREMIUM_CURRENCY`, `PREMIUM_PAY_CURRENCIES`, `COIN_PACKS`, `COINS_PER_UNIT`, `NEWS_CHANNEL`, TURN (`TURN_SECRET`, `TURN_HOST`, `TURN_PORT`, `TURNS_PORT`, `STUN_FALLBACK`), `WEB_PUSH`, `VAPID_SUBJECT`.
 
 ---
 
-## 6. История версий (кратко)
+## 6. История версий (кратко; подробно — `CHANGELOG.md`)
 
 | Версия | Что появилось |
 |---|---|
-| ≤0.9 | Протокол v3, веб, десктоп, звонки, push, несколько устройств, Android |
-| 0.10–0.11 | Несколько аккаунтов, админка, удаление аккаунтов и бан IP, последний IP, веб-клип iPhone и его подпись |
-| 0.12 | Официальные галочки (`admin` по умолчанию) |
-| 0.13 | Главная страница, загрузки через сервер, самообновление (подпись Ed25519) |
-| 0.14 / 0.14.1 | Английский язык, синхронизация прочтения; исправление TDZ-бага с `t` |
-| 0.15 / 0.15.1 | Фото, видео и файлы (E2E); главная открывается всегда, кнопка «Перейти в чаты» |
-| 0.16 | Блокировка пользователей, удаление чата |
-| 0.17 | Настройки по разделам, как в Telegram |
-| 0.18 | Встроенный сканер QR во всех версиях |
-| 0.19 | Юзернейм и имя, «о себе», профиль собеседника, ссылка на главную в «О Тайнике» |
-| 0.20 | Подписка «Тайник Премиум» через xRocket Pay, фото профиля, звезда ★, подписка в админке |
-| 0.21 | Версия приложения у устройств (список устройств, админка); повторный запрос профиля, если фото потерялось |
-| 0.33 | Меню скрепки как в Telegram: галерея (на Android — снимки телефона в панели), вкладка «Файлы» |
-| 0.32.1 | Фото и видео из галереи Android — как медиа: тип по первым байтам (`withRealType` в `pickFiles`), HEIC → JPEG |
-| 0.32 | Ответ из уведомления (Android, macOS); масштаб интерфейса зафиксирован |
-| 0.31 | Каналы: публичные (по @имени) и приватные (по ссылке с ключом), администраторы, посты на сервере в зашифрованном виде |
-| 0.30 | Монеты — внутренняя валюта (пакеты за крипту, Премиум за монеты себе и в подарок); фото профиля на весь экран (большое фото в профиле) |
-| 0.29 | Премиум в подарок (профиль собеседника или «Тайник Премиум» → «В подарок») |
-| 0.28 | Запись удержанием (вверх — закрепить, влево — отмена), перемотка голосовых и видеосообщений, смена камеры |
-| 0.27 | Голосовые и квадратные видеосообщения; «в сети» только когда приложение на экране (Android в фоне — не в сети) |
-| 0.26 | Прокси в приложениях (SOCKS5/HTTP с паролем); самообновление находит версию новее уже скачанной |
-| 0.25 | Групповые чаты (до 50, без сервера); чистка: убраны варианты Caddy/systemd |
-| 0.24 | Громкость собеседника и своего голоса (0–200%) |
-| 0.23 | Выбор микрофона и динамика (настройки и во время звонка) |
-| 0.22 | Оплата подписки в Gram и TRX (по курсу xRocket); пометка «настоящая покупка» вместо «тестовая сеть» |
+| ≤0.21 | Протокол v3, веб/десктоп/Android/iPhone, звонки, push, несколько устройств и аккаунтов, админка, галочки, главная, самообновление, английский, вложения, блокировка, настройки как в Telegram, QR-сканер, профиль, Премиум (xRocket), версия приложения у устройств |
+| 0.22–0.26 | Оплата в Gram/TRX; выбор микрофона/динамика и громкость; группы до 50; прокси в приложениях |
+| 0.27–0.30 | Голосовые и квадратные видеосообщения, запись удержанием, перемотка; «в сети» только на экране; Премиум в подарок; монеты; фото на весь экран |
+| 0.31–0.33 | Каналы (публичные/приватные); ответ из уведомления; фиксированный масштаб; меню скрепки с галереей |
+| 0.34 | ID пользователей в панели; ссылки на VPN- и прокси-ботов в настройках; свайп «назад» |
+| 0.35 | Пересылка и закрепление сообщений; свайп закрытия скрепки; кликабельные ссылки (0.35.2); исправлено копирование (0.35.3) |
+| 0.36 | Служебный чат «Тайник» (уведомления о монетах, Премиуме, галочке, входах, сообщения администратора) |
+| 0.37 | Перенос переписки файлом, привязанным к аккаунту; ответ на длинное сообщение не вылезает за экран (0.37.1) |
+| 0.38 | Без клавиатуры при входе в чат на телефоне; ответ из уведомления с цитатой; синхронизация уведомлений между устройствами (0.38.1) |
+| 0.39 | ID каналов и групп, вкладка «Каналы и группы», галочки каналам и группам |
+| 0.40 | Канал «Обновления Тайника» с патчноутами; архив чатов |
+| 0.41 | Каналы в профиле (до двух); испанский и японский |
+| 0.42 | Удаление своего аккаунта; удаление каналов/групп из панели; названия групп в панели |
+| 0.43 | Скрытие статуса — Премиум; фоновые аккаунты не «в сети» |
+| 0.44 | Закреплённые чаты и папки-вкладки |
+| 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
+| 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
 
 ---
 
 ## 7. Известные проблемы и ограничения
 
 **Безопасность и приватность**
-- Протокол — самостоятельная реализация спецификаций Signal, **без аудита**. Покрыт тестами, но для высокорисковой переписки не рекомендуется.
-- Сервер видит **метаданные**: кто, кому, когда, размер. Нет sealed sender.
-- Сервер знает чёрные списки и последний IP устройств — это осознанный выбор.
+- Протокол — своя реализация спецификаций Signal, **без аудита**.
+- Сервер видит метаданные (кто, кому, когда, размер), без sealed sender; знает чёрные списки, последний IP устройств, **состав и названия групп**, подписчиков каналов, кто подписчик Премиум.
+- Чат поддержки и уведомления «Тайника» хранятся открытым текстом.
+- Удаление группы администратором — только сигнал; модифицированный клиент может продолжать писать участникам.
 
-**Вложения**
-- Хранятся на сервере `QUEUE_TTL_DAYS` дней (по умолчанию 30), потом в чате «Файл больше недоступен».
-- Локального постоянного кэша нет: после перезапуска файлы скачиваются заново.
-- Нет пересылки сообщений и файлов другому собеседнику (это может стать следующей задачей).
-- Старые клиенты (до 0.15) сообщения с файлами не показывают.
-- Сохранение файла в Electron идёт через стандартное окно загрузки (`<a download>` с blob:). На реальном десктопе это не проверялось. На Android сохранение и выбор файлов (`onShowFileChooser`, `save.*`) проверены только сборкой CI, не на устройстве.
+**Проверено только автоматически / не на реальных устройствах**
+- Android: сохранение файлов, выбор файлов, системный буфер обмена, ответ с цитатой из уведомления, иконки с сервера — только сборка CI, не на телефоне.
+- iPhone: выбор файла импорта, отображение — не проверялись.
+- Подписка — с поддельным xRocket, с настоящим не проверялась.
+- Испанский и японский — машинный перевод без вычитки.
 
-**Профиль**
-- Имя видят только те, кому вы писали. Новый собеседник до вашего первого сообщения видит юзернейм.
-- Фото профиля — только с подпиской, маленькое (160×160). Без подписки аватар — буква и цвет по юзернейму.
-- Привязанное устройство может не получить фото части собеседников (лимит канала привязки) — они появятся при следующем изменении профиля собеседника.
-
-**Подписка**
-- Проверена с поддельным xRocket в тестах и в браузере; с настоящим xRocket (даже тестовой сетью) не проверялась. Схема тела `POST /api/v1/invoices` взята из Python-клиента pyXRocketAPI (страница документации её не отдаёт).
-- Звезда и фото пропадают у собеседников не мгновенно после окончания подписки, а в течение 5 минут (фоновая проверка).
-- Возвратов (refund) нет; отключение подписки администратором денег не возвращает.
-- Старые клиенты (до 0.19) имён не показывают.
-
-**QR-сканер**
-- Версии QR 1–10 (код привязки — версия 5). Очень плотные чужие коды могут не читаться.
-- Проверен синтетическими кадрами и поддельной камерой Chromium, на реальном телефоне не проверялся.
-
-**Платформы**
-- Android: нет показа экрана во время звонка (WebView не умеет). Входящий звонок на заблокированном телефоне — уведомление, ответить можно после разблокировки.
-- iPhone: только веб-клип/PWA. Пуши только с экрана «Домой».
-- Сборки десктопа **не подписаны** (SmartScreen, Gatekeeper): см. RELEASING.md → «Подпись».
-- Панель администратора только на русском.
-
-**Нет функциональности**
-- Группы — до 50 участников (рассылка по парным сессиям); групповых звонков нет.
-- История переписки на новое устройство не переносится (только контакты, профиль, имена).
-- Поиска по сообщениям нет. Редактирования сообщений нет.
+**Функциональность**
+- Вложения живут на сервере `QUEUE_TTL_DAYS` (30 дней); постоянного локального кэша нет.
+- Закреплённое сообщение в канале видно только вам (у подписчиков не синхронизируется).
+- Веб/iPhone: уведомление, пришедшее при закрытой вкладке, не снимается, если чат прочитан на другом устройстве.
+- Поле «Ответить» в уведомлении — только Android и macOS.
+- Групп больше 50 и групповых звонков нет; поиска по сообщениям и редактирования нет.
+- Панель администратора — только на русском. Патчноуты в канале — на русском.
+- Сборки десктопа не подписаны (SmartScreen/Gatekeeper).
+- Эмодзи остались в текстах (превью, системные сообщения, уведомления) — по решению, т. к. там нужен текст.
 
 **Хозяйство**
-- На GitHub остались старые ветки `admin-allow-ips` и `android`: их нужно удалить вручную.
+- На GitHub остались старые ветки `admin-allow-ips` и `android` — удалить вручную.
 
 ---
 
 ## 8. Идеи на будущее
 
-Высказаны или логично вытекают:
-- пересылка сообщений и медиа;
-- новые преимущества подписки (точки расширения: `client.isPremium()` / `hasPremium(name)` на клиенте, `store.premiumUntil()` на сервере);
-- большие группы (Sender Keys) и групповые звонки;
-- редактирование сообщений;
-- поиск;
-- голосовые сообщения (запись → вложение `kind:'audio'`);
-- постоянный кэш медиа (IndexedDB/файлы на устройстве с шифрованием);
-- подпись сборок Windows и macOS.
+- Покупка подарков за монеты (сейчас «скоро»), новые преимущества Премиум (`client.isPremium()` / `hasPremium(name)`, `store.premiumUntil()`).
+- Пуши о постах каналов в вебе/iPhone, отключение уведомлений по чату/каналу, смена ссылки-приглашения, аватары каналов, закреп в канале для всех.
+- Большие группы (Sender Keys), групповые звонки, редактирование, поиск.
+- Постоянный зашифрованный кэш медиа; вложения в чате поддержки.
+- Подпись сборок Windows и macOS.
