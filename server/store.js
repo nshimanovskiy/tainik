@@ -192,6 +192,17 @@ CREATE TABLE IF NOT EXISTS group_members (
   PRIMARY KEY (grp, user)
 );
 CREATE INDEX IF NOT EXISTS group_members_user ON group_members(user);
+-- Чат поддержки: сообщения пользователя администратору сервера и ответы. Без сквозного
+-- шифрования (их читает администратор в панели) — об этом пользователь предупреждён в чате.
+CREATE TABLE IF NOT EXISTS support (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user        TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  admin       INTEGER NOT NULL DEFAULT 0,
+  text        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  seen        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS support_user ON support(user, id);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -589,6 +600,35 @@ export class Store {
   premiumEndedBetween(from, to) {
     return this.s.premiumEnded.all(from, to).map((r) => r.user);
   }
+  // ----- поддержка -----
+  /** Сообщение в чат поддержки: от пользователя (admin false) или ответ администратора. */
+  addSupport(user, admin, text, now = Date.now()) {
+    const id = Number(this.db.prepare('INSERT INTO support(user, admin, text, created_at, seen) VALUES (?, ?, ?, ?, ?)').run(user, admin ? 1 : 0, text, now, admin ? 1 : 0).lastInsertRowid);
+    return { id, admin: !!admin, text, at: now };
+  }
+  /** Переписка пользователя с поддержкой (последние limit, по возрастанию). */
+  supportOf(user, limit = 300) {
+    return this.db
+      .prepare('SELECT * FROM support WHERE user = ? ORDER BY id DESC LIMIT ?')
+      .all(user, limit)
+      .reverse()
+      .map((r) => ({ id: r.id, admin: !!r.admin, text: r.text, at: r.created_at }));
+  }
+  /** Обращения для панели: по пользователю — последнее сообщение и сколько непрочитанных. */
+  supportThreads() {
+    return this.db
+      .prepare(
+        `WITH t AS (SELECT user, MAX(id) AS last_id, SUM(CASE WHEN admin = 0 AND seen = 0 THEN 1 ELSE 0 END) AS unread FROM support GROUP BY user)
+         SELECT t.user, t.unread, s.created_at AS last_at, s.text AS last_text, s.admin AS last_admin
+         FROM t JOIN support s ON s.id = t.last_id ORDER BY t.last_id DESC LIMIT 300`
+      )
+      .all()
+      .map((r) => ({ user: r.user, lastAt: r.last_at, unread: r.unread, last: String(r.last_text).slice(0, 140), lastFromAdmin: !!r.last_admin }));
+  }
+  markSupportSeen(user) {
+    this.db.prepare('UPDATE support SET seen = 1 WHERE user = ? AND admin = 0').run(user);
+  }
+
   // ----- служебные уведомления -----
   /** Записать уведомление (user null — всем). Возвращает { id, kind, data, at }. */
   addNotice(user, kind, data = {}, now = Date.now()) {

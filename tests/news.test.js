@@ -93,6 +93,17 @@ test('канал обновлений: создаётся, патчноут од
   assert.equal(srv.store.db.prepare("SELECT value FROM meta WHERE key = 'news_channel'").get().value, id);
   assert.equal(srv.store.getChannel({ id }).seq, 2);
 
+  // Сервер обновили сразу через несколько версий — в канале все пропущенные, по порядку
+  fs.writeFileSync(changelogPath, `# История\n\n## ${VERSION}\n\n- текущая\n\n## 0.0.3\n\n- третья\n\n## 0.0.2\n\n- вторая\n\n## 0.0.1\n\n- первая\n`);
+  srv.store.db.prepare("UPDATE meta SET value = '0.0.1' WHERE key = 'news_version'").run();
+  clients.forEach((c) => c.disconnect());
+  await srv.close();
+  srv = await startServer(opts);
+  await until(() => srv.store.getChannel({ id }).seq === 5);
+  const bodies = srv.store.channelHistory(id, 2).posts.length;
+  assert.equal(bodies, 3, 'опубликованы 0.0.2, 0.0.3 и текущая');
+  assert.equal(srv.store.db.prepare("SELECT value FROM meta WHERE key = 'news_version'").get().value, VERSION);
+
   // Отписаться можно, как от любого канала
   const bob = mk();
   await bob.register('bob');

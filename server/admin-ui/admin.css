@@ -129,3 +129,19 @@ button.ghost.tick.on { color: var(--muted); }
 h2.sub { font-size: 15px; margin: 18px 0 8px; }
 .tag.pub { background: transparent; border: 1px solid var(--line); color: var(--muted); }
 code.cid { font-size: 11px; color: var(--muted); }
+/* Поддержка */
+.support-wrap { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 16px; align-items: start; }
+@media (max-width: 760px) { .support-wrap { grid-template-columns: 1fr; } }
+.support-list { display: flex; flex-direction: column; gap: 6px; }
+.sp-thread { text-align: left; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); font-weight: 400; display: flex; flex-direction: column; gap: 4px; }
+.sp-thread.on { border-color: var(--accent); }
+.sp-top { display: flex; gap: 8px; align-items: center; }
+.sp-top .muted { margin-left: auto; }
+.sp-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag.hot, #tab-support-n.hot { background: var(--danger); color: #fff; border-radius: 10px; padding: 0 7px; }
+.support-chat { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: var(--surface); }
+.support-chat h2 { margin-top: 0; }
+.sp-msgs { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 8px; max-height: 55vh; overflow-y: auto; }
+.sp-msg { max-width: 80%; padding: 8px 12px; border-radius: 12px; background: var(--bg, #f3f1ec); }
+.sp-msg.admin { align-self: flex-end; background: var(--accent-soft, #dcefe8); }
+.sp-text { white-space: pre-wrap; overflow-wrap: anywhere; }

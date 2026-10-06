@@ -46,6 +46,8 @@ const CHANNELS_PER_USER = 20; // своих каналов
 const CHANNEL_PAGE = 100;
 const PUSH_GAP = 4000; // не чаще одного пуша от одного отправителя на устройство за это время
 const NOTICE_TEXT_MAX = 2000; // сообщение администратора в чате «Тайник»
+const SUPPORT_TEXT_MAX = 4000; // сообщение в чат поддержки
+const SUPPORT_PER_HOUR = 60; // сообщений в поддержку от одного пользователя за час
 const PREMIUM_REMIND = 3 * 86400_000; // за сколько до конца подписки напомнить
 
 const MIME = {
@@ -500,6 +502,7 @@ export function startServer({
           premium: premiumOf(p.username),
           gifts: store.giftsOf(p.username, Date.now() - GIFT_RECENT),
           notices: store.noticesOf(p.username, Date.now() - NOTICE_RECENT),
+          support: store.supportOf(p.username),
           coins: store.coinsOf(p.username),
           channels: store.channelsOf(p.username).map((id) => store.getChannel({ id })).filter(Boolean).map((c) => channelInfo(c, p.username)),
           billing: billingInfo(),
@@ -715,6 +718,19 @@ export function startServer({
 
       // ----- присутствие -----
       // Свои группы (id и число участников): сервер выдаёт им номера и сообщает, у каких есть галочка
+      // Чат поддержки: сообщение администратору сервера (видно в панели)
+      case 'support-send': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        const text = String(msg.text ?? '').replace(/\r\n?/g, '\n').trim();
+        if (!text) return error(conn, 'bad_message', { reqId: msg.reqId });
+        if (text.length > SUPPORT_TEXT_MAX) return error(conn, 'too_large', { reqId: msg.reqId });
+        if (!take(state.support, SUPPORT_PER_HOUR, 3600_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        const m = store.addSupport(state.user, false, text);
+        for (const c of onlineDevices(state.user)) if (c !== conn) send(c, { type: 'support', msg: m });
+        say('новое сообщение в поддержку');
+        return send(conn, { type: 'support-ok', reqId: msg.reqId, msg: m });
+      }
+
       // Пользователь удаляет свой аккаунт: подтверждение — свой юзернейм
       case 'delete-account': {
         if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
@@ -1060,6 +1076,7 @@ export function startServer({
     return {
       chats: adminChats(), // промис — панель дожидается (названия публичных каналов расшифровываются)
       news: news?.id ? { id: news.id, handle: store.getChannel({ id: news.id })?.handle || null } : null,
+      support: store.supportThreads(),
       version: VERSION,
       now,
       startedAt,
@@ -1124,6 +1141,29 @@ export function startServer({
       if (name && (!USERNAME_RE.test(name) || !store.getUser(name))) throw new Error('Нет такого пользователя');
       notice(name || null, 'admin', { text });
       say(name ? 'администратор отправил уведомление' : 'администратор отправил уведомление всем');
+    },
+    // Поддержка: переписка с пользователем (и отметка «прочитано»), ответ администратора
+    supportThread(name) {
+      name = String(name || '').toLowerCase();
+      if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
+      store.markSupportSeen(name);
+      return { messages: store.supportOf(name) };
+    },
+    supportReply(name, text) {
+      name = String(name || '').toLowerCase();
+      if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
+      text = String(text ?? '').replace(/\r\n?/g, '\n').trim();
+      if (!text) throw new Error('Пустой ответ');
+      if (text.length > SUPPORT_TEXT_MAX) throw new Error(`Не длиннее ${SUPPORT_TEXT_MAX} символов`);
+      store.markSupportSeen(name);
+      const m = store.addSupport(name, true, text);
+      for (const d of store.deviceIds(name)) {
+        const c = online.get(addr(name, d));
+        if (c) send(c, { type: 'support', msg: m });
+        else pushTo(name, d, { t: 'support', from: '' });
+      }
+      say('администратор ответил в поддержке');
+      return { message: m };
     },
     // Пост в канал «Обновления Тайника» от имени канала
     async postNews(text) {
@@ -1306,7 +1346,7 @@ export function startServer({
       (conn) => {
         conn.meta = { ip, since: Date.now() }; // для панели администратора, на диск не пишется
         allConns.add(conn);
-        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], channel: [], diag: [], pids: [], watching: new Set() };
+        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], channel: [], support: [], diag: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
           if (!take(state.msgs, RATE.msgsPerSec, 1000)) return error(conn, 'rate_limited');

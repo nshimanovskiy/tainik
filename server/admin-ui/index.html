@@ -31,6 +31,7 @@
     <nav class="tabs" role="tablist">
       <button type="button" class="tab on" data-tab="users" role="tab" aria-selected="true">Пользователи <span id="tab-users-n" class="muted"></span></button>
       <button type="button" class="tab" data-tab="chats" role="tab" aria-selected="false">Каналы и группы <span id="tab-chats-n" class="muted"></span></button>
+      <button type="button" class="tab" data-tab="support" role="tab" aria-selected="false">Поддержка <span id="tab-support-n" class="muted"></span></button>
     </nav>
 
     <div id="tab-chats" hidden>
@@ -67,6 +68,25 @@
         Номер (ID) канала и группы выдаётся сервером и виден только здесь. Посты и сообщения зашифрованы — сервер их не видит. Название публичного канала видно (его ключ у сервера), группы — сообщают её администраторы (приложение 0.42 и новее); название приватного канала зашифровано. «Удалить» канал — пропадает у всех подписчиков со всеми постами; группу — её участники выходят из неё (переписка у них остаётся).
         Группы появляются здесь, когда приложения участников сообщают о них серверу (версия 0.39 и новее); «участники» — сколько назвал администратор группы, «на сервере» — сколько участников уже отметились. Галочка видна всем участникам и подписчикам сразу.
       </p>
+    </div>
+
+    <div id="tab-support" hidden>
+      <div class="support-wrap">
+        <div class="support-list">
+          <div id="support-threads"></div>
+          <p id="support-empty" class="muted small center">Обращений пока нет. Пользователи пишут сюда из приложения: Настройки → «Поддержка».</p>
+        </div>
+        <section class="support-chat" id="support-chat" hidden>
+          <h2>Переписка с <span id="support-with"></span></h2>
+          <ul id="support-msgs" class="sp-msgs"></ul>
+          <form id="support-form" class="ban-form" autocomplete="off">
+            <textarea id="support-text" rows="3" maxlength="4000" placeholder="Ответ пользователю"></textarea>
+            <button type="submit">Ответить</button>
+          </form>
+          <p id="support-error" class="error small" role="alert"></p>
+        </section>
+      </div>
+      <p class="note muted small">Чат поддержки не сквозной: сообщения хранятся на сервере открытым текстом (пользователь предупреждён в чате). Ответ приходит пользователю в чат «Поддержка» на все его устройства, с уведомлением.</p>
     </div>
 
     <div id="tab-users">

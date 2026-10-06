@@ -25,6 +25,18 @@ async function seal(keyB64, id, obj) {
   return toB64(out);
 }
 
+/** Версии из заголовков «## x.y.z» CHANGELOG.md. */
+export function changelogVersions(text) {
+  return [...String(text || '').matchAll(/^##\s+(\d+\.\d+\.\d+)\s*$/gm)].map((m) => m[1]);
+}
+/** Сравнение версий x.y.z: <0, 0, >0. */
+export function cmpVersion(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  return 0;
+}
+
 /** Раздел «## <версия>» из CHANGELOG.md — простым текстом (без разметки Markdown). */
 export function changelogSection(text, version) {
   const lines = String(text || '').split(/\r?\n/);
@@ -93,19 +105,32 @@ export function createNews({ store, version, changelogPath, notify, say = () => 
     return res;
   }
 
-  /** Патчноут текущей версии — один раз на версию. */
+  /**
+   * Патчноуты новых версий — каждая один раз, по порядку. Если сервер обновили сразу через
+   * несколько версий, публикуются все пропущенные (от старой к новой). При самом первом запуске
+   * канала — только текущая версия (историю не вываливаем).
+   */
   async function publishRelease() {
-    if (meta('news_version') === version) return null;
-    let text = null;
+    const last = meta('news_version');
+    if (last === version) return null;
+    let md = '';
     try {
-      text = changelogSection(fs.readFileSync(changelogPath, 'utf8'), version);
+      md = fs.readFileSync(changelogPath, 'utf8');
     } catch {}
-    if (!text) return null; // нет раздела — ждём следующей версии
-    const res = await post(`🆕 Тайник ${version}\n\n${text}`);
-    if (res) {
-      setMeta('news_version', version);
-      say(`канал обновлений: опубликован патчноут ${version}`);
+    const versions = changelogVersions(md)
+      .filter((v) => cmpVersion(v, version) <= 0 && (last ? cmpVersion(v, last) > 0 : v === version))
+      .sort(cmpVersion);
+    let res = null;
+    for (const v of versions) {
+      const text = changelogSection(md, v);
+      if (!text) continue;
+      res = await post(`🆕 Тайник ${v}\n\n${text}`);
+      if (!res) break;
+      setMeta('news_version', v);
+      say(`канал обновлений: опубликован патчноут ${v}`);
     }
+    // Раздела для текущей версии нет — отметим её, чтобы не публиковать старые ещё раз
+    if (res && meta('news_version') !== version && cmpVersion(meta('news_version'), version) < 0 && !versions.includes(version)) setMeta('news_version', version);
     return res;
   }
 

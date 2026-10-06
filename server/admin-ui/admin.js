@@ -44,6 +44,7 @@ async function act(name, body) {
   const res = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(res.error || 'Ошибка ' + r.status);
   await load();
+  return res;
 }
 async function ban(ip) {
   const note = prompt(`Заблокировать ${ip}? С этого адреса нельзя будет подключиться, текущие подключения оборвутся.\n\nЗаметка (необязательно):`, '');
@@ -280,6 +281,7 @@ async function load() {
     fetchedAt = Date.now();
     render();
     renderChats();
+    renderSupport();
   } catch {
     $('updated').textContent = 'нет связи с сервером';
   }
@@ -306,13 +308,15 @@ function showTab(name) {
   }
   $('tab-users').hidden = name !== 'users';
   $('tab-chats').hidden = name !== 'chats';
+  $('tab-support').hidden = name !== 'support';
   try {
     sessionStorage.setItem('admin-tab', name);
   } catch {}
 }
 for (const b of document.querySelectorAll('.tabs .tab')) b.addEventListener('click', () => showTab(b.dataset.tab));
 try {
-  if (sessionStorage.getItem('admin-tab') === 'chats') showTab('chats');
+  const saved = sessionStorage.getItem('admin-tab');
+  if (saved === 'chats' || saved === 'support') showTab(saved);
 } catch {}
 
 function verifyButton(kind, item, label) {
@@ -441,5 +445,59 @@ $('news-form').addEventListener('submit', async (e) => {
   } catch (err) {
     $('news-status').className = 'error small';
     $('news-status').textContent = err.message;
+  }
+});
+
+// ---------- Поддержка: обращения пользователей ----------
+let supportUser = null;
+function renderSupport() {
+  const threads = data?.support || [];
+  const unread = threads.reduce((n, x) => n + (x.unread || 0), 0);
+  $('tab-support-n').textContent = unread ? String(unread) : threads.length ? String(threads.length) : '';
+  $('tab-support-n').classList.toggle('hot', unread > 0);
+  $('support-empty').hidden = threads.length > 0;
+  $('support-threads').replaceChildren(
+    ...threads.map((x) => {
+      const b = el('button', 'sp-thread' + (x.user === supportUser ? ' on' : ''));
+      b.type = 'button';
+      const top = el('div', 'sp-top');
+      top.append(el('b', '', x.user), el('span', 'muted small', ago(x.lastAt, data.now)));
+      if (x.unread) top.append(el('span', 'tag hot', String(x.unread)));
+      b.append(top, el('div', 'muted small sp-last', (x.lastFromAdmin ? 'Вы: ' : '') + x.last));
+      b.addEventListener('click', () => openSupportThread(x.user));
+      return b;
+    })
+  );
+}
+async function openSupportThread(user) {
+  supportUser = user;
+  $('support-chat').hidden = false;
+  $('support-with').textContent = user;
+  $('support-error').textContent = '';
+  try {
+    const r = await act('support-thread', { name: user });
+    if (supportUser !== user) return;
+    $('support-msgs').replaceChildren(
+      ...r.messages.map((m) => {
+        const li = el('li', 'sp-msg ' + (m.admin ? 'admin' : 'user'));
+        li.append(el('div', 'sp-text', m.text), el('div', 'muted small', fullFmt.format(m.at) + (m.admin ? ' · поддержка' : '')));
+        return li;
+      })
+    );
+    $('support-msgs').lastElementChild?.scrollIntoView({ block: 'end' });
+  } catch (e) {
+    $('support-error').textContent = e.message;
+  }
+}
+$('support-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('support-text').value.trim();
+  if (!text || !supportUser) return;
+  try {
+    await act('support-reply', { name: supportUser, text });
+    $('support-text').value = '';
+    openSupportThread(supportUser);
+  } catch (err) {
+    $('support-error').textContent = err.message;
   }
 });

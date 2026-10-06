@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, GROUP_MAX, PROFILE_CHANNELS_MAX } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, isSupportChat, GROUP_MAX, PROFILE_CHANNELS_MAX } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -891,12 +891,12 @@ async function renderHeader() {
   setName($('peer-name'), c.username, client.isVerified(c.username));
   paintAvatar($('peer-avatar'), c.username);
   const v = $('peer-verify');
-  const group = !!c.group || !!c.channel || !!c.system;
+  const group = !!c.group || !!c.channel || !!c.system || !!c.support;
   // В группе и канале нет звонков, кода безопасности и статуса «в сети»
   for (const id of ['call-audio-btn', 'call-video-btn', 'safety-btn']) $(id).hidden = group;
   if (group) {
     v.className = 'peer-verify';
-    v.textContent = c.system ? t('служебные уведомления') : c.channel ? channelSubText(c.channel) : membersText(c.group);
+    v.textContent = c.system ? t('служебные уведомления') : c.support ? t('ответит администратор сервера') : c.channel ? channelSubText(c.channel) : membersText(c.group);
     $('peer-presence').textContent = '';
     $('key-banner').hidden = true;
     updateComposer(c);
@@ -936,7 +936,7 @@ function presenceText(p) {
   return t('был(а) {0}', dmFmt.format(d));
 }
 function renderPresence() {
-  if (!current || isGroupChat(current) || isChannelChat(current) || isSystemChat(current)) return;
+  if (!current || isGroupChat(current) || isChannelChat(current) || isSystemChat(current) || isSupportChat(current)) return;
   const p = client.presenceOf(current);
   const node = $('peer-presence');
   node.textContent = client.status === 'online' ? presenceText(p) : '';
@@ -971,6 +971,9 @@ async function updateComposer(c) {
   const blocked = !c || !!c.keyChanged || iBlocked || left || chReader || system;
   $('send-btn').disabled = blocked || client.status !== 'online';
   $('attach-btn').disabled = blocked || client.status !== 'online';
+  // Поддержка: только текст — без вложений, голосовых и видеосообщений
+  const support = !!c?.support;
+  $('attach-btn').disabled ||= support;
   const noCall = blocked || client.status !== 'online' || !window.RTCPeerConnection;
   $('call-audio-btn').disabled = noCall;
   $('call-video-btn').disabled = noCall;
@@ -980,8 +983,9 @@ async function updateComposer(c) {
   // Пустое поле — вместо «Отправить» кнопки записи голосового и видеосообщения
   const empty = !$('text').value.trim();
   $('send-btn').hidden = empty && REC_OK;
-  $('voice-btn').hidden = !empty || !REC_OK;
-  $('note-btn').hidden = !empty || !NOTE_OK;
+  $('voice-btn').hidden = !empty || !REC_OK || support;
+  $('note-btn').hidden = !empty || !NOTE_OK || support;
+  if (support && empty) $('send-btn').hidden = false;
   $('voice-btn').disabled = $('note-btn').disabled = blocked || client.status !== 'online';
 }
 
@@ -1104,7 +1108,7 @@ function messageNode(m) {
   }
   li.append(bubble);
   const acts = el('div', 'msg-actions');
-  const noReply = isChannelChat(current) || isSystemChat(current);
+  const noReply = isChannelChat(current) || isSystemChat(current) || isSupportChat(current);
   if (noReply) li.classList.add('post'); // пост канала и уведомление «Тайника»: без ответа
   const rb = el('button', '', '↩︎');
   rb.type = 'button';
@@ -1212,6 +1216,8 @@ async function renderChat() {
   const ol = $('messages');
   const note = isSystemChat(current)
     ? t('ℹ️ Сообщения от сервера Тайника: о монетах, Премиуме и безопасности вашего аккаунта')
+    : isSupportChat(current)
+    ? t('⚠ Чат поддержки не защищён сквозным шифрованием: ваши сообщения читает администратор сервера. Не отправляйте сюда пароли и секреты.')
     : ch
     ? ch.public
       ? t('📢 Публичный канал: посты может прочитать любой, кто его найдёт')
@@ -3485,6 +3491,11 @@ client.on('error', async ({ code, text, self }) => {
   }
   toast(text);
 });
+// Поддержка: чат с администратором сервера
+$('support-btn').addEventListener('click', async () => {
+  $('menu-dialog').close();
+  openChat(await client.openSupport());
+});
 // Удалить свой аккаунт: подтверждение — ввести свой юзернейм
 $('delacc-btn').addEventListener('click', () => {
   $('delacc-name').textContent = '@' + (client.account?.username || '');
@@ -4471,7 +4482,7 @@ async function openMenu(id, x, y) {
   const m = await findMsg(id);
   if (menuFor !== id) return;
   menu.querySelector('[data-act="save"]').hidden = !m?.content?.file;
-  const sys = isSystemChat(current);
+  const sys = isSystemChat(current) || isSupportChat(current);
   menu.querySelector('[data-act="reply"]').hidden = isChannelChat(current) || sys;
   menu.querySelector('[data-act="pin"]').hidden = sys;
   const pinnedId = (await client.contacts())[current]?.pinned?.id;
@@ -4569,7 +4580,7 @@ $('msg-menu').addEventListener('click', async (e) => {
     const group = isGroupChat(current);
     const chan = isChannelChat(current);
     // В группе «у всех» — только для своих сообщений, в канале — для владельца и администраторов
-    $('del-all').closest('label').hidden = isSystemChat(current) || (chan ? !isChAdmin(await client.channelOf(current)) : group && m?.dir !== 'out');
+    $('del-all').closest('label').hidden = isSystemChat(current) || isSupportChat(current) || (chan ? !isChAdmin(await client.channelOf(current)) : group && m?.dir !== 'out');
     $('del-peer').textContent = chan ? t('всех подписчиков') : group ? t('всех участников') : nameOf(current);
     $('del-all').checked = false;
     $('delete-dialog').dataset.id = id;
@@ -4609,7 +4620,7 @@ let profileTab = 'media';
 async function openProfile(name) {
   if (isGroupChat(name)) return openGroup(name);
   if (isChannelChat(name)) return openChannelInfo(name);
-  if (isSystemChat(name)) return;
+  if (isSystemChat(name) || isSupportChat(name)) return;
   if (name === client.account?.username) return openSettings('profile');
   profileFor = name;
   profileTab = 'media';
@@ -5199,7 +5210,7 @@ function openChatMenu(name, x, y) {
   const isBlocked = client.isBlocked(name);
   const chan = isChannelChat(name);
   const group = isGroupChat(name);
-  const sys = isSystemChat(name);
+  const sys = isSystemChat(name) || isSupportChat(name);
   menu.querySelector('[data-act="block"]').hidden = isBlocked || group || chan || sys;
   menu.querySelector('[data-act="unblock"]').hidden = !isBlocked || group || chan || sys;
   menu.querySelector('[data-act="profile"]').hidden = group || chan || sys;

@@ -143,6 +143,10 @@ export const isGroupChat = (chat) => typeof chat === 'string' && chat.startsWith
 // администратора. Писать в этот чат нельзя. Ключ '~tainik' не пересекается с юзернеймами.
 export const SYSTEM_CHAT = '~tainik';
 export const isSystemChat = (chat) => chat === SYSTEM_CHAT;
+// Чат поддержки: переписка с администратором сервера. Не сквозная — сообщения видны в панели.
+export const SUPPORT_CHAT = '~support';
+export const isSupportChat = (chat) => chat === SUPPORT_CHAT;
+export const SUPPORT_TEXT_MAX = 4000;
 const NEWS_OWNER = '~tainik'; // владелец официального канала обновлений (см. server/news.js)
 export const NOTICE_TEXT_MAX = 2000;
 const NOTICE_KINDS = new Set(['welcome', 'device', 'verified', 'coins-buy', 'coins-admin', 'premium', 'premium-gift', 'gift-sent', 'premium-admin', 'premium-off', 'premium-ended', 'premium-soon', 'admin']);
@@ -703,7 +707,7 @@ export class MessengerClient extends Emitter {
         }
         return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile };
       })
-      .filter((c) => !isGroupChat(c.username) && !isChannelChat(c.username) && !isSystemChat(c.username));
+      .filter((c) => !isGroupChat(c.username) && !isChannelChat(c.username) && !isSystemChat(c.username) && !isSupportChat(c.username));
     const groups = Object.values(await this.contacts())
       .filter((c) => c.group)
       .map((c) => ({ ...c.group }));
@@ -934,6 +938,7 @@ export class MessengerClient extends Emitter {
         if (Array.isArray(msg.channels)) this._onChannels(msg.channels).catch((e) => console.error('channels', e));
         if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
         if (Array.isArray(msg.notices)) this._serial(() => this._onNotices(msg.notices)).catch((e) => console.error('notices', e));
+        if (Array.isArray(msg.support)) this._serial(() => this._onSupport(msg.support, true)).catch((e) => console.error('support', e));
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._groupsSynced = null;
         this._setStatus('online');
@@ -967,6 +972,9 @@ export class MessengerClient extends Emitter {
         return;
       case 'notice':
         this._serial(() => this._onNotices([msg.notice])).catch((e) => console.error('notices', e));
+        return;
+      case 'support':
+        this._serial(() => this._onSupport([msg.msg])).catch((e) => console.error('support', e));
         return;
       case 'group-removed':
         if (GID_RE.test(String(msg.id))) this._serial(() => this._onGroupsRemoved([String(msg.id)])).catch(() => {});
@@ -1115,7 +1123,7 @@ export class MessengerClient extends Emitter {
       let outbox = (await this.storage.get('outbox')) || [];
       // Неотправленное в этот чат больше не нужно
       outbox = outbox.filter((x) => !((x.kind === 'msg' && (x.to === username || x.chat === username)) || (x.kind === 'sync' && x.content?.to === username)));
-      if (isGroupChat(username) || isSystemChat(username)) forAll = false; // в группе и в «Тайнике» — только у себя
+      if (isGroupChat(username) || isSystemChat(username) || isSupportChat(username)) forAll = false; // в группе и в «Тайнике» — только у себя
       const ts = Date.now();
       const c = (await this.contacts())[username];
       if (forAll && c && !c.keyChanged) outbox.push({ id: randomId(), to: username, kind: 'ctl', content: { t: 'clear-chat', ts }, attempts: 0 });
@@ -1147,7 +1155,7 @@ export class MessengerClient extends Emitter {
 
   /** Официальная галочка у собеседника (её ставит администратор сервера). */
   isVerified(username) {
-    if (isSystemChat(username)) return true; // служебный чат «Тайник»
+    if (isSystemChat(username) || isSupportChat(username)) return true; // служебные чаты «Тайник» и «Поддержка»
     if (isGroupChat(username) || isChannelChat(username)) return this._verifiedChats.has(username); // галочку ставит администратор
     return !!this.presence.get(username)?.verified;
   }
@@ -1276,6 +1284,67 @@ export class MessengerClient extends Emitter {
     await this.storage.set('chat:' + SYSTEM_CHAT, msgs.slice(-500));
     await this._saveContacts(all);
     for (const x of added) this.emit('message', { contact: SYSTEM_CHAT, message: x.m, quiet: x.quiet });
+  }
+
+  // ---------- Поддержка ----------
+  /** Чат поддержки в списке (создаётся, когда его открывают впервые). */
+  async openSupport() {
+    await this._serial(async () => {
+      const all = await this.contacts();
+      if (all[SUPPORT_CHAT] && !all[SUPPORT_CHAT].hidden) return;
+      all[SUPPORT_CHAT] ||= { username: SUPPORT_CHAT, support: true, unread: 0, lastTs: Date.now(), pending: [] };
+      delete all[SUPPORT_CHAT].hidden;
+      await this._saveContacts(all);
+    });
+    return SUPPORT_CHAT;
+  }
+
+  async _sendSupport(text) {
+    text = String(text ?? '').trim();
+    if (!text) return;
+    if (text.length > SUPPORT_TEXT_MAX) throw errorOf('too_large');
+    const r = await this._request({ type: 'support-send', text });
+    await this._serial(() => this._onSupport([r.msg]));
+  }
+
+  /**
+   * Сообщения поддержки (с сервера: при входе — история, потом — новые). Ответы администратора —
+   * входящие, свои — исходящие. Каждое — один раз. При первом получении на устройстве
+   * история ложится прочитанной и без всплывающих уведомлений.
+   */
+  async _onSupport(list, initial = false) {
+    if (!this.account || !Array.isArray(list) || !list.length) return;
+    const last = await this.storage.get('support-last');
+    const first = initial && !Number.isSafeInteger(last);
+    const all = await this.contacts();
+    const msgs = await this.messages(SUPPORT_CHAT);
+    const have = new Set(msgs.map((m) => m.id));
+    const deleted = new Set((await this.storage.get('deleted:' + SUPPORT_CHAT)) || []);
+    const added = [];
+    let maxId = Number.isSafeInteger(last) ? last : 0;
+    for (const s of list) {
+      if (!Number.isSafeInteger(s?.id) || typeof s.text !== 'string') continue;
+      maxId = Math.max(maxId, s.id);
+      const id = 's' + s.id;
+      if (have.has(id) || deleted.has(id)) continue;
+      const m = { id, dir: s.admin ? 'in' : 'out', ts: Number.isFinite(s.at) ? s.at : Date.now(), content: { t: 'text', body: s.text.slice(0, SUPPORT_TEXT_MAX) } };
+      if (!s.admin) m.status = 'sent';
+      msgs.push(m);
+      have.add(id);
+      added.push({ m, quiet: first || !s.admin || (Number.isSafeInteger(last) && s.id <= last) });
+    }
+    await this.storage.set('support-last', maxId);
+    if (!added.length) return;
+    const c = (all[SUPPORT_CHAT] ||= { username: SUPPORT_CHAT, support: true, unread: 0, lastTs: 0, pending: [] });
+    delete c.hidden;
+    for (const x of added) {
+      if (!x.quiet) c.unread = (c.unread || 0) + 1;
+      c.lastTs = Math.max(c.lastTs || 0, x.m.ts);
+    }
+    msgs.sort((a, b) => a.ts - b.ts);
+    await this.storage.set('chat:' + SUPPORT_CHAT, msgs.slice(-1000));
+    await this._saveContacts(all);
+    for (const x of added) this.emit('message', { contact: SUPPORT_CHAT, message: x.m, quiet: x.quiet });
   }
 
   _setCoins(n) {
@@ -1461,6 +1530,7 @@ export class MessengerClient extends Emitter {
       if (c.channel?.owner === NEWS_OWNER) this._official.add(c.username);
       if (c.group) this._names.set(c.username, c.group.name);
       if (c.system) this._names.set(c.username, t('Тайник'));
+      if (c.support) this._names.set(c.username, t('Поддержка'));
       if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
       if (c.profile?.name) this._names.set(c.username, c.profile.name);
       if (c.profile?.avatar) this._avatars.set(c.username, c.profile.avatar);
@@ -1781,7 +1851,7 @@ export class MessengerClient extends Emitter {
 
   /** Официальный канал сервера («Обновления Тайника»): его ведёт сам сервер. */
   isOfficial(chat) {
-    return isSystemChat(chat) || this._official?.has(chat) || false;
+    return isSystemChat(chat) || isSupportChat(chat) || this._official?.has(chat) || false;
   }
 
   isArchived(chat) {
@@ -1817,6 +1887,10 @@ export class MessengerClient extends Emitter {
   /** Сообщение собеседнику и копия «отправлено» своим устройствам (общая часть sendText и sendFile). */
   async _sendContent(username, base, replyTo) {
     if (isSystemChat(username)) throw new Error(t('В этот чат нельзя писать'));
+    if (isSupportChat(username)) {
+      if (base.t !== 'text') throw new Error(t('В поддержку можно отправить только текст'));
+      return this._sendSupport(base.body);
+    }
     if (isGroupChat(username)) return this._sendGroupContent(username, base, replyTo);
     if (isChannelChat(username)) return this._postToChannel(username, base);
     await this._serial(async () => {
@@ -2497,6 +2571,7 @@ export class MessengerClient extends Emitter {
     const all = await this.contacts();
     if (!all[username]) throw new Error(t('Нет такого контакта'));
     if (isSystemChat(username)) throw new Error(t('В этот чат нельзя писать'));
+    if (isSupportChat(username)) throw new Error(t('В поддержку можно отправить только текст'));
     if (isGroupChat(username)) {
       if (all[username].group?.left) throw errorOf('group_left');
     } else if (isChannelChat(username)) {
@@ -2692,7 +2767,7 @@ export class MessengerClient extends Emitter {
     const srcDel = p.deleted && typeof p.deleted === 'object' ? p.deleted : {};
     const me = this.account.username;
     const okChat = (chat) =>
-      typeof chat === 'string' && chat !== me && (USER_RE.test(chat) || isSystemChat(chat) || (isGroupChat(chat) && GID_RE.test(chat.slice(1))) || (isChannelChat(chat) && CHANNEL_ID_RE.test(chat.slice(1))));
+      typeof chat === 'string' && chat !== me && (USER_RE.test(chat) || isSystemChat(chat) || isSupportChat(chat) || (isGroupChat(chat) && GID_RE.test(chat.slice(1))) || (isChannelChat(chat) && CHANNEL_ID_RE.test(chat.slice(1))));
     const res = await this._serial(async () => {
       const all = await this.contacts();
       let newChats = 0;

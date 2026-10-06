@@ -202,3 +202,49 @@ function waitEv(emitter, event, pred = () => true, ms = 8000) {
     });
   });
 }
+
+test('поддержка: пользователь пишет, администратор видит в панели и отвечает, ответ — на все устройства', async (t) => {
+  const { srv, mk, adminApi, overview } = await setup(t);
+  const alice = mk();
+  await alice.register('alice');
+  const { SUPPORT_CHAT } = await import('../shared/client-core.js');
+  assert.equal(await alice.openSupport(), SUPPORT_CHAT);
+  assert.equal(alice.nameOf(SUPPORT_CHAT), 'Поддержка');
+  await alice.sendText(SUPPORT_CHAT, 'Не приходят уведомления');
+  const mine = await alice.messages(SUPPORT_CHAT);
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].dir, 'out');
+  await assert.rejects(alice.sendFile(SUPPORT_CHAT, new Uint8Array(10), { name: 'a.txt', mime: 'text/plain' }));
+
+  // Панель: обращение с непрочитанным
+  let o = await overview();
+  assert.deepEqual(o.support.map((x) => [x.user, x.unread, x.last]), [['alice', 1, 'Не приходят уведомления']]);
+  const th = await (await adminApi('support-thread', { name: 'alice' })).json();
+  assert.equal(th.messages.length, 1);
+  o = await overview();
+  assert.equal(o.support[0].unread, 0, 'открыли переписку — прочитано');
+
+  // Ответ — входящим в чат «Поддержка», с уведомлением
+  const reply = waitEv(alice, 'message', (d) => d.contact === SUPPORT_CHAT && d.message.dir === 'in' && !d.quiet);
+  assert.equal((await adminApi('support-reply', { name: 'alice', text: 'Проверьте настройки батареи' })).status, 200);
+  const r = await reply;
+  assert.equal(r.message.content.body, 'Проверьте настройки батареи');
+  assert.equal((await alice.contacts())[SUPPORT_CHAT].unread, 1);
+
+  // Новое устройство получает историю (прочитанной), без повторов
+  let gotCode;
+  const codeP = new Promise((res) => (gotCode = res));
+  const alice2 = mk();
+  const { done } = alice2.linkAsNewDevice({ deviceName: 'Телефон', onCode: ({ code }) => gotCode(code) });
+  await alice.linkDevice(await codeP);
+  await done;
+  await until(async () => (await alice2.messages(SUPPORT_CHAT)).length === 2);
+  assert.equal((await alice2.contacts())[SUPPORT_CHAT].unread, 0);
+  // Сообщение с одного устройства видно на другом
+  const echo = waitEv(alice2, 'message', (d) => d.contact === SUPPORT_CHAT && d.message.content.body === 'Спасибо!');
+  await alice.sendText(SUPPORT_CHAT, 'Спасибо!');
+  await echo;
+  assert.equal((await alice.messages(SUPPORT_CHAT)).length, 3, 'без повторов');
+  assert.equal((await adminApi('support-reply', { name: 'nobody_x', text: 'x' })).status, 400);
+  assert.equal(srv.store.supportOf('alice').length, 3);
+});

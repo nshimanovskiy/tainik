@@ -9,13 +9,14 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 const NAME_RE = /^[a-z0-9_]{3,32}$/;
 // Язык уведомлений страница передаёт при регистрации: /sw.js?lang=en (ru, en, es, ja)
 const TEXTS = {
-  ru: { app: 'Тайник', missed: 'Пропущенный звонок', msg: 'Новое сообщение', notice: 'Новое уведомление' },
-  en: { app: 'Tainik', missed: 'Missed call', msg: 'New message', notice: 'New notification' },
-  es: { app: 'Tainik', missed: 'Llamada perdida', msg: 'Mensaje nuevo', notice: 'Notificación nueva' },
-  ja: { app: 'Tainik', missed: '不在着信', msg: '新しいメッセージ', notice: '新しい通知' },
+  ru: { app: 'Тайник', missed: 'Пропущенный звонок', msg: 'Новое сообщение', notice: 'Новое уведомление', support: 'Ответ поддержки' },
+  en: { app: 'Tainik', missed: 'Missed call', msg: 'New message', notice: 'New notification', support: 'Reply from support' },
+  es: { app: 'Tainik', missed: 'Llamada perdida', msg: 'Mensaje nuevo', notice: 'Notificación nueva', support: 'Respuesta de soporte' },
+  ja: { app: 'Tainik', missed: '不在着信', msg: '新しいメッセージ', notice: '新しい通知', support: 'サポートからの返信' },
 };
 const TEXT = TEXTS[new URL(self.location.href).searchParams.get('lang')] || TEXTS.ru;
 const SYSTEM_CHAT = '~tainik'; // служебный чат «Тайник» (см. shared/client-core.js)
+const SUPPORT_CHAT = '~support'; // чат поддержки
 
 self.addEventListener('push', (event) => {
   let data = {};
@@ -25,14 +26,15 @@ self.addEventListener('push', (event) => {
   const from = typeof data.from === 'string' && NAME_RE.test(data.from) ? data.from : '';
   const call = data.t === 'call';
   const notice = data.t === 'notice';
+  const support = data.t === 'support';
   event.waitUntil(
     (async () => {
       // Открытая и видимая вкладка сама показывает новые сообщения
       const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       if (wins.some((w) => w.visibilityState === 'visible' && w.focused)) return;
-      const chat = notice ? SYSTEM_CHAT : from;
-      await self.registration.showNotification(notice ? TEXT.app : from || TEXT.app, {
-        body: call ? TEXT.missed : notice ? TEXT.notice : TEXT.msg,
+      const chat = notice ? SYSTEM_CHAT : support ? SUPPORT_CHAT : from;
+      await self.registration.showNotification(notice || support ? TEXT.app : from || TEXT.app, {
+        body: call ? TEXT.missed : notice ? TEXT.notice : support ? TEXT.support : TEXT.msg,
         tag: (call ? 'call:' : 'msg:') + chat,
         renotify: true,
         icon: '/icon-192.png',
