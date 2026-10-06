@@ -202,7 +202,19 @@ function render() {
         alert(e.message);
       }
     });
-    actions.append(pr, coins, mark, del);
+    const msg = el('button', 'ghost', 'Написать…');
+    msg.type = 'button';
+    msg.title = 'Сообщение в чат «Тайник» этого пользователя';
+    msg.addEventListener('click', async () => {
+      const typed = prompt(`${u.name}: сообщение придёт в чат «Тайник» (служебные уведомления).`, '');
+      if (typed === null || !typed.trim()) return;
+      try {
+        await act('notice', { name: u.name, text: typed });
+      } catch (e) {
+        alert(e.message);
+      }
+    });
+    actions.append(pr, coins, msg, mark, del);
     tr.append(name, status, devs, created, queued, actions);
     return tr;
   });
@@ -289,3 +301,21 @@ $('only-online').addEventListener('change', render);
 load();
 setInterval(load, 5000);
 setInterval(renderUpdated, 1000);
+
+// Уведомление всем: приходит каждому в чат «Тайник»
+$('notice-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('notice-text').value.trim();
+  $('notice-error').textContent = '';
+  if (!text) return;
+  if (!confirm('Отправить это сообщение всем пользователям?')) return;
+  try {
+    await act('notice', { name: '', text });
+    $('notice-text').value = '';
+    $('notice-error').className = 'muted small';
+    $('notice-error').textContent = 'Отправлено';
+  } catch (err) {
+    $('notice-error').className = 'error small';
+    $('notice-error').textContent = err.message;
+  }
+});

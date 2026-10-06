@@ -63,6 +63,16 @@
     </section>
 
     <section class="bans">
+      <h2>Уведомление всем</h2>
+      <p class="muted small">Придёт каждому пользователю в чат «Тайник» (служебные уведомления). Одному человеку — кнопка «Написать…» в его строке.</p>
+      <form id="notice-form" class="ban-form" autocomplete="off">
+        <textarea id="notice-text" rows="3" maxlength="2000" placeholder="Текст уведомления"></textarea>
+        <button type="submit">Отправить всем</button>
+      </form>
+      <p id="notice-error" class="error small" role="alert"></p>
+    </section>
+
+    <section class="bans">
       <h2>Заблокированные IP</h2>
       <form id="ban-form" class="ban-form" autocomplete="off">
         <input id="ban-ip" placeholder="IP-адрес, например 203.0.113.7" spellcheck="false" required>

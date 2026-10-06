@@ -42,6 +42,8 @@ const CHANNEL_POST_MAX = 96 * 1024; // символов base64: зашифров
 const CHANNELS_PER_USER = 20; // своих каналов
 const CHANNEL_PAGE = 100;
 const PUSH_GAP = 4000; // не чаще одного пуша от одного отправителя на устройство за это время
+const NOTICE_TEXT_MAX = 2000; // сообщение администратора в чате «Тайник»
+const PREMIUM_REMIND = 3 * 86400_000; // за сколько до конца подписки напомнить
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -292,6 +294,32 @@ export function startServer({
   function giftPaid(gift) {
     for (const name of new Set([gift.from, gift.to])) for (const c of onlineDevices(name)) send(c, { type: 'gift', gift });
   }
+  // ---------- Служебные уведомления (чат «Тайник» у пользователя) ----------
+  // Хранятся на сервере NOTICE_KEEP дней: устройство, которое было не в сети, получит их при входе.
+  /** Уведомление пользователю (user null — всем): сохранить, отправить в сеть, остальным — пуш. */
+  function notice(user, kind, data = {}) {
+    if (user && !store.getUser(user)) return null;
+    const n = store.addNotice(user, kind, data);
+    if (user) {
+      for (const d of store.deviceIds(user)) {
+        const c = online.get(addr(user, d));
+        if (c) send(c, { type: 'notice', notice: n });
+        else pushTo(user, d, { t: 'notice', from: '' });
+      }
+    } else {
+      for (const c of allConns) if (c.meta?.user) send(c, { type: 'notice', notice: n });
+    }
+    return n;
+  }
+  /** Оплата прошла (счёт xRocket или монеты): уведомления покупателю и получателю подарка. */
+  function paidNotices(res, cost = null) {
+    if (res.added != null) return notice(res.user, 'coins-buy', { amount: res.added, balance: res.coins });
+    const coins = cost != null ? { cost } : {};
+    if (res.gift) {
+      notice(res.gift.to, 'premium-gift', { from: res.gift.from, days: res.gift.days, until: res.until });
+      notice(res.gift.from, 'gift-sent', { to: res.gift.to, days: res.gift.days, ...coins });
+    } else if (res.until) notice(res.user, 'premium', { days: res.days || 0, until: res.until, ...coins });
+  }
   /** Баланс монет изменился — своим устройствам. */
   function coinsChanged(name) {
     const balance = store.coinsOf(name);
@@ -306,6 +334,8 @@ export function startServer({
     if (store.hasBlocked(to, user)) return { error: 'gift_unavailable' };
     return to;
   }
+  const NOTICE_KEEP = 90 * 86400_000; // столько дней сервер хранит уведомления
+  const NOTICE_RECENT = 30 * 86400_000; // при входе устройство получает уведомления за 30 дней
   const GIFT_RECENT = 30 * 86400_000; // при входе устройство получает подарки за 30 дней
 
   // ---------- Каналы ----------
@@ -404,6 +434,7 @@ export function startServer({
           deviceId = store.createAccount(p.username, p.identity, p.keys);
           if (!deviceId) return error(conn, 'username_taken');
           say('новый аккаунт');
+          notice(p.username, 'welcome');
         } else {
           const u = store.getUser(p.username);
           if (!u || !sameIdentity(u.identity, p.identity)) return error(conn, 'username_taken');
@@ -411,6 +442,7 @@ export function startServer({
             deviceId = store.addDevice(p.username, p.keys);
             if (!deviceId) return error(conn, 'too_many_devices');
             say('привязано устройство');
+            notice(p.username, 'device', { name: String(p.keys?.name || '').slice(0, 64), ip: state.ip || '' });
           } else {
             deviceId = p.deviceId;
             if (!store.getDevice(p.username, deviceId)) return error(conn, 'device_removed');
@@ -443,6 +475,7 @@ export function startServer({
           verified: store.getPresence(p.username)?.verified || false,
           premium: premiumOf(p.username),
           gifts: store.giftsOf(p.username, Date.now() - GIFT_RECENT),
+          notices: store.noticesOf(p.username, Date.now() - NOTICE_RECENT),
           coins: store.coinsOf(p.username),
           channels: store.channelsOf(p.username).map((id) => store.getChannel({ id })).filter(Boolean).map((c) => channelInfo(c, p.username)),
           billing: billingInfo(),
@@ -878,6 +911,7 @@ export function startServer({
         coinsChanged(state.user);
         premiumChanged(res.user);
         if (res.gift) giftPaid(res.gift);
+        paidNotices(res, res.cost);
         return send(conn, { type: 'coins-spent', reqId: msg.reqId, coins: res.coins, until: res.until, gift: res.gift });
       }
 
@@ -975,6 +1009,7 @@ export function startServer({
       store.setVerified(name, !!on);
       broadcastPresence(name);
       for (const c of onlineDevices(name)) send(c, { type: 'verified', verified: !!on });
+      notice(name, 'verified', { on: !!on });
       say(on ? 'администратор поставил галочку' : 'администратор снял галочку');
     },
     // Монеты вручную: delta > 0 — начислить, < 0 — списать (не ниже нуля)
@@ -990,6 +1025,7 @@ export function startServer({
         throw e;
       }
       coinsChanged(name);
+      notice(name, 'coins-admin', { delta, balance: store.coinsOf(name) });
       say(delta > 0 ? 'администратор начислил монеты' : 'администратор списал монеты');
     },
     // Подписка вручную: days > 0 — продлить на столько дней, 0 — отключить сразу
@@ -1001,7 +1037,18 @@ export function startServer({
       if (days) store.extendPremium(name, days);
       else store.revokePremium(name);
       premiumChanged(name);
+      notice(name, days ? 'premium-admin' : 'premium-off', days ? { days, until: store.premiumUntil(name) } : {});
       say(days ? 'администратор продлил подписку' : 'администратор отключил подписку');
+    },
+    // Сообщение от администратора в чат «Тайник»: одному пользователю или всем (name пустой)
+    sendNotice(name, text) {
+      text = String(text ?? '').replace(/\r\n?/g, '\n').trim();
+      if (!text) throw new Error('Пустое сообщение');
+      if (text.length > NOTICE_TEXT_MAX) throw new Error(`Не длиннее ${NOTICE_TEXT_MAX} символов`);
+      name = String(name || '').trim().replace(/^@/, '').toLowerCase();
+      if (name && (!USERNAME_RE.test(name) || !store.getUser(name))) throw new Error('Нет такого пользователя');
+      notice(name || null, 'admin', { text });
+      say(name ? 'администратор отправил уведомление' : 'администратор отправил уведомление всем');
     },
     ban(ip, note = '') {
       ip = normIp(ip);
@@ -1043,6 +1090,7 @@ export function startServer({
         store,
         say,
         onPaid: (res) => {
+          paidNotices(res);
           if (res.coins != null) return coinsChanged(res.user);
           premiumChanged(res.user);
           if (res.gift) giftPaid(res.gift);
@@ -1201,6 +1249,7 @@ export function startServer({
     const n = store.purgeOlderThan(queueTtlDays * 86400_000);
     if (n) say(`удалено просроченных конвертов: ${n}`);
     blobs.purge();
+    store.purgeNotices(NOTICE_KEEP);
   };
   const janitor = setInterval(purge, 3600_000);
   purge();
@@ -1208,7 +1257,12 @@ export function startServer({
   let premiumTick = Date.now();
   const premiumTimer = setInterval(() => {
     const now = Date.now();
-    for (const name of store.premiumEndedBetween(premiumTick, now)) premiumChanged(name);
+    for (const name of store.premiumEndedBetween(premiumTick, now)) {
+      premiumChanged(name);
+      notice(name, 'premium-ended');
+    }
+    // За 3 дня до конца подписки — напомнить
+    for (const name of store.premiumEndedBetween(premiumTick + PREMIUM_REMIND, now + PREMIUM_REMIND)) notice(name, 'premium-soon', { until: store.premiumUntil(name) });
     premiumTick = now;
     billing?.reconcile().catch(() => {});
   }, 5 * 60_000);

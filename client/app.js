@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, GROUP_MAX } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, GROUP_MAX } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -137,6 +137,14 @@ function paintAvatar(node, username, photo = username && client.account ? client
     node.style.backgroundImage = `url("${photo}")`; // только проверенный data:-URL (validAvatar)
     return;
   }
+  if (isSystemChat(username)) {
+    node.classList.add('photo');
+    node.textContent = '';
+    node.style.background = '';
+    node.style.backgroundImage = 'url("/icon-192.png")';
+    return;
+  }
+  node.style.backgroundImage = '';
   const shown = nameOf(username) || '?';
   node.textContent = [...shown][0].toUpperCase();
   node.style.background = `hsl(${hue(username || '')} 42% 42%)`;
@@ -223,7 +231,52 @@ function fileLabel(content) {
   return cap ? `${base} · ${cap}` : base;
 }
 /** Текст сообщения одной строкой: для вложения — вид и подпись. */
-const textOf = (content) => (content?.t === 'file' && content.file ? fileLabel(content) : String(content?.body ?? ''));
+const textOf = (content) =>
+  content?.t === 'notice' ? noticeText(content) : content?.t === 'file' && content.file ? fileLabel(content) : String(content?.body ?? '');
+
+// ---------- Служебный чат «Тайник» ----------
+const longDateFmt = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
+const untilText = (ts) => (ts ? longDateFmt.format(new Date(ts)).replace(/\.$/, '') : '—'); // «2026 г.» → без второй точки
+/** Текст служебного уведомления (см. cleanNotice в shared/client-core.js). */
+function noticeText(c) {
+  switch (c.kind) {
+    case 'welcome':
+      return t('👋 Добро пожаловать в Тайник! Сюда приходят служебные уведомления: монеты, Премиум, входы с новых устройств и новости сервера.');
+    case 'device':
+      return c.ip
+        ? t('🔐 Вход с нового устройства «{0}» (IP {1}). Если это были не вы — отвяжите его в настройках, раздел «Устройства».', c.name || '?', c.ip)
+        : t('🔐 Вход с нового устройства «{0}». Если это были не вы — отвяжите его в настройках, раздел «Устройства».', c.name || '?');
+    case 'verified':
+      return c.on ? t('✔ Вашему аккаунту выдана официальная галочка.') : t('Официальная галочка с вашего аккаунта снята.');
+    case 'coins-buy':
+      return t('🪙 Зачислено монет: {0}. Баланс: {1}.', c.amount, c.balance);
+    case 'coins-admin':
+      return c.delta > 0
+        ? t('🪙 Администратор начислил вам монеты: {0}. Баланс: {1}.', c.delta, c.balance)
+        : t('🪙 Администратор списал монеты: {0}. Баланс: {1}.', -c.delta, c.balance);
+    case 'premium':
+      return c.cost != null
+        ? t('★ Премиум на {0} оплачен монетами ({1}). Действует до {2}.', planName(c.days), c.cost, untilText(c.until))
+        : t('★ Премиум на {0} оплачен. Действует до {1}.', planName(c.days), untilText(c.until));
+    case 'premium-gift':
+      return t('🎁 {0} дарит вам Премиум на {1}! Действует до {2}.', nameOf(c.from), planName(c.days), untilText(c.until));
+    case 'gift-sent':
+      return c.cost != null
+        ? t('🎁 Вы подарили {0} Премиум на {1}. Списано монет: {2}.', nameOf(c.to), planName(c.days), c.cost)
+        : t('🎁 Вы подарили {0} Премиум на {1}.', nameOf(c.to), planName(c.days));
+    case 'premium-admin':
+      return t('★ Администратор продлил ваш Премиум на {0}. Действует до {1}.', planName(c.days), untilText(c.until));
+    case 'premium-off':
+      return t('Администратор отключил вашу подписку Премиум.');
+    case 'premium-ended':
+      return t('★ Подписка Премиум закончилась. Продлить её можно в настройках.');
+    case 'premium-soon':
+      return t('★ Подписка Премиум закончится {0}. Продлить её можно в настройках.', untilText(c.until));
+    case 'admin':
+      return String(c.body ?? '');
+  }
+  return t('Служебное сообщение');
+}
 
 function previewOf(m) {
   if (!m) return t('Нет сообщений');
@@ -576,12 +629,12 @@ async function renderHeader() {
   setName($('peer-name'), c.username, client.isVerified(c.username));
   paintAvatar($('peer-avatar'), c.username);
   const v = $('peer-verify');
-  const group = !!c.group || !!c.channel;
+  const group = !!c.group || !!c.channel || !!c.system;
   // В группе и канале нет звонков, кода безопасности и статуса «в сети»
   for (const id of ['call-audio-btn', 'call-video-btn', 'safety-btn']) $(id).hidden = group;
   if (group) {
     v.className = 'peer-verify';
-    v.textContent = c.channel ? channelSubText(c.channel) : membersText(c.group);
+    v.textContent = c.system ? t('служебные уведомления') : c.channel ? channelSubText(c.channel) : membersText(c.group);
     $('peer-presence').textContent = '';
     $('key-banner').hidden = true;
     updateComposer(c);
@@ -621,7 +674,7 @@ function presenceText(p) {
   return t('был(а) {0}', dmFmt.format(d));
 }
 function renderPresence() {
-  if (!current || isGroupChat(current) || isChannelChat(current)) return;
+  if (!current || isGroupChat(current) || isChannelChat(current) || isSystemChat(current)) return;
   const p = client.presenceOf(current);
   const node = $('peer-presence');
   node.textContent = client.status === 'online' ? presenceText(p) : '';
@@ -641,13 +694,19 @@ async function updateComposer(c) {
   // Канал: пишут только владелец и администраторы, у остальных — полоска «О канале»
   const ch = c?.channel;
   const chReader = !!ch && !isChAdmin(ch);
-  $('channel-bar').hidden = !chReader;
+  const system = !!c?.system; // «Тайник»: только читать
+  $('channel-bar').hidden = !chReader && !system;
+  $('channel-bar-btn').hidden = system;
   if (chReader) {
     $('composer').hidden = true;
     $('channel-bar-text').textContent = ch.gone ? t('Канал удалён или вы больше не подписаны') : t('📢 Вы читаете канал');
     $('channel-bar-btn').textContent = ch.gone ? t('Удалить чат') : t('О канале');
+  } else if (system) {
+    $('composer').hidden = true;
+    setReply(null);
+    $('channel-bar-text').textContent = t('Служебные уведомления Тайника. Отвечать на них не нужно.');
   }
-  const blocked = !c || !!c.keyChanged || iBlocked || left || chReader;
+  const blocked = !c || !!c.keyChanged || iBlocked || left || chReader || system;
   $('send-btn').disabled = blocked || client.status !== 'online';
   $('attach-btn').disabled = blocked || client.status !== 'online';
   const noCall = blocked || client.status !== 'online' || !window.RTCPeerConnection;
@@ -749,7 +808,7 @@ function messageNode(m) {
   }
   const li = el('li', `msg ${m.dir}${m.status === 'failed' ? ' failed' : ''}`);
   li.dataset.id = m.id;
-  msgText.set(m.id, m.content?.body ?? '');
+  msgText.set(m.id, m.content?.t === 'notice' ? noticeText(m.content) : m.content?.body ?? '');
   const bubble = el('div', 'bubble');
   // В группе — кто написал (нажатие открывает профиль участника)
   if (m.dir === 'in' && m.from) {
@@ -775,12 +834,16 @@ function messageNode(m) {
     if (m.content.file.as === 'note') bubble.classList.add('has-note');
     bubble.append(mediaNode(m.content.file));
     if (m.content.body) bubble.append(linkNodes(el('div', 'caption'), m.content.body));
+  } else if (m.content?.t === 'notice') {
+    bubble.classList.add('notice');
+    linkNodes(bubble, noticeText(m.content));
   } else {
     linkNodes(bubble, m.content?.body ?? '');
   }
   li.append(bubble);
   const acts = el('div', 'msg-actions');
-  if (isChannelChat(current)) li.classList.add('post'); // пост канала: без ответа
+  const noReply = isChannelChat(current) || isSystemChat(current);
+  if (noReply) li.classList.add('post'); // пост канала и уведомление «Тайника»: без ответа
   const rb = el('button', '', '↩︎');
   rb.type = 'button';
   rb.dataset.act = 'reply';
@@ -791,7 +854,7 @@ function messageNode(m) {
   mb.dataset.act = 'menu';
   mb.title = t('Ещё');
   mb.setAttribute('aria-label', t('Действия с сообщением'));
-  if (isChannelChat(current)) acts.append(mb);
+  if (noReply) acts.append(mb);
   else acts.append(rb, mb);
   li.append(acts);
   const meta = el('div', 'meta');
@@ -885,7 +948,9 @@ async function renderChat() {
   if (gen !== chatGen) return;
   renderPin();
   const ol = $('messages');
-  const note = ch
+  const note = isSystemChat(current)
+    ? t('ℹ️ Сообщения от сервера Тайника: о монетах, Премиуме и безопасности вашего аккаунта')
+    : ch
     ? ch.public
       ? t('📢 Публичный канал: посты может прочитать любой, кто его найдёт')
       : t('🔒 Посты зашифрованы ключом канала: прочитать их может только тот, у кого есть ссылка-приглашение')
@@ -3182,7 +3247,7 @@ async function notifyMessage(contact, message) {
 /** Можно ли ответить в этот чат прямо из уведомления. */
 async function canReplyTo(c, chat) {
   const x = (await c.contacts())[chat];
-  if (!x) return false;
+  if (!x || x.system) return false;
   if (x.channel) return !x.channel.gone && (x.channel.role === 'owner' || x.channel.role === 'admin');
   if (x.group) return !x.group.left;
   return !x.keyChanged && !c.isBlocked(chat);
@@ -4058,10 +4123,12 @@ async function openMenu(id, x, y) {
   const m = await findMsg(id);
   if (menuFor !== id) return;
   menu.querySelector('[data-act="save"]').hidden = !m?.content?.file;
-  menu.querySelector('[data-act="reply"]').hidden = isChannelChat(current);
+  const sys = isSystemChat(current);
+  menu.querySelector('[data-act="reply"]').hidden = isChannelChat(current) || sys;
+  menu.querySelector('[data-act="pin"]').hidden = sys;
   const pinnedId = (await client.contacts())[current]?.pinned?.id;
   menu.querySelector('[data-act="pin"]').textContent = pinnedId === id ? t('📌 Открепить') : t('📌 Закрепить');
-  menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys';
+  menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys;
   menu.querySelector('[data-act="copy"]').hidden = !!m?.content?.file && !m.content.body;
   menu.hidden = false;
   const w = menu.offsetWidth;
@@ -4154,7 +4221,7 @@ $('msg-menu').addEventListener('click', async (e) => {
     const group = isGroupChat(current);
     const chan = isChannelChat(current);
     // В группе «у всех» — только для своих сообщений, в канале — для владельца и администраторов
-    $('del-all').closest('label').hidden = chan ? !isChAdmin(await client.channelOf(current)) : group && m?.dir !== 'out';
+    $('del-all').closest('label').hidden = isSystemChat(current) || (chan ? !isChAdmin(await client.channelOf(current)) : group && m?.dir !== 'out');
     $('del-peer').textContent = chan ? t('всех подписчиков') : group ? t('всех участников') : nameOf(current);
     $('del-all').checked = false;
     $('delete-dialog').dataset.id = id;
@@ -4192,6 +4259,7 @@ let profileTab = 'media';
 async function openProfile(name) {
   if (isGroupChat(name)) return openGroup(name);
   if (isChannelChat(name)) return openChannelInfo(name);
+  if (isSystemChat(name)) return;
   if (name === client.account?.username) return openSettings('profile');
   profileFor = name;
   profileTab = 'media';
@@ -4333,6 +4401,7 @@ $('pf-delete').addEventListener('click', () => {
   $('delchat-peer').textContent = nameOf(name);
   $('delchat-peer2').textContent = nameOf(name);
   $('delchat-all').checked = false;
+  $('delchat-all').closest('label').hidden = false;
   $('delchat-dialog').dataset.name = name;
   $('delchat-dialog').returnValue = '';
   $('delchat-dialog').showModal();
@@ -4764,9 +4833,10 @@ function openChatMenu(name, x, y) {
   const isBlocked = client.isBlocked(name);
   const chan = isChannelChat(name);
   const group = isGroupChat(name);
-  menu.querySelector('[data-act="block"]').hidden = isBlocked || group || chan;
-  menu.querySelector('[data-act="unblock"]').hidden = !isBlocked || group || chan;
-  menu.querySelector('[data-act="profile"]').hidden = group || chan;
+  const sys = isSystemChat(name);
+  menu.querySelector('[data-act="block"]').hidden = isBlocked || group || chan || sys;
+  menu.querySelector('[data-act="unblock"]').hidden = !isBlocked || group || chan || sys;
+  menu.querySelector('[data-act="profile"]').hidden = group || chan || sys;
   menu.querySelector('[data-act="group"]').hidden = !group;
   menu.querySelector('[data-act="channel"]').hidden = !chan;
   menu.querySelector('[data-act="leave"]').hidden = !group;
@@ -4838,6 +4908,7 @@ $('chat-menu').addEventListener('click', (e) => {
     $('delchat-peer').textContent = nameOf(name);
     $('delchat-peer2').textContent = nameOf(name);
     $('delchat-all').checked = false;
+    $('delchat-all').closest('label').hidden = isSystemChat(name);
     $('delchat-dialog').dataset.name = name;
     $('delchat-dialog').returnValue = '';
     $('delchat-dialog').showModal();

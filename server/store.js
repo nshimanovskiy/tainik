@@ -162,6 +162,17 @@ CREATE TABLE IF NOT EXISTS channel_posts (
   PRIMARY KEY (channel, seq)
 );
 CREATE INDEX IF NOT EXISTS channel_posts_del ON channel_posts(channel, deleted_at);
+-- Служебные уведомления (чат «Тайник»): монеты, Премиум, галочка, вход с нового устройства,
+-- сообщения администратора. user NULL — для всех. Открытый текст: это сообщения самого сервера.
+CREATE TABLE IF NOT EXISTS notices (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user        TEXT REFERENCES users(name) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,
+  data        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notices_user ON notices(user, id);
+CREATE INDEX IF NOT EXISTS notices_time ON notices(created_at);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -274,6 +285,11 @@ export class Store {
       setPremium: q('INSERT INTO premium(user, until) VALUES (?, ?) ON CONFLICT(user) DO UPDATE SET until = excluded.until'),
       delPremium: q('DELETE FROM premium WHERE user = ?'),
       premiumEnded: q('SELECT user FROM premium WHERE until > ? AND until <= ?'),
+      addNotice: q('INSERT INTO notices(user, kind, data, created_at) VALUES (?, ?, ?, ?)'),
+      noticesOf: q(
+        'SELECT n.* FROM notices n WHERE (n.user = ? OR (n.user IS NULL AND n.created_at >= (SELECT created_at FROM users WHERE name = ?))) AND n.created_at >= ? ORDER BY n.id DESC LIMIT ?'
+      ),
+      purgeNotices: q('DELETE FROM notices WHERE created_at < ?'),
       premiumActive: q('SELECT COUNT(*) AS n FROM premium WHERE until > ?'),
       addPayment: q(
         'INSERT INTO payments(id, user, plan, days, amount, currency, status, created_at, expires_at, gift_to, coins) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -538,6 +554,28 @@ export class Store {
   premiumEndedBetween(from, to) {
     return this.s.premiumEnded.all(from, to).map((r) => r.user);
   }
+  // ----- служебные уведомления -----
+  /** Записать уведомление (user null — всем). Возвращает { id, kind, data, at }. */
+  addNotice(user, kind, data = {}, now = Date.now()) {
+    const id = Number(this.s.addNotice.run(user ?? null, String(kind), JSON.stringify(data ?? {}), now).lastInsertRowid);
+    return { id, kind: String(kind), data: data ?? {}, at: now };
+  }
+  /** Уведомления пользователя (свои и общие, не старше since), по возрастанию id. */
+  noticesOf(user, since = 0, limit = 100) {
+    return this.s.noticesOf
+      .all(user, user, since, limit)
+      .reverse()
+      .map((r) => {
+        let data = {};
+        try {
+          data = JSON.parse(r.data);
+        } catch {}
+        return { id: r.id, kind: r.kind, data, at: r.created_at };
+      });
+  }
+  purgeNotices(maxAgeMs, now = Date.now()) {
+    return this.s.purgeNotices.run(now - maxAgeMs).changes;
+  }
   premiumActiveCount(now = Date.now()) {
     return this.s.premiumActive.get(now).n;
   }
@@ -676,7 +714,7 @@ export class Store {
       this.s.markPaid.run(now, id);
       const until = this._extend(to, days, now);
       const gift = giftTo ? { id, from: user, to: giftTo, days, at: now } : null;
-      return { user: to, until, coins, gift };
+      return { user: to, until, coins, gift, days, cost };
     });
   }
   coinLog(user, limit = 50) {
@@ -711,13 +749,13 @@ export class Store {
       // Покупка монет — на баланс плательщика
       if (p.coins) {
         if (!this.s.user.get(p.user)) return { user: p.user, until: 0, coins: null };
-        return { user: p.user, until: 0, coins: this._addCoins(p.user, p.coins, 'buy', p.id, now) };
+        return { user: p.user, until: 0, coins: this._addCoins(p.user, p.coins, 'buy', p.id, now), added: p.coins };
       }
       // Подарок — получателю; если его аккаунт успели удалить — дни достаются тому, кто платил
       let user = p.giftTo && this.s.user.get(p.giftTo) ? p.giftTo : p.user;
       const gift = user !== p.user ? { id: p.id, from: p.user, to: user, days: p.days, at: now } : null;
       if (!this.s.user.get(user)) return { user, until: 0, gift: null }; // аккаунт удалён — платёж учтён, продлевать некого
-      return { user, until: this._extend(user, p.days, now), gift };
+      return { user, until: this._extend(user, p.days, now), gift, days: p.days };
     });
   }
   /** Неистёкший счёт этого пользователя на этот тариф (чтобы не плодить новые); giftTo — для подарка. */

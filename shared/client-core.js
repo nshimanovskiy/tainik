@@ -101,6 +101,67 @@ const GID_RE = /^[0-9a-f]{24}$/;
 const USER_RE = /^[a-z0-9_]{3,32}$/;
 export const isGroupChat = (chat) => typeof chat === 'string' && chat.startsWith('#');
 
+// ---------- Служебный чат «Тайник» ----------
+// Уведомления сервера: монеты, Премиум, галочка, вход с нового устройства, сообщения
+// администратора. Писать в этот чат нельзя. Ключ '~tainik' не пересекается с юзернеймами.
+export const SYSTEM_CHAT = '~tainik';
+export const isSystemChat = (chat) => chat === SYSTEM_CHAT;
+export const NOTICE_TEXT_MAX = 2000;
+const NOTICE_KINDS = new Set(['welcome', 'device', 'verified', 'coins-buy', 'coins-admin', 'premium', 'premium-gift', 'gift-sent', 'premium-admin', 'premium-off', 'premium-ended', 'premium-soon', 'admin']);
+const int = (n) => (Number.isSafeInteger(n) ? n : 0);
+const time = (n) => (Number.isFinite(n) && n > 0 ? n : null);
+/** Уведомление от сервера → содержимое сообщения { t: 'notice', kind, … } или null. */
+export function cleanNotice(n) {
+  if (!n || !Number.isSafeInteger(n.id) || n.id <= 0 || !NOTICE_KINDS.has(n.kind)) return null;
+  const d = n.data && typeof n.data === 'object' ? n.data : {};
+  const c = { t: 'notice', kind: n.kind };
+  const user = (u) => (typeof u === 'string' && USER_RE.test(u) ? u : null);
+  switch (n.kind) {
+    case 'device':
+      c.name = String(d.name ?? '').slice(0, 64);
+      c.ip = String(d.ip ?? '').slice(0, 64);
+      break;
+    case 'verified':
+      c.on = d.on === true;
+      break;
+    case 'coins-buy':
+      c.amount = int(d.amount);
+      c.balance = int(d.balance);
+      break;
+    case 'coins-admin':
+      c.delta = int(d.delta);
+      c.balance = int(d.balance);
+      if (!c.delta) return null;
+      break;
+    case 'premium':
+    case 'premium-admin':
+      c.days = int(d.days);
+      c.until = time(d.until);
+      if (d.cost != null) c.cost = int(d.cost);
+      break;
+    case 'premium-gift':
+      c.from = user(d.from);
+      c.days = int(d.days);
+      c.until = time(d.until);
+      if (!c.from) return null;
+      break;
+    case 'gift-sent':
+      c.to = user(d.to);
+      c.days = int(d.days);
+      if (d.cost != null) c.cost = int(d.cost);
+      if (!c.to) return null;
+      break;
+    case 'premium-soon':
+      c.until = time(d.until);
+      break;
+    case 'admin':
+      c.body = String(d.text ?? '').slice(0, NOTICE_TEXT_MAX);
+      if (!c.body.trim()) return null;
+      break;
+  }
+  return c;
+}
+
 // ---------- Каналы ----------
 // Пишут владелец и администраторы, читают подписчики. Посты лежат на сервере, зашифрованные
 // ключом канала (AES-256-GCM). У приватного канала ключ — только в ссылке-приглашении (после «#»,
@@ -584,7 +645,7 @@ export class MessengerClient extends Emitter {
         }
         return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile };
       })
-      .filter((c) => !isGroupChat(c.username) && !isChannelChat(c.username));
+      .filter((c) => !isGroupChat(c.username) && !isChannelChat(c.username) && !isSystemChat(c.username));
     const groups = Object.values(await this.contacts())
       .filter((c) => c.group)
       .map((c) => ({ ...c.group }));
@@ -805,6 +866,7 @@ export class MessengerClient extends Emitter {
         this._setCoins(msg.coins);
         if (Array.isArray(msg.channels)) this._onChannels(msg.channels).catch((e) => console.error('channels', e));
         if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
+        if (Array.isArray(msg.notices)) this._serial(() => this._onNotices(msg.notices)).catch((e) => console.error('notices', e));
         if (Array.isArray(msg.blocks)) this._setBlocks(msg.blocks);
         this._setStatus('online');
         this._subscribePresence().catch(() => {});
@@ -833,6 +895,9 @@ export class MessengerClient extends Emitter {
         return;
       case 'coins':
         this._setCoins(msg.balance);
+        return;
+      case 'notice':
+        this._serial(() => this._onNotices([msg.notice])).catch((e) => console.error('notices', e));
         return;
       case 'channel-post':
         this._serial(() => this._onChannelPost(String(msg.id), msg.post)).catch(() => {});
@@ -975,7 +1040,7 @@ export class MessengerClient extends Emitter {
       let outbox = (await this.storage.get('outbox')) || [];
       // Неотправленное в этот чат больше не нужно
       outbox = outbox.filter((x) => !((x.kind === 'msg' && (x.to === username || x.chat === username)) || (x.kind === 'sync' && x.content?.to === username)));
-      if (isGroupChat(username)) forAll = false; // в группе — только у себя
+      if (isGroupChat(username) || isSystemChat(username)) forAll = false; // в группе и в «Тайнике» — только у себя
       const ts = Date.now();
       const c = (await this.contacts())[username];
       if (forAll && c && !c.keyChanged) outbox.push({ id: randomId(), to: username, kind: 'ctl', content: { t: 'clear-chat', ts }, attempts: 0 });
@@ -1007,6 +1072,7 @@ export class MessengerClient extends Emitter {
 
   /** Официальная галочка у собеседника (её ставит администратор сервера). */
   isVerified(username) {
+    if (isSystemChat(username)) return true; // служебный чат «Тайник»
     return !!this.presence.get(username)?.verified;
   }
 
@@ -1094,6 +1160,46 @@ export class MessengerClient extends Emitter {
     if (!fresh.length) return;
     await this.storage.set('gifts-seen', [...seen].slice(-200));
     for (const gift of fresh) this.emit('gift', gift);
+  }
+
+  /**
+   * Служебные уведомления → сообщения в чате «Тайник». Каждое — один раз (по id). При первом
+   * получении на устройстве старые уведомления (у нового устройства — за 30 дней) ложатся
+   * прочитанными и без всплывающих уведомлений.
+   */
+  async _onNotices(list) {
+    if (!this.account || !Array.isArray(list)) return;
+    const last = await this.storage.get('notice-last');
+    const first = !Number.isSafeInteger(last);
+    const now = Date.now();
+    const fresh = [];
+    let maxId = first ? 0 : last;
+    for (const n of list) {
+      if (!Number.isSafeInteger(n?.id) || n.id <= maxId) continue;
+      maxId = n.id;
+      const content = cleanNotice(n);
+      if (!content) continue;
+      const ts = Number.isFinite(n.at) ? Math.min(n.at, now) : now;
+      // При первом получении свежим считаем только только что случившееся (например, «Добро пожаловать»)
+      fresh.push({ m: { id: 'n' + n.id, dir: 'in', ts, content }, quiet: first && now - ts > 10 * 60_000 });
+    }
+    if (maxId !== last) await this.storage.set('notice-last', maxId);
+    if (!fresh.length) return;
+    const all = await this.contacts();
+    const c = (all[SYSTEM_CHAT] ||= { username: SYSTEM_CHAT, system: true, unread: 0, lastTs: 0, pending: [] });
+    delete c.hidden; // чат удалили — с новым уведомлением он вернётся
+    const msgs = await this.messages(SYSTEM_CHAT);
+    const have = new Set(msgs.map((m) => m.id));
+    const added = fresh.filter((x) => !have.has(x.m.id));
+    for (const x of added) {
+      msgs.push(x.m);
+      if (!x.quiet) c.unread = (c.unread || 0) + 1;
+      c.lastTs = Math.max(c.lastTs || 0, x.m.ts);
+    }
+    msgs.sort((a, b) => a.ts - b.ts);
+    await this.storage.set('chat:' + SYSTEM_CHAT, msgs.slice(-500));
+    await this._saveContacts(all);
+    for (const x of added) this.emit('message', { contact: SYSTEM_CHAT, message: x.m, quiet: x.quiet });
   }
 
   _setCoins(n) {
@@ -1219,6 +1325,7 @@ export class MessengerClient extends Emitter {
     this._avatars.clear();
     for (const c of Object.values(all || {})) {
       if (c.group) this._names.set(c.username, c.group.name);
+      if (c.system) this._names.set(c.username, t('Тайник'));
       if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
       if (c.profile?.name) this._names.set(c.username, c.profile.name);
       if (c.profile?.avatar) this._avatars.set(c.username, c.profile.avatar);
@@ -1479,6 +1586,7 @@ export class MessengerClient extends Emitter {
 
   /** Сообщение собеседнику и копия «отправлено» своим устройствам (общая часть sendText и sendFile). */
   async _sendContent(username, base, replyTo) {
+    if (isSystemChat(username)) throw new Error(t('В этот чат нельзя писать'));
     if (isGroupChat(username)) return this._sendGroupContent(username, base, replyTo);
     if (isChannelChat(username)) return this._postToChannel(username, base);
     await this._serial(async () => {
@@ -2100,6 +2208,7 @@ export class MessengerClient extends Emitter {
   async sendFile(username, source, meta = {}, { caption = '', replyTo = null, onProgress = () => {}, signal, onReady = () => {} } = {}) {
     const all = await this.contacts();
     if (!all[username]) throw new Error(t('Нет такого контакта'));
+    if (isSystemChat(username)) throw new Error(t('В этот чат нельзя писать'));
     if (isGroupChat(username)) {
       if (all[username].group?.left) throw errorOf('group_left');
     } else if (isChannelChat(username)) {

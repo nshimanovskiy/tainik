@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { startServer } from '../server/server.js';
 import { parsePlans, parseCurrencies, parsePacks, convertPrice, sameAmount, verifyWebhookSignature, signWebhook, WEBHOOK_PATH } from '../server/billing.js';
-import { MessengerClient, MemoryStorage, AVATAR_MAX, validAvatar } from '../shared/client-core.js';
+import { MessengerClient, MemoryStorage, AVATAR_MAX, validAvatar, SYSTEM_CHAT, cleanNotice } from '../shared/client-core.js';
 
 const SECRET = 'webhook-secret-for-tests';
 const TOKEN = 'api-token-for-tests';
@@ -528,4 +528,81 @@ test('фото профиля: большое для просмотра идёт
   await alice.setProfile({ avatar: small2 });
   await changed2;
   assert.equal(await bob.photoOf('alice'), small2);
+});
+
+test('служебный чат «Тайник»: монеты, Премиум, подарок, галочка, сообщения администратора', async (t) => {
+  const { srv, x, mk, webhook, paidEvent, adminApi } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  const notices = async (c) => (await c.messages(SYSTEM_CHAT)).map((m) => m.content);
+  const notice = (c, kind, pred = () => true) =>
+    waitFor(c, 'message', (d) => d.contact === SYSTEM_CHAT && d.message.content.kind === kind && pred(d.message.content));
+
+  const welcome = notice(alice, 'welcome');
+  await alice.register('alice');
+  await welcome;
+  await bob.register('bob');
+  const sys = (await alice.contacts())[SYSTEM_CHAT];
+  assert.equal(sys.system, true);
+  assert.equal(sys.unread, 1, 'приветствие — непрочитанное');
+  assert.equal(alice.nameOf(SYSTEM_CHAT), 'Тайник');
+  assert.equal(alice.isVerified(SYSTEM_CHAT), true);
+  await assert.rejects(alice.sendText(SYSTEM_CHAT, 'привет'));
+
+  // Покупка монет
+  const inv = await alice.buyCoins('550c');
+  const bought = notice(alice, 'coins-buy');
+  await webhook(paidEvent(x.invoices.get(inv.id), 'evt-n'));
+  const cb = (await bought).message?.content ?? (await notices(alice)).find((n) => n.kind === 'coins-buy');
+  assert.equal(cb.amount, 550);
+  assert.equal(cb.balance, 550);
+
+  // Премиум за монеты себе и в подарок
+  const own = notice(alice, 'premium');
+  await alice.premiumForCoins('30d', 300);
+  await own;
+  const toBob = notice(bob, 'premium-gift', (c) => c.from === 'alice');
+  const sent = notice(alice, 'gift-sent', (c) => c.to === 'bob');
+  await adminApi('coins', { name: 'alice', delta: 100 });
+  await alice.premiumForCoins('30d', 300, 'bob');
+  await Promise.all([toBob, sent]);
+
+  // Администратор: галочка, монеты, сообщение одному и всем
+  const ver = notice(bob, 'verified', (c) => c.on);
+  await adminApi('verify', { name: 'bob', verified: true });
+  await ver;
+  const one = notice(bob, 'admin', (c) => c.body === 'Лично для bob https://a.com');
+  assert.equal((await adminApi('notice', { name: 'bob', text: 'Лично для bob https://a.com' })).status, 200);
+  await one;
+  assert.equal((await adminApi('notice', { name: 'bob', text: '   ' })).status, 400);
+  assert.equal((await adminApi('notice', { name: 'nobody_here', text: 'x' })).status, 400);
+  const allA = notice(alice, 'admin', (c) => c.body === 'Всем привет');
+  const allB = notice(bob, 'admin', (c) => c.body === 'Всем привет');
+  await adminApi('notice', { name: '', text: 'Всем привет' });
+  await Promise.all([allA, allB]);
+
+  assert.deepEqual(
+    (await notices(alice)).map((n) => n.kind),
+    ['welcome', 'coins-buy', 'premium', 'coins-admin', 'gift-sent', 'admin']
+  );
+  assert.deepEqual((await notices(alice)).find((n) => n.kind === 'gift-sent'), { t: 'notice', kind: 'gift-sent', to: 'bob', days: 30, cost: 300 });
+  assert.equal((await notices(bob)).filter((n) => n.kind === 'admin').length, 2);
+  assert.equal((await notices(alice)).filter((n) => n.kind === 'admin').length, 1, 'личное сообщение bob не видно alice');
+
+  // Повторный вход не дублирует уведомления
+  alice.disconnect();
+  await alice.connect();
+  await sleep(300);
+  assert.equal((await notices(alice)).length, 6);
+
+  // Кто зарегистрировался позже, не получает старые общие сообщения
+  const carol = mk();
+  await carol.register('carol');
+  await sleep(300);
+  assert.deepEqual((await notices(carol)).map((n) => n.kind), ['welcome']);
+  assert.ok(srv.store.noticesOf('carol').length === 1);
+
+  // Чужие поля и неизвестные виды отбрасываются
+  assert.equal(cleanNotice({ id: 1, kind: 'hack', data: {} }), null);
+  assert.equal(cleanNotice({ id: 2, kind: 'premium-gift', data: { from: '<b>', days: 30 } }), null);
+  assert.deepEqual(cleanNotice({ id: 3, kind: 'verified', data: { on: true, extra: 1 } }), { t: 'notice', kind: 'verified', on: true });
 });
