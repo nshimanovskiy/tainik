@@ -2762,8 +2762,6 @@ function fillProfileEdit() {
   updateProfilePhoto();
   $('prof-shop-row').hidden = !client.shopOn;
   // Видео на фон — с сервера 0.47 (своё видео он закрепляет на хранении)
-  $('prof-video-group').hidden = !client.shopOn;
-  if (client.shopOn) fillVideoButtons($('prof-video-group'), t('Видео или GIF на фон'), t('Сменить видео или GIF на фоне'));
   bioCount();
   renderProfileChannels();
 }
@@ -3357,7 +3355,7 @@ function renderShop() {
   $('shop-empty').textContent = shopTab === 'frame' ? t('Рамок пока нет — загляните позже.') : t('Фонов пока нет — загляните позже.');
   // Своё видео на фон — только на вкладке фонов
   $('shop-own').hidden = shopTab !== 'bg';
-  fillVideoButtons($('pv-group'), t('Выбрать видео или GIF'), t('Сменить своё видео или GIF'));
+  fillVideoButtons($('pv-group'), t('Выбрать фото, GIF или видео'), t('Сменить свой фон'));
 }
 /**
  * Кнопки своего видео на фоне (в магазине и в «Моём профиле»): выбрать или сменить, убрать;
@@ -3379,10 +3377,7 @@ let videoBusy = ''; // текст на кнопке, пока видео заг�
 function refreshVideoButtons() {
   if (!$('menu-dialog').open) return;
   if (setPage === 'shop' && shopData) renderShop();
-  if (setPage === 'profile') {
-    fillVideoButtons($('prof-video-group'), t('Видео или GIF на фон'), t('Сменить видео или GIF на фоне'));
-    paintCover($('prof-cover'), client.account.username);
-  }
+  if (setPage === 'profile') paintCover($('prof-cover'), client.account.username);
 }
 async function shopClick(item, kind, worn) {
   if (shopBusy || worn) return;
@@ -3416,7 +3411,7 @@ async function shopClick(item, kind, worn) {
     if (setPage === 'shop') fillShop();
   }
 }
-// Своё видео на фон профиля (Премиум)
+// Свой фон профиля (Премиум): фото, GIF или короткое видео
 function videoMeta(file) {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
@@ -3429,15 +3424,17 @@ function videoMeta(file) {
     v.preload = 'metadata';
     v.muted = true;
     v.onloadedmetadata = () => done(resolve, { dur: v.duration, w: v.videoWidth, h: v.videoHeight });
-    v.onerror = () => done(reject, new Error(t('Не удалось открыть видео — выберите MP4 или WebM')));
+    // Чаще всего — видео в HEVC (iPhone) там, где оно не воспроизводится
+    v.onerror = () => done(reject, new Error(t('Это видео не открывается на этом устройстве — его не увидят и собеседники. Выберите MP4 (H.264) или WebM, либо GIF или фото.')));
     v.src = url;
   });
 }
-// Тип видео по расширению: на Android выбор файла иногда не сообщает тип
-function videoType(file) {
-  if (file.type.startsWith('video/') || file.type === 'image/gif') return file.type;
+const BG_EXT = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', gif: 'image/gif', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif' };
+/** Тип файла фона: от системы, иначе по расширению (на Android выбор файла иногда не сообщает тип). */
+function bgType(file) {
+  if (/^(video|image)\//.test(file.type)) return file.type;
   const ext = /\.([a-z0-9]+)$/i.exec(file.name || '')?.[1]?.toLowerCase();
-  return { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', gif: 'image/gif' }[ext] || '';
+  return BG_EXT[ext] || '';
 }
 /** Размеры GIF (длительность у GIF не проверяем — он крутится по кругу). */
 async function gifMeta(file) {
@@ -3450,6 +3447,36 @@ async function gifMeta(file) {
     throw new Error(t('Не удалось открыть GIF'));
   }
 }
+const BG_PHOTO_SIDE = 1600; // длинная сторона фото на фоне, пикселей
+/** Фото → JPEG не больше BG_PHOTO_SIDE по длинной стороне: { blob, w, h }. */
+async function bgPhoto(file) {
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    throw new Error(t('Не удалось открыть картинку'));
+  }
+  try {
+    const k = Math.min(1, BG_PHOTO_SIDE / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * k));
+    const h = Math.max(1, Math.round(bmp.height * k));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const g = canvas.getContext('2d');
+    g.fillStyle = '#000'; // прозрачный фон PNG → чёрный (как под видео)
+    g.fillRect(0, 0, w, h);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, w, h);
+    for (const q of [0.85, 0.7, 0.55]) {
+      const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', q));
+      if (blob && blob.size <= PROFILE_VIDEO_MAX) return { blob, w, h };
+    }
+  } finally {
+    bmp.close?.();
+  }
+  throw new Error(t('Не удалось уменьшить картинку'));
+}
 $('menu-dialog').addEventListener('click', (e) => {
   if (e.target.closest('.pv-pick')) $('pv-input').click();
   else if (e.target.closest('.pv-clear')) clearProfileVideo();
@@ -3458,24 +3485,36 @@ $('pv-input').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   e.target.value = '';
   if (!file || videoBusy) return;
-  const type = videoType(file);
-  if (!type) return toast(t('Нужно видео (MP4, MOV, WebM) или GIF'));
-  if (file.size > PROFILE_VIDEO_MAX) return toast(ERROR_TEXT.video_too_large);
-  videoBusy = t('Загружаем видео…');
+  const type = bgType(file);
+  const kind = type === 'image/gif' ? 'gif' : type.startsWith('video/') ? 'video' : type.startsWith('image/') ? 'photo' : '';
+  if (!kind) return toast(t('Нужно фото, GIF или видео'));
+  // Фото уменьшается на устройстве — ограничение размера только для GIF и видео
+  if (kind !== 'photo' && file.size > PROFILE_VIDEO_MAX) return toast(ERROR_TEXT.video_too_large);
+  videoBusy = t('Загружаем…');
   refreshVideoButtons();
   try {
-    const gif = type === 'image/gif';
-    const meta = gif ? await gifMeta(file) : await videoMeta(file);
-    if (!gif && !(meta.dur <= PROFILE_VIDEO_SEC + 0.5)) throw new Error(ERROR_TEXT.video_too_long);
-    await client.setProfileVideo(file, { mime: type, w: meta.w, h: meta.h, dur: gif ? undefined : meta.dur }, {
+    let source = file;
+    let meta;
+    if (kind === 'photo') {
+      const p = await bgPhoto(file);
+      source = p.blob;
+      meta = { mime: 'image/jpeg', w: p.w, h: p.h };
+    } else if (kind === 'gif') {
+      meta = { mime: type, ...(await gifMeta(file)) };
+    } else {
+      const v = await videoMeta(file);
+      if (!(v.dur <= PROFILE_VIDEO_SEC + 0.5)) throw new Error(ERROR_TEXT.video_too_long);
+      meta = { mime: type, w: v.w, h: v.h, dur: v.dur };
+    }
+    await client.setProfileVideo(source, meta, {
       onProgress: (x) => {
-        videoBusy = t('Загружаем видео… {0}%', Math.round(x * 100));
+        videoBusy = t('Загружаем… {0}%', Math.round(x * 100));
         for (const l of document.querySelectorAll('#menu-dialog .pv-pick-label')) l.textContent = videoBusy;
       },
     });
-    toast(gif ? t('GIF стоит на фоне профиля') : t('Видео стоит на фоне профиля'));
+    toast(kind === 'photo' ? t('Фото стоит на фоне профиля') : kind === 'gif' ? t('GIF стоит на фоне профиля') : t('Видео стоит на фоне профиля'));
   } catch (err) {
-    toast(err.message, 5000);
+    toast(err.message, 7000);
   } finally {
     videoBusy = '';
     if (setPage === 'shop') fillShop();
@@ -3483,11 +3522,11 @@ $('pv-input').addEventListener('change', async (e) => {
   }
 });
 async function clearProfileVideo() {
-  if (videoBusy || !confirm(t('Убрать своё видео с фона профиля?'))) return;
+  if (videoBusy || !confirm(t('Убрать свой фон из профиля?'))) return;
   videoBusy = t('Убираем…');
   try {
     await client.setProfileVideo(null);
-    toast(t('Видео убрано'));
+    toast(t('Фон убран'));
   } catch (err) {
     toast(err.message);
   } finally {

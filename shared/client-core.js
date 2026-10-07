@@ -73,13 +73,14 @@ const PROVISION_AVATARS = 30_000; // сколько места под фото �
 // Своё видео на фон профиля (Премиум): зашифрованный файл на сервере, ключ — в профиле.
 // Короткое: не длиннее PROFILE_VIDEO_SEC секунд и PROFILE_VIDEO_MAX байт.
 export const PROFILE_VIDEO_MAX = 12 * 1024 * 1024;
-// Формат профиля, который понимает это приложение: 2 — со своим видео на фоне (0.47). Профиль,
+// Формат профиля, который понимает это приложение: 2 — со своим видео на фоне (0.47), 3 — фон может
+// быть и фото (0.47.5). Профиль,
 // принятый старой версией, могли получить без фона (незнакомое поле отбрасывается) — его
 // переспрашивают один раз: у собеседников (profile-req) и у своих устройств (sync-profile-req).
-export const PROFILE_SCHEMA = 2;
+export const PROFILE_SCHEMA = 3;
 export const PROFILE_VIDEO_SEC = 15;
-/** Фон профиля — видео или GIF (0.47.2): анимированная картинка, тоже без звука и по кругу. */
-export const isProfileBgMime = (mime) => kindOf(mime) === 'video' || mime === 'image/gif';
+/** Свой фон профиля — видео, GIF (0.47.2) или фото JPEG, PNG, WebP (0.47.5). */
+export const isProfileBgMime = (mime) => kindOf(mime) === 'video' || /^image\/(gif|jpeg|png|webp)$/.test(mime);
 /** Своё видео (или GIF) для фона из профиля: { id, key, size, mime, kind, w?, h?, dur? } или null. */
 function cleanProfileVideo(v) {
   const f = cleanFile(v);
@@ -421,13 +422,13 @@ export const ERROR_TEXT = {
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
   premium_presence: t('Скрывать статус «в сети» можно с подпиской Премиум'),
   premium_shop: t('Этот товар бесплатен с подпиской Премиум'),
-  premium_video: t('Своё видео на фоне профиля — с подпиской Премиум'),
+  premium_video: t('Свой фон профиля — с подпиской Премиум'),
   shop_unknown: t('Этого товара больше нет в магазине'),
   shop_owned: t('Этот товар уже ваш'),
   shop_free: t('Этот товар бесплатный — его можно просто надеть'),
   shop_not_owned: t('Сначала купите этот товар'),
   video_too_long: t('Видео длиннее 15 секунд'),
-  video_too_large: t('Видео больше 12 МБ'),
+  video_too_large: t('Файл больше 12 МБ'),
   gift_unknown_user: t('Нет пользователя с таким юзернеймом'),
   channel_not_found: t('Канал не найден'),
   bad_channel_link: t('Ссылка на канал неверная или устарела'),

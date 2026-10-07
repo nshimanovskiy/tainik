@@ -202,7 +202,7 @@ test('своё видео на фон профиля: только с Преми
   await until(() => alice.isPremium());
   await assert.rejects(alice.setProfileVideo(video, { mime: 'video/mp4', dur: 40 }), (e) => e.code === 'video_too_long');
   await assert.rejects(alice.setProfileVideo({ size: PROFILE_VIDEO_MAX + 1, type: 'video/mp4' }, {}), (e) => e.code === 'video_too_large');
-  await assert.rejects(alice.setProfileVideo(video, { mime: 'image/png' }), (e) => e.code === 'bad_media');
+  await assert.rejects(alice.setProfileVideo(video, { mime: 'application/pdf' }), (e) => e.code === 'bad_media');
 
   // Надетый фон из магазина снимается, когда ставят своё видео
   const n = await adminApi('shop-new', { kind: 'bg', name: 'Фон', price: 0, size: mp4().length });
@@ -304,7 +304,7 @@ test('панель: выдать товар бесплатно и забрать
   await assert.rejects(alice.equipShopItem('frame', frame.id), (e) => e.code === 'shop_not_owned');
 });
 
-test('своё видео на фон: GIF тоже можно', async (t) => {
+test('свой фон: GIF и статичное фото тоже можно', async (t) => {
   const { mk, adminApi } = await setup(t);
   const [alice, bob] = [mk(), mk()];
   await alice.register('alice');
@@ -320,8 +320,13 @@ test('своё видео на фон: GIF тоже можно', async (t) => {
   await until(async () => (await bob.profileOf('alice'))?.video?.id === v.id);
   assert.equal(bob.profileVideoOf('alice').mime, 'image/gif');
   assert.deepEqual(Buffer.from(await bob.fetchFile(bob.profileVideoOf('alice'))), gif);
-  // Обычная картинка — нет
-  await assert.rejects(alice.setProfileVideo(Buffer.alloc(10), { mime: 'image/png' }), (e) => e.code === 'bad_media');
+  // Статичное фото — тоже можно (0.47.5); документ — нет
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(400, 2)]);
+  const ph = await alice.setProfileVideo(jpg, { mime: 'image/jpeg', w: 1600, h: 900 });
+  assert.deepEqual([ph.mime, ph.kind, ph.dur], ['image/jpeg', 'image', undefined]);
+  await until(() => bob.profileVideoOf('alice')?.id === ph.id);
+  assert.deepEqual(Buffer.from(await bob.fetchFile(bob.profileVideoOf('alice'))), jpg);
+  await assert.rejects(alice.setProfileVideo(Buffer.alloc(10), { mime: 'application/pdf' }), (e) => e.code === 'bad_media');
 });
 
 test('фон, потерянный старой версией приложения, приходит снова после обновления (собеседнику и своему устройству)', async (t) => {

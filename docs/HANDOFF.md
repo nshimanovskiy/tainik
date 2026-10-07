@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **7 октября 2026**, версия **0.47.4** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **7 октября 2026**, версия **0.47.5** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -111,7 +111,7 @@
 
 Все изменения состояния — строго по очереди через `_serial()` (храповик не терпит гонок). Отправка — `_pumpOutbox()`. Любые новые поля проходят «чистильщики»: `cleanText`, `cleanFile`, `cleanProfile`, `cleanGroup`, `cleanNotice`, `cleanFolders` и т. д. — принимаются только известные поля.
 
-**Магазин** (0.47): что надето — на сервере (`client.look`, у собеседников — `presence.look`, `lookOf(имя)` → `{frame?, bg?}` — id товаров); `shopList/buyShopItem/equipShopItem/fetchShopFile`. Своё видео на фон — `setProfileVideo(file|null)` (Премиум, ≤15 с, ≤12 МБ, загружается как вложение и закрепляется на сервере `profile-video`), показ — `profileVideoOf(имя)` (только при Премиум владельца).
+**Магазин** (0.47): что надето — на сервере (`client.look`, у собеседников — `presence.look`, `lookOf(имя)` → `{frame?, bg?}` — id товаров); `shopList/buyShopItem/equipShopItem/fetchShopFile`. Свой фон — `setProfileVideo(file|null)`: видео, GIF или фото (`isProfileBgMime`; Премиум, видео ≤15 с, ≤12 МБ; ставится только в магазине, загружается как вложение и закрепляется на сервере `profile-video`), показ — `profileVideoOf(имя)` (только при Премиум владельца).
 
 Основные подсистемы ядра (по методам): группы (`createGroup/updateGroup/leaveGroup`, рассылка по парным сессиям; реестр на сервере — `_syncGroups`), каналы (`createChannel/joinChannel/_syncChannel/...`), уведомления (`_onNotices`), поддержка (`openSupport/_sendSupport/_onSupport`), архив/закрепление/папки (`setArchived/setChatPinned/setFolders`), перенос (`exportBackup/importBackup`), каналы профиля (`ownChannels/setProfileChannels`), удаление аккаунта (`deleteAccount`), пересылка, закрепление сообщений (`pinMessage`).
 
@@ -294,6 +294,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.47.5 | Свой фон — ещё и фото (JPEG/PNG/WebP → JPEG ≤1600 px на устройстве), только в магазине; `PROFILE_SCHEMA = 3` |
 | 0.47.4 | Фон, потерянный старой версией, переспрашивается (`PROFILE_SCHEMA = 2`: `contact.profileSchema` + `profile-req` у собеседников с Премиум, `sync-profile-req` у своих устройств при первом входе новой версии) |
 | 0.47.3 | Пуш о сообщении в группе — с названием и автором (`send.group` → пуш `{t:'msg', from, g, gn}`, только если оба в реестре группы); автор в уведомлениях фоновых аккаунтов |
 | 0.47.2 | GIF как свой фон профиля, ровные иконки монеты и звезды (`coinsNode`), выдача и отзыв товаров в панели (`shop-grant/revoke/owners`, уведомление `shop-admin`) |
