@@ -37,6 +37,8 @@ services:
       MAX_STORAGE_GB: ${MAX_STORAGE_GB:-20}
       # Официальный канал «Обновления Тайника» с патчноутами каждой версии. 0 — выключить.
       NEWS_CHANNEL: ${NEWS_CHANNEL:-1}
+      # Магазин рамок и фонов: при первом запуске добавить примеры рамок. 0 — не добавлять.
+      SHOP_SAMPLES: ${SHOP_SAMPLES:-1}
       # Подписка «Тайник Премиум» с оплатой криптовалютой через xRocket Pay. Без токена — выключена.
       XROCKET_PAY_TOKEN: ${XROCKET_PAY_TOKEN:-}
       XROCKET_WEBHOOK_SECRET: ${XROCKET_WEBHOOK_SECRET:-}

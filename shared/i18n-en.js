@@ -1019,4 +1019,9 @@ export default {
   "Рамку видят все: в списке чатов, в шапке чата и в профиле. Фон — в вашем профиле. Товары с пометкой «Премиум» бесплатны с подпиской и действуют, пока она есть.": "Everyone sees your frame: in the chat list, the chat header and your profile. The background shows in your profile. Items marked “Premium” are free with a subscription and work while it lasts.",
   "Рамки и фоны профиля": "Profile frames and backgrounds",
   "Что показать": "What to show",
+  "Видео на фон профиля": "Profile background video",
+  "Сменить видео на фоне": "Change background video",
+  "Убираем…": "Removing…",
+  "Убрать видео с фона": "Remove background video",
+  "Видео на фон профиля — с подпиской Премиум": "Profile background video — with Premium",
 };

@@ -239,3 +239,26 @@ test('своё видео на фон профиля: только с Преми
   assert.equal(srv.store.profileVideoOf('alice'), null);
   assert.equal(alice.profile.video, undefined);
 });
+
+test('примеры рамок: выставляются один раз, удалённые не возвращаются', async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tainik-shop-samples-'));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  let srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, log: false, shopSamples: true });
+  const items = srv.store.shopItems();
+  assert.deepEqual(items.map((i) => i.name).sort(), ['Звёздная пыль', 'Золото', 'Неон', 'Сакура']);
+  assert.ok(items.every((i) => i.kind === 'frame' && i.mime === 'image/png'));
+  const r = await fetch(`http://127.0.0.1:${srv.port}/api/shop/${items[0].id}`);
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.equal(sniffMime(Buffer.from(await r.arrayBuffer()).subarray(0, 16)), 'image/png');
+  srv.store.deleteShopItem(items[0].id);
+  await srv.close();
+  srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, log: false, shopSamples: true });
+  assert.equal(srv.store.shopItems().length, 3, 'второй запуск ничего не добавляет');
+  await srv.close();
+});
+
+test('иконка двойной галочки — две полные галочки', async () => {
+  const set = JSON.parse(fs.readFileSync(new URL('../client/icons.json', import.meta.url), 'utf8'));
+  assert.equal(set.icons.check2.length, 2, 'каждая галочка — отдельный штрих из двух плеч');
+  for (const [, a] of set.icons.check2) assert.match(a.d, /^M[\d.]+ [\d.]+l[\d.]+ [\d.]+ [\d.]+-[\d.]+$/);
+});

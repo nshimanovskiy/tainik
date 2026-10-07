@@ -2756,6 +2756,9 @@ function fillProfileEdit() {
   pendingAvatar = undefined;
   updateProfilePhoto();
   $('prof-shop-row').hidden = !client.shopOn;
+  // Видео на фон — с сервера 0.47 (своё видео он закрепляет на хранении)
+  $('prof-video-group').hidden = !client.shopOn;
+  if (client.shopOn) fillVideoButtons($('prof-video-group'), t('Видео на фон профиля'), t('Сменить видео на фоне'));
   bioCount();
   renderProfileChannels();
 }
@@ -2888,10 +2891,11 @@ client.on('profile', () => {
   if ($('menu-dialog').open) {
     setName($('set-name'), client.account.username, client.verified);
     paintAvatar($('set-avatar'), client.account.username);
-    if (setPage === 'profile') paintCover($('prof-cover'), client.account.username);
     if (setPage === 'shop') paintShopPreview();
+    refreshVideoButtons();
   }
 });
+client.on('premium', () => client.account && refreshVideoButtons());
 // ---------- Прокси (только в приложениях: десктоп и Android) ----------
 // Сам прокси работает в нативной части (desktop/proxy.cjs, android/.../ProxyRelay.kt):
 // пароль туда уходит один раз и обратно странице не возвращается.
@@ -3326,13 +3330,32 @@ function renderShop() {
   $('shop-empty').textContent = shopTab === 'frame' ? t('Рамок пока нет — загляните позже.') : t('Фонов пока нет — загляните позже.');
   // Своё видео на фон — только на вкладке фонов
   $('shop-own').hidden = shopTab !== 'bg';
+  fillVideoButtons($('pv-group'), t('Выбрать видео'), t('Сменить своё видео'));
+}
+/**
+ * Кнопки своего видео на фоне (в магазине и в «Моём профиле»): выбрать или сменить, убрать;
+ * без подписки — строка «с Премиум» (ведёт на страницу подписки, если сервер её продаёт).
+ */
+function fillVideoButtons(box, pickText, changeText) {
   const premium = client.isPremium();
   const own = !!client.profile.video;
-  $('pv-pick').hidden = !premium;
-  $('pv-pick-label').textContent = own ? t('Сменить своё видео') : t('Выбрать видео');
-  $('pv-clear').hidden = !own;
-  $('pv-locked').hidden = premium || !client.billing;
-  $('pv-group').hidden = $('pv-pick').hidden && $('pv-clear').hidden && $('pv-locked').hidden;
+  box.querySelector('.pv-pick').hidden = !premium;
+  box.querySelector('.pv-pick-label').textContent = videoBusy || (own ? changeText : pickText);
+  box.querySelector('.pv-clear').hidden = !own;
+  const locked = box.querySelector('.pv-locked');
+  locked.hidden = premium;
+  locked.disabled = !client.billing;
+  if (client.billing) locked.dataset.go = 'premium';
+  else delete locked.dataset.go;
+}
+let videoBusy = ''; // текст на кнопке, пока видео загружается
+function refreshVideoButtons() {
+  if (!$('menu-dialog').open) return;
+  if (setPage === 'shop' && shopData) renderShop();
+  if (setPage === 'profile') {
+    fillVideoButtons($('prof-video-group'), t('Видео на фон профиля'), t('Сменить видео на фоне'));
+    paintCover($('prof-cover'), client.account.username);
+  }
 }
 async function shopClick(item, kind, worn) {
   if (shopBusy || worn) return;
@@ -3383,42 +3406,57 @@ function videoMeta(file) {
     v.src = url;
   });
 }
-$('pv-pick').addEventListener('click', () => $('pv-input').click());
+// Тип видео по расширению: на Android выбор файла иногда не сообщает тип
+function videoType(file) {
+  if (file.type.startsWith('video/')) return file.type;
+  const ext = /\.([a-z0-9]+)$/i.exec(file.name || '')?.[1]?.toLowerCase();
+  return { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' }[ext] || '';
+}
+$('menu-dialog').addEventListener('click', (e) => {
+  if (e.target.closest('.pv-pick')) $('pv-input').click();
+  else if (e.target.closest('.pv-clear')) clearProfileVideo();
+});
 $('pv-input').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   e.target.value = '';
-  if (!file || shopBusy) return;
-  if (!file.type.startsWith('video/')) return toast(t('Это не видео'));
+  if (!file || videoBusy) return;
+  const type = videoType(file);
+  if (!type) return toast(t('Это не видео'));
   if (file.size > PROFILE_VIDEO_MAX) return toast(ERROR_TEXT.video_too_large);
-  shopBusy = true;
+  videoBusy = t('Загружаем видео…');
+  refreshVideoButtons();
   try {
     const meta = await videoMeta(file);
     if (!(meta.dur <= PROFILE_VIDEO_SEC + 0.5)) throw new Error(ERROR_TEXT.video_too_long);
-    $('pv-pick-label').textContent = t('Загружаем видео…');
-    await client.setProfileVideo(file, { mime: file.type, w: meta.w, h: meta.h, dur: meta.dur }, {
-      onProgress: (x) => ($('pv-pick-label').textContent = t('Загружаем видео… {0}%', Math.round(x * 100))),
+    await client.setProfileVideo(file, { mime: type, w: meta.w, h: meta.h, dur: meta.dur }, {
+      onProgress: (x) => {
+        videoBusy = t('Загружаем видео… {0}%', Math.round(x * 100));
+        for (const l of document.querySelectorAll('#menu-dialog .pv-pick-label')) l.textContent = videoBusy;
+      },
     });
     toast(t('Видео стоит на фоне профиля'));
   } catch (err) {
     toast(err.message, 5000);
   } finally {
-    shopBusy = false;
+    videoBusy = '';
     if (setPage === 'shop') fillShop();
+    else refreshVideoButtons();
   }
 });
-$('pv-clear').addEventListener('click', async () => {
-  if (shopBusy || !confirm(t('Убрать своё видео с фона профиля?'))) return;
-  shopBusy = true;
+async function clearProfileVideo() {
+  if (videoBusy || !confirm(t('Убрать своё видео с фона профиля?'))) return;
+  videoBusy = t('Убираем…');
   try {
     await client.setProfileVideo(null);
     toast(t('Видео убрано'));
   } catch (err) {
     toast(err.message);
   } finally {
-    shopBusy = false;
+    videoBusy = '';
     if (setPage === 'shop') fillShop();
+    else refreshVideoButtons();
   }
-});
+}
 // Надетое изменилось (здесь, на другом своём устройстве или кончилась подписка)
 client.on('look', () => {
   if (!client.account) return;

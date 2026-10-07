@@ -11,6 +11,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+
+// Примеры рамок: сервер выставляет их в магазин один раз, при первом запуске с магазином
+// (дальше администратор меняет или удаляет их, как любые товары — удалённые не возвращаются)
+const SAMPLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'shop-samples');
+export const SAMPLES = [
+  { file: 'sakura.png', kind: 'frame', name: 'Сакура', price: 0, premium: false },
+  { file: 'gold.png', kind: 'frame', name: 'Золото', price: 100, premium: false },
+  { file: 'stardust.png', kind: 'frame', name: 'Звёздная пыль', price: 50, premium: true },
+  { file: 'neon.png', kind: 'frame', name: 'Неон', price: 0, premium: true },
+];
 
 export const SHOP_ID_RE = /^[0-9a-f]{16}$/;
 export const SHOP_NAME_MAX = 40;
@@ -120,6 +131,31 @@ export function createShop({ dataDir, store, say = () => {} }) {
     return users;
   }
 
+  /** Выставить примеры рамок, если этого ещё не делали на этом сервере. */
+  function seedSamples() {
+    if (store.getMeta('shop_samples')) return 0;
+    let n = 0;
+    for (const x of SAMPLES) {
+      let data;
+      try {
+        data = fs.readFileSync(path.join(SAMPLES_DIR, x.file));
+      } catch {
+        continue;
+      }
+      const mime = sniffMime(data.subarray(0, 16));
+      if (!mime || !SHOP_KINDS[x.kind].mimes.includes(mime)) continue;
+      const id = randomBytes(8).toString('hex');
+      fs.writeFileSync(fileOf(id), data, { mode: 0o600 });
+      store.addShopItem({ id, kind: x.kind, name: x.name, price: x.price, premium: x.premium, size: data.length });
+      store.shopReceived(id, data.length);
+      store.shopReady(id, mime);
+      n++;
+    }
+    store.setMeta('shop_samples', String(Date.now()));
+    if (n) say(`магазин: добавлены примеры рамок (${n})`);
+    return n;
+  }
+
   /** Брошенные загрузки (старше суток) — удалить. */
   function purge() {
     for (const id of store.staleShopUploads(Date.now() - 86400_000)) remove(id);
@@ -179,7 +215,7 @@ export function createShop({ dataDir, store, say = () => {} }) {
     return true;
   }
 
-  return { newItem, chunk, finish, update, remove, purge, handleHttp, dir };
+  return { newItem, chunk, finish, update, remove, purge, seedSamples, handleHttp, dir };
 }
 
 /** Товар для приложения: только то, что нужно показать. */

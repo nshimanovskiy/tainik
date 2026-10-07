@@ -295,6 +295,11 @@
           </div>
           <button type="button" id="prof-photo-locked" class="ghost-link" data-go="premium" hidden><i class="ic" data-icon="star"></i>Фото профиля — с подпиской Премиум</button>
         </div>
+        <div class="set-group" id="prof-video-group" hidden>
+          <button type="button" class="set-row pv-pick"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="video"></i></span><span class="set-label pv-pick-label">Видео на фон профиля</span><span class="set-chev" aria-hidden="true">›</span></button>
+          <button type="button" class="set-row danger pv-clear" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Убрать видео с фона</span></button>
+          <button type="button" class="set-row pv-locked" data-go="premium" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Видео на фон профиля — с подпиской Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
+        </div>
         <div class="set-group set-pad">
           <label class="set-field"><span>Имя</span><input id="prof-name" maxlength="64" autocomplete="off" placeholder="Как вас называть"></label>
           <label class="set-field"><span>О себе <i id="prof-bio-count" class="set-count"></i></span><textarea id="prof-bio" rows="3" maxlength="140" placeholder="Пара слов о себе"></textarea></label>
@@ -368,9 +373,9 @@
         <div id="shop-own" hidden>
           <h3 class="set-sub">Своё видео на фон</h3>
           <div class="set-group" id="pv-group">
-            <button type="button" id="pv-pick" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="video"></i></span><span class="set-label" id="pv-pick-label">Выбрать видео</span><span class="set-chev" aria-hidden="true">›</span></button>
-            <button type="button" id="pv-clear" class="set-row danger" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Убрать своё видео</span></button>
-            <button type="button" id="pv-locked" data-go="premium" class="set-row" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Своё видео — с подпиской Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="set-row pv-pick"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="video"></i></span><span class="set-label pv-pick-label">Выбрать видео</span><span class="set-chev" aria-hidden="true">›</span></button>
+            <button type="button" class="set-row danger pv-clear" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Убрать своё видео</span></button>
+            <button type="button" data-go="premium" class="set-row pv-locked" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Своё видео — с подпиской Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
           </div>
           <input type="file" id="pv-input" accept="video/mp4,video/webm,video/quicktime,video/*" hidden>
           <p class="set-note">Видео до 15 секунд и 12 МБ, показывается без звука. Оно зашифровано: его видят только ваши собеседники и только пока действует подписка. На фоне — что-то одно: своё видео или фон из магазина.</p>

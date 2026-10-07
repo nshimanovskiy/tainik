@@ -1004,7 +1004,7 @@ a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset:
 .send .ic { width: 22px; height: 22px; }
 .premium-star .ic { width: .95em; height: .95em; }
 .premium-star .ic svg { fill: currentColor; }
-.st .ic { width: 1.15em; height: 1.15em; vertical-align: -0.25em; }
+.st .ic { width: 1.35em; height: 1.35em; vertical-align: -0.32em; }
 .lock-big .ic { width: 56px; height: 56px; }
 .lock-big .ic svg { stroke-width: 1.4; }
 .vplay .ic { width: 18px; height: 18px; }
@@ -1056,6 +1056,6 @@ a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset:
 .shop-none { width: 30px; height: 30px; color: var(--muted); }
 .shop-prem { position: absolute; top: -4px; right: -4px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: #f5b942; color: #fff; }
 .shop-prem .ic { width: 14px; height: 14px; }
-.shop-name { font-weight: 600; font-size: 13.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shop-name { font-weight: 600; font-size: 13.5px; max-width: 100%; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; line-height: 1.25; }
 .shop-state { font-size: 12px; color: var(--muted); }
 .shop-item.worn .shop-state { color: var(--accent); font-weight: 600; }

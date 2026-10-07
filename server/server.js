@@ -172,6 +172,8 @@ export function startServer({
   billing: billingOpts = null,
   // Официальный канал «Обновления Тайника» с патчноутами (см. server/news.js). В тестах выключен.
   news: newsOn = false,
+  // Примеры рамок в магазине при первом запуске (в тестах выключены)
+  shopSamples = false,
   changelogPath = path.join(ROOT, 'CHANGELOG.md'),
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
@@ -1328,6 +1330,7 @@ export function startServer({
     say,
   });
   const shop = createShop({ dataDir, store, say });
+  if (shopSamples) shop.seedSamples();
 
   const billing = billingOpts?.token
     ? createBilling({
@@ -1570,6 +1573,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
           },
     domain: env.DOMAIN || null,
     news: env.NEWS_CHANNEL !== '0', // канал «Обновления Тайника»; NEWS_CHANNEL=0 — выключить
+    shopSamples: env.SHOP_SAMPLES !== '0', // примеры рамок в магазине при первом запуске; SHOP_SAMPLES=0 — не добавлять
     uploads: { maxMb: Number(env.MAX_UPLOAD_MB) || 100, maxTotalGb: Number(env.MAX_STORAGE_GB) || 20 },
     releases: env.RELEASES_REPO ? { repo: env.RELEASES_REPO.trim(), token: env.GITHUB_TOKEN || null } : null,
     admin: env.ADMIN_PASSWORD ? { password: env.ADMIN_PASSWORD, path: env.ADMIN_PATH || '/adminadminadmin' } : null,
