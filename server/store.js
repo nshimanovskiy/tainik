@@ -203,6 +203,31 @@ CREATE TABLE IF NOT EXISTS support (
   seen        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS support_user ON support(user, id);
+-- Магазин: рамки вокруг фото профиля и фоны профиля (короткие видео). Файлы загружает
+-- администратор (лежат в папке shop), покупают за монеты; товар с premium бесплатен подписчикам.
+-- ready = 0 — файл ещё загружается (такой товар нигде не виден).
+CREATE TABLE IF NOT EXISTS shop_items (
+  id          TEXT PRIMARY KEY,
+  kind        TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  price       INTEGER NOT NULL DEFAULT 0,
+  premium     INTEGER NOT NULL DEFAULT 0,
+  hidden      INTEGER NOT NULL DEFAULT 0,
+  mime        TEXT NOT NULL DEFAULT '',
+  size        INTEGER NOT NULL,
+  received    INTEGER NOT NULL DEFAULT 0,
+  ready       INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+-- Купленные товары. Запись удаляется с аккаунтом; сама покупка остаётся в журнале монет.
+CREATE TABLE IF NOT EXISTS shop_owned (
+  user        TEXT NOT NULL REFERENCES users(name) ON DELETE CASCADE,
+  item        TEXT NOT NULL REFERENCES shop_items(id) ON DELETE CASCADE,
+  price       INTEGER NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (user, item)
+);
+CREATE INDEX IF NOT EXISTS shop_owned_item ON shop_owned(item);
 INSERT OR IGNORE INTO meta(key, value) VALUES ('schema', '3');
 `;
 
@@ -250,6 +275,9 @@ export class Store {
       this.db.exec('UPDATE users SET uid = rowid');
     }
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_uid ON users(uid)');
+    // Надетые товары магазина: рамка вокруг фото и фон профиля (id товара)
+    if (!cols.includes('look_frame')) this.db.exec('ALTER TABLE users ADD COLUMN look_frame TEXT');
+    if (!cols.includes('look_bg')) this.db.exec('ALTER TABLE users ADD COLUMN look_bg TEXT');
     if (this.db.prepare("SELECT value FROM meta WHERE key = 'next_uid'").get() == null) {
       const max = this.db.prepare('SELECT COALESCE(MAX(uid), 0) AS m FROM users').get().m;
       this.db.prepare("INSERT INTO meta(key, value) VALUES ('next_uid', ?)").run(String(max + 1));
@@ -295,7 +323,7 @@ export class Store {
       delUser: q('DELETE FROM users WHERE name = ?'),
       bans: q('SELECT ip, note, created_at FROM ip_bans ORDER BY created_at DESC'),
       addBlob: q('INSERT INTO blobs(id, owner, size, token_hash, created_at) VALUES (?, ?, ?, ?, ?)'),
-      getBlob: q('SELECT id, owner, size, received, done, token_hash, created_at FROM blobs WHERE id = ?'),
+      getBlob: q('SELECT id, owner, size, received, done, token_hash, created_at, pin FROM blobs WHERE id = ?'),
       updBlob: q('UPDATE blobs SET received = ?, done = ? WHERE id = ?'),
       blobsTotal: q('SELECT COALESCE(SUM(size), 0) AS n FROM blobs'),
       blobsExpired: q('SELECT id FROM blobs WHERE pin IS NULL AND (created_at < ? OR (done = 0 AND created_at < ?))'),
@@ -321,7 +349,7 @@ export class Store {
       delQueue: q('DELETE FROM queue WHERE qid = ?'),
       purgeOld: q('DELETE FROM queue WHERE ts < ?'),
       presence: q(
-        'SELECT u.presence_hidden AS hidden, u.verified AS verified, MAX(d.last_seen) AS last_seen, (SELECT until FROM premium p WHERE p.user = u.name) AS premium_until FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'
+        'SELECT u.presence_hidden AS hidden, u.verified AS verified, u.look_frame AS look_frame, u.look_bg AS look_bg, MAX(d.last_seen) AS last_seen, (SELECT until FROM premium p WHERE p.user = u.name) AS premium_until FROM users u LEFT JOIN devices d ON d.user = u.name WHERE u.name = ? GROUP BY u.name'
       ),
       premiumUntil: q('SELECT until FROM premium WHERE user = ?'),
       setPremium: q('INSERT INTO premium(user, until) VALUES (?, ?) ON CONFLICT(user) DO UPDATE SET until = excluded.until'),
@@ -444,6 +472,7 @@ export class Store {
   /** Удалить аккаунт целиком: устройства, ключи, очередь и подписки удаляются каскадом. */
   deleteUser(name) {
     this.db.prepare('DELETE FROM blocks WHERE blocked = ?').run(name);
+    this.db.prepare('UPDATE blobs SET pin = NULL, created_at = 0 WHERE pin = ?').run('pv:' + name); // своё видео профиля
     return this.s.delUser.run(name).changes > 0;
   }
 
@@ -483,6 +512,27 @@ export class Store {
   }
   deleteBlobs(ids) {
     for (const id of ids) this.s.delBlob.run(id);
+  }
+  /**
+   * Своё видео на фон профиля (Премиум): файл не удаляется по сроку, пока стоит в профиле
+   * (pin = 'pv:<юзернейм>'). Прежнее видео открепляется и удаляется при ближайшей чистке.
+   * id null — убрать. false — нет такого загруженного файла этого пользователя или он больше max.
+   */
+  pinProfileVideo(user, id, maxSize) {
+    return this.tx(() => {
+      if (id) {
+        const b = this.getBlob(id);
+        if (!b || b.owner !== user || !b.done || b.size > maxSize) return false;
+        if (b.pin === 'pv:' + user) return true;
+        if (b.pin) return false; // уже закреплён за постом канала
+      }
+      this.db.prepare('UPDATE blobs SET pin = NULL, created_at = 0 WHERE pin = ?').run('pv:' + user);
+      if (id) this.db.prepare('UPDATE blobs SET pin = ? WHERE id = ?').run('pv:' + user, id);
+      return true;
+    });
+  }
+  profileVideoOf(user) {
+    return this.db.prepare('SELECT id FROM blobs WHERE pin = ?').get('pv:' + user)?.id || null;
   }
 
   // ----- блокировки IP -----
@@ -569,7 +619,8 @@ export class Store {
     const premium = (r.premium_until || 0) > Date.now();
     // Скрыть статус «в сети» — возможность Премиум: без подписки скрытие не действует
     // (выбор сохраняется и снова работает, когда подписка появится)
-    return { hidden: !!r.hidden && premium, hiddenChoice: !!r.hidden, verified: !!r.verified, premium, lastSeen: r.last_seen || null };
+    const look = this._look(name, { frame: r.look_frame, bg: r.look_bg }, premium);
+    return { hidden: !!r.hidden && premium, hiddenChoice: !!r.hidden, verified: !!r.verified, premium, look, lastSeen: r.last_seen || null };
   }
   setVerified(name, on) {
     return this.s.setVerified.run(on ? 1 : 0, name).changes > 0;
@@ -600,6 +651,108 @@ export class Store {
   premiumEndedBetween(from, to) {
     return this.s.premiumEnded.all(from, to).map((r) => r.user);
   }
+  // ----- магазин: рамки и фоны профиля -----
+  _shopRow(r) {
+    if (!r) return null;
+    return { id: r.id, kind: r.kind, name: r.name, price: r.price, premium: !!r.premium, hidden: !!r.hidden, mime: r.mime, size: r.size, received: r.received, ready: !!r.ready, createdAt: r.created_at };
+  }
+  shopItem(id) {
+    return this._shopRow(this.db.prepare('SELECT * FROM shop_items WHERE id = ?').get(String(id)));
+  }
+  /** Товары: all — и скрытые, и недогруженные (для панели); иначе — только готовые и не скрытые. */
+  shopItems({ all = false } = {}) {
+    const rows = all
+      ? this.db.prepare('SELECT i.*, (SELECT COUNT(*) FROM shop_owned o WHERE o.item = i.id) AS sold FROM shop_items i ORDER BY i.created_at DESC').all()
+      : this.db.prepare('SELECT * FROM shop_items WHERE ready = 1 AND hidden = 0 ORDER BY created_at DESC').all();
+    return rows.map((r) => (all ? { ...this._shopRow(r), sold: r.sold } : this._shopRow(r)));
+  }
+  addShopItem({ id, kind, name, price, premium, size }, now = Date.now()) {
+    this.db.prepare('INSERT INTO shop_items(id, kind, name, price, premium, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, kind, name, price, premium ? 1 : 0, size, now);
+  }
+  shopReceived(id, received) {
+    this.db.prepare('UPDATE shop_items SET received = ? WHERE id = ? AND ready = 0').run(received, id);
+  }
+  shopReady(id, mime) {
+    return this.db.prepare('UPDATE shop_items SET ready = 1, mime = ? WHERE id = ? AND ready = 0').run(mime, id).changes > 0;
+  }
+  updateShopItem(id, { name, price, premium, hidden }) {
+    return this.db.prepare('UPDATE shop_items SET name = ?, price = ?, premium = ?, hidden = ? WHERE id = ?').run(name, price, premium ? 1 : 0, hidden ? 1 : 0, id).changes > 0;
+  }
+  /** Удалить товар: пропадает у всех, кто купил или надел. Возвращает, у кого он был надет. */
+  /** У кого товар надет. */
+  lookUsers(id) {
+    return this.db.prepare('SELECT name FROM users WHERE look_frame = ? OR look_bg = ?').all(id, id).map((r) => r.name);
+  }
+  deleteShopItem(id) {
+    return this.tx(() => {
+      const users = this.lookUsers(id);
+      this.db.prepare('UPDATE users SET look_frame = NULL WHERE look_frame = ?').run(id);
+      this.db.prepare('UPDATE users SET look_bg = NULL WHERE look_bg = ?').run(id);
+      this.db.prepare('DELETE FROM shop_items WHERE id = ?').run(id); // покупки — каскадом
+      return users;
+    });
+  }
+  /** Недогруженные товары старше before (брошенная загрузка в панели). */
+  staleShopUploads(before) {
+    return this.db.prepare('SELECT id FROM shop_items WHERE ready = 0 AND created_at < ?').all(before).map((r) => r.id);
+  }
+  shopOwned(user) {
+    return this.db.prepare('SELECT item FROM shop_owned WHERE user = ? ORDER BY created_at').all(user).map((r) => r.item);
+  }
+  ownsShopItem(user, id) {
+    return !!this.db.prepare('SELECT 1 FROM shop_owned WHERE user = ? AND item = ?').get(user, id);
+  }
+  /**
+   * Можно ли пользоваться товаром: куплен, бесплатен всем (цена 0 без отметки Премиум)
+   * или бесплатен с Премиум, пока подписка действует.
+   */
+  canUseShopItem(user, item, premium = this.premiumUntil(user) > Date.now()) {
+    if (!item || !item.ready) return false;
+    if (item.price === 0 && !item.premium) return true;
+    if (item.premium && premium) return true;
+    return this.ownsShopItem(user, item.id);
+  }
+  /** Что из надетого действует сейчас: { frame?, bg? } — id товаров. */
+  _look(user, chosen, premium) {
+    const out = {};
+    for (const kind of ['frame', 'bg']) {
+      const id = chosen[kind];
+      if (!id) continue;
+      const item = this.shopItem(id);
+      if (item && item.kind === kind && this.canUseShopItem(user, item, premium)) out[kind] = id;
+    }
+    return out;
+  }
+  /** Выбор пользователя (что надето, даже если сейчас не действует). */
+  lookChoice(user) {
+    const r = this.db.prepare('SELECT look_frame, look_bg FROM users WHERE name = ?').get(user);
+    return { frame: r?.look_frame || null, bg: r?.look_bg || null };
+  }
+  /** Действующий вид профиля: { frame?, bg? }. */
+  lookOf(user) {
+    return this._look(user, this.lookChoice(user), this.premiumUntil(user) > Date.now());
+  }
+  setLook(user, kind, id) {
+    const col = kind === 'frame' ? 'look_frame' : 'look_bg';
+    this.db.prepare(`UPDATE users SET ${col} = ? WHERE name = ?`).run(id || null, user);
+  }
+  /**
+   * Купить товар за монеты — одной транзакцией: списать price (ровно столько, сколько видел
+   * пользователь) и записать покупку. Возвращает новый баланс.
+   */
+  buyShopItem(user, id, cost, now = Date.now()) {
+    return this.tx(() => {
+      const item = this.shopItem(id);
+      if (!item || !item.ready || item.hidden) throw Object.assign(new Error('shop_unknown'), { code: 'shop_unknown' });
+      if (this.ownsShopItem(user, id)) throw Object.assign(new Error('shop_owned'), { code: 'shop_owned' });
+      if (item.price <= 0) throw Object.assign(new Error('shop_free'), { code: 'shop_free' });
+      if (cost !== item.price) throw Object.assign(new Error('price_changed'), { code: 'price_changed' });
+      const coins = this._addCoins(user, -item.price, 'shop', id, now);
+      this.db.prepare('INSERT INTO shop_owned(user, item, price, created_at) VALUES (?, ?, ?, ?)').run(user, id, item.price, now);
+      return coins;
+    });
+  }
+
   // ----- поддержка -----
   /** Сообщение в чат поддержки: от пользователя (admin false) или ответ администратора. */
   addSupport(user, admin, text, now = Date.now()) {

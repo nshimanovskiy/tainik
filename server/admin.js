@@ -28,7 +28,7 @@ const SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'X-Robots-Tag': 'noindex, nofollow',
   'Content-Security-Policy':
-    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };
 
 export function normalizeAdminPath(p) {
@@ -150,16 +150,22 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
     }
     // Действия: только с сессией, только JSON и только со своим заголовком — чужой сайт
     // не может отправить такой запрос из браузера администратора (CSRF).
-    const act = /^\/api\/(delete-user|ban|unban|verify|premium|coins|notice|chat-verify|chat-delete|news|support-thread|support-reply)$/.exec(sub);
+    const act = /^\/api\/(delete-user|ban|unban|verify|premium|coins|notice|chat-verify|chat-delete|news|support-thread|support-reply|shop-new|shop-chunk|shop-done|shop-update|shop-delete)$/.exec(sub);
     if (req.method === 'POST' && act) {
       const json = (status, obj) => send(res, status, JSON.stringify(obj), 'application/json; charset=utf-8');
       if (!authed) return json(401, { error: 'unauthorized' }), true;
       if (req.headers['x-tainik-admin'] !== '1' || !/^application\/json\b/.test(String(req.headers['content-type'] || ''))) {
         return json(403, { error: 'forbidden' }), true;
       }
-      readBody(req)
+      // Часть файла товара магазина — до ~700 КБ в base64, остальное — короткие запросы
+      readBody(req, act[1] === 'shop-chunk' ? 1024 * 1024 : 4096)
         .then(async (text) => {
           const body = JSON.parse(text || '{}');
+          if (act[1] === 'shop-new') return json(200, { ok: true, ...actions.shopNew(body) });
+          if (act[1] === 'shop-chunk') return json(200, { ok: true, ...actions.shopChunk(body) });
+          if (act[1] === 'shop-done') return json(200, { ok: true, ...actions.shopDone(body.id) });
+          if (act[1] === 'shop-update') return json(200, { ok: true, ...actions.shopUpdate(body) });
+          if (act[1] === 'shop-delete') return json(200, { ok: true, ...actions.shopDelete(body.id) });
           if (act[1] === 'support-thread') return json(200, { ok: true, ...actions.supportThread(body.name) });
           if (act[1] === 'support-reply') return json(200, { ok: true, ...actions.supportReply(body.name, body.text) });
           if (act[1] === 'news') {

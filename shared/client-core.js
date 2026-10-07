@@ -70,6 +70,36 @@ export const PHOTO_MAX = 100_000;
 export const PHOTO_SIZE = 640;
 export const validPhoto = (a) => typeof a === 'string' && a.length <= PHOTO_MAX && AVATAR_RE.test(a);
 const PROVISION_AVATARS = 30_000; // сколько места под фото собеседников при привязке устройства
+// Своё видео на фон профиля (Премиум): зашифрованный файл на сервере, ключ — в профиле.
+// Короткое: не длиннее PROFILE_VIDEO_SEC секунд и PROFILE_VIDEO_MAX байт.
+export const PROFILE_VIDEO_MAX = 12 * 1024 * 1024;
+export const PROFILE_VIDEO_SEC = 15;
+/** Видео для фона профиля из профиля: { id, key, size, mime, kind: 'video', w?, h?, dur? } или null. */
+function cleanProfileVideo(v) {
+  const f = cleanFile(v);
+  if (!f || f.kind !== 'video' || f.size > PROFILE_VIDEO_MAX) return null;
+  const out = { id: f.id, key: f.key, size: f.size, mime: f.mime, kind: 'video' };
+  if (f.w && f.h) Object.assign(out, { w: f.w, h: f.h });
+  if (f.dur !== undefined) out.dur = f.dur;
+  return out;
+}
+// ---------- Магазин: рамки и фоны профиля ----------
+// Товары загружает администратор сервера, покупают за монеты. Что у кого надето, знает сервер
+// (как галочку и Премиум): он не даст показать чужим некупленную рамку. Файлы товаров открытые.
+const SHOP_ID_RE = /^[0-9a-f]{16}$/;
+export const SHOP_FILE_MAX = 16 * 1024 * 1024;
+/** Надетое { frame?, bg? } — id товаров. */
+export function cleanLook(l) {
+  const out = {};
+  for (const k of ['frame', 'bg']) if (typeof l?.[k] === 'string' && SHOP_ID_RE.test(l[k])) out[k] = l[k];
+  return out;
+}
+const sameLook = (a, b) => (a?.frame || null) === (b?.frame || null) && (a?.bg || null) === (b?.bg || null);
+function cleanShopItem(i) {
+  if (!i || typeof i.id !== 'string' || !SHOP_ID_RE.test(i.id) || (i.kind !== 'frame' && i.kind !== 'bg')) return null;
+  const price = Number.isSafeInteger(i.price) && i.price >= 0 ? i.price : 0;
+  return { id: i.id, kind: i.kind, name: cleanProfileText(i.name, 40).replace(/\n/g, ' ') || i.id, price, premium: !!i.premium };
+}
 
 /** Имя или «о себе»: без управляющих и «переворачивающих» текст символов, обрезано. */
 export function cleanProfileText(s, max) {
@@ -124,6 +154,8 @@ function cleanProfile(p) {
   }
   const channels = cleanProfileChannels(p.channels);
   if (channels.length) out.channels = channels;
+  const video = cleanProfileVideo(p.video);
+  if (video) out.video = video;
   return out;
 }
 
@@ -377,6 +409,14 @@ export const ERROR_TEXT = {
   no_rate: t('Не удалось узнать курс валюты, попробуйте позже или выберите другую'),
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
   premium_presence: t('Скрывать статус «в сети» можно с подпиской Премиум'),
+  premium_shop: t('Этот товар бесплатен с подпиской Премиум'),
+  premium_video: t('Своё видео на фоне профиля — с подпиской Премиум'),
+  shop_unknown: t('Этого товара больше нет в магазине'),
+  shop_owned: t('Этот товар уже ваш'),
+  shop_free: t('Этот товар бесплатный — его можно просто надеть'),
+  shop_not_owned: t('Сначала купите этот товар'),
+  video_too_long: t('Видео длиннее 15 секунд'),
+  video_too_large: t('Видео больше 12 МБ'),
   gift_unknown_user: t('Нет пользователя с таким юзернеймом'),
   channel_not_found: t('Канал не найден'),
   bad_channel_link: t('Ссылка на канал неверная или устарела'),
@@ -465,6 +505,8 @@ export class MessengerClient extends Emitter {
     this.presence = new Map();
     this.presenceHidden = false;
     this.verified = false; // у своего аккаунта официальная галочка
+    this.look = {}; // надетые рамка и фон из магазина (действующие): { frame?, bg? }
+    this.shopOn = false; // сервер с магазином (0.47 и новее)
     // Подписка «Премиум» своего аккаунта и тарифы сервера (null — сервер подписку не продаёт)
     this.premium = { active: false, until: null };
     this.coins = 0; // баланс монет — внутренней валюты (хранится на сервере)
@@ -475,6 +517,7 @@ export class MessengerClient extends Emitter {
     this._names = new Map(); // имя собеседника по юзернейму — для интерфейса
     this._verifiedChats = new Set(); // группы и каналы с галочкой (ключи чатов)
     this._avatars = new Map(); // фото профиля собеседника по юзернейму
+    this._videos = new Map(); // своё видео на фоне профиля собеседника (описание файла)
     this._profileReplies = new Map(); // кому и когда повторно отправляли профиль по запросу
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
@@ -935,6 +978,8 @@ export class MessengerClient extends Emitter {
         this._send({ type: 'set-active', active: this.active }); // мог смениться, пока шёл вход
         this._setPremium(msg.premium);
         this._setCoins(msg.coins);
+        this.shopOn = !!msg.shop;
+        this._setLook(msg.look);
         if (Array.isArray(msg.channels)) this._onChannels(msg.channels).catch((e) => console.error('channels', e));
         if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
         if (Array.isArray(msg.notices)) this._serial(() => this._onNotices(msg.notices)).catch((e) => console.error('notices', e));
@@ -969,6 +1014,12 @@ export class MessengerClient extends Emitter {
         return;
       case 'coins':
         this._setCoins(msg.balance);
+        return;
+      case 'look':
+        this._setLook(msg.look);
+        return;
+      case 'shop-owned': // куплено на другом своём устройстве
+        this.emit('shop', { owned: String(msg.id || '') });
         return;
       case 'notice':
         this._serial(() => this._onNotices([msg.notice])).catch((e) => console.error('notices', e));
@@ -1347,6 +1398,101 @@ export class MessengerClient extends Emitter {
     for (const x of added) this.emit('message', { contact: SUPPORT_CHAT, message: x.m, quiet: x.quiet });
   }
 
+  // ---------- Магазин: рамки и фоны профиля ----------
+  _setLook(l) {
+    const next = cleanLook(l);
+    if (sameLook(next, this.look)) return;
+    this.look = next;
+    this.emit('look', next);
+  }
+
+  /** Надетые рамка и фон пользователя (или свои): { frame?, bg? } — id товаров. */
+  lookOf(username) {
+    if (this.account && username === this.account.username) return this.look;
+    return this.presence.get(username)?.look || {};
+  }
+
+  /** Витрина: { items, owned, chosen, look }. chosen — что выбрано (даже если сейчас не действует). */
+  async shopList() {
+    const r = await this._request({ type: 'shop-list' });
+    this._setLook(r.look);
+    return {
+      items: (Array.isArray(r.items) ? r.items : []).map(cleanShopItem).filter(Boolean),
+      owned: (Array.isArray(r.owned) ? r.owned : []).filter((id) => typeof id === 'string' && SHOP_ID_RE.test(id)),
+      chosen: cleanLook(r.chosen),
+      look: this.look,
+    };
+  }
+
+  /** Купить товар за монеты. cost — цена, которую видел пользователь (иначе price_changed). */
+  async buyShopItem(id, cost) {
+    const r = await this._request({ type: 'shop-buy', id: String(id), cost });
+    this._setCoins(r.coins);
+    return { coins: r.coins };
+  }
+
+  /** Надеть товар (kind: 'frame' | 'bg') или снять (id null). */
+  async equipShopItem(kind, id) {
+    const r = await this._request({ type: 'shop-equip', kind, id: id || null });
+    this._setLook(r.look);
+    return { chosen: cleanLook(r.chosen), look: this.look };
+  }
+
+  /** Адрес файла товара на сервере. */
+  shopFileUrl(id) {
+    if (!SHOP_ID_RE.test(String(id))) throw errorOf('shop_unknown');
+    return `${this._httpBase()}/api/shop/${id}`;
+  }
+
+  /** Скачать файл товара: Blob картинки или видео (тип — от сервера, только image/* и video/*). */
+  async fetchShopFile(id) {
+    let res;
+    try {
+      res = await this.fetch(this.shopFileUrl(id));
+    } catch {
+      throw errorOf('download_failed');
+    }
+    if (!res.ok) throw errorOf(res.status === 404 ? 'shop_unknown' : 'download_failed');
+    const type = String(res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!/^(image\/(png|webp|gif|jpeg)|video\/(mp4|webm))$/.test(type)) throw errorOf('bad_media');
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > SHOP_FILE_MAX) throw errorOf('bad_media');
+    return new Blob([buf], { type });
+  }
+
+  /** Своё видео на фон профиля, если у владельца Премиум: описание файла или null. */
+  profileVideoOf(username) {
+    if (!this.hasPremium(username)) return null;
+    if (this.account && username === this.account.username) return this.profile.video || null;
+    return this._videos?.get(username) || null;
+  }
+
+  /**
+   * Поставить своё видео на фон профиля (Премиум): source — File/Blob, meta — { mime, w, h, dur }.
+   * null — убрать. Видео шифруется, ключ уходит собеседникам в профиле; сервер его хранит, пока
+   * оно в профиле. Надетый фон из магазина при этом снимается (на фоне — что-то одно).
+   */
+  async setProfileVideo(source, meta = {}, { onProgress = () => {}, signal } = {}) {
+    if (source == null) {
+      await this._request({ type: 'profile-video', id: null });
+      if (this.profile.video) await this.setProfile({ video: null });
+      return null;
+    }
+    if (!this.isPremium()) throw errorOf('premium_video');
+    const size = source.size ?? source.length;
+    const mime = String(meta.mime || source.type || '').toLowerCase();
+    if (kindOf(mime) !== 'video') throw errorOf('bad_media');
+    if (!size || size > PROFILE_VIDEO_MAX) throw errorOf('video_too_large');
+    if (Number.isFinite(meta.dur) && meta.dur > PROFILE_VIDEO_SEC + 0.5) throw errorOf('video_too_long');
+    const { keyB64, id } = await this._upload(source, size, onProgress, signal);
+    await this._request({ type: 'profile-video', id });
+    const video = cleanProfileVideo({ id, key: keyB64, size, mime, kind: 'video', name: 'bg', w: meta.w, h: meta.h, dur: meta.dur != null ? Math.round(meta.dur) : undefined });
+    if (!video) throw errorOf('bad_media');
+    await this.setProfile({ video });
+    if (this.look.bg) await this.equipShopItem('bg', null).catch(() => {});
+    return video;
+  }
+
   _setCoins(n) {
     n = Number.isSafeInteger(n) && n >= 0 ? n : 0;
     if (n === this.coins) return;
@@ -1383,7 +1529,7 @@ export class MessengerClient extends Emitter {
   _onPresence(list) {
     for (const p of Array.isArray(list) ? list : []) {
       if (!p || typeof p.username !== 'string') continue;
-      this.presence.set(p.username, { online: !!p.online, lastSeen: p.lastSeen || null, hidden: !!p.hidden, verified: !!p.verified, premium: !!p.premium });
+      this.presence.set(p.username, { online: !!p.online, lastSeen: p.lastSeen || null, hidden: !!p.hidden, verified: !!p.verified, premium: !!p.premium, look: cleanLook(p.look) });
       this.emit('presence', { username: p.username, ...this.presence.get(p.username) });
     }
     // У собеседника подписка, а его фото у нас нет — попросить профиль ещё раз
@@ -1519,6 +1665,7 @@ export class MessengerClient extends Emitter {
   _indexNames(all) {
     this._names.clear();
     this._avatars.clear();
+    this._videos.clear();
     (this._verifiedChats ||= new Set()).clear();
     (this._archived ||= new Set()).clear();
     (this._top ||= new Set()).clear();
@@ -1534,6 +1681,7 @@ export class MessengerClient extends Emitter {
       if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
       if (c.profile?.name) this._names.set(c.username, c.profile.name);
       if (c.profile?.avatar) this._avatars.set(c.username, c.profile.avatar);
+      if (c.profile?.video) this._videos.set(c.username, c.profile.video);
     }
   }
 
@@ -1552,7 +1700,7 @@ export class MessengerClient extends Emitter {
    * Изменить свой профиль: уходит своим устройствам и собеседникам, которым вы писали.
    * avatar — data:-URL картинки (только с подпиской), null — убрать фото.
    */
-  async setProfile({ name = this.profile.name, bio = this.profile.bio, avatar = this.profile.avatar ?? null, photo, channels = this.profile.channels || [] } = {}) {
+  async setProfile({ name = this.profile.name, bio = this.profile.bio, avatar = this.profile.avatar ?? null, photo, channels = this.profile.channels || [], video = this.profile.video ?? null } = {}) {
     if (avatar != null && avatar !== this.profile.avatar) {
       if (!this.isPremium()) throw errorOf('premium_required');
       if (!validAvatar(avatar)) throw errorOf('too_large');
@@ -1560,7 +1708,7 @@ export class MessengerClient extends Emitter {
     // Большое фото — вместе с маленьким: сменили маленькое без большого — большого больше нет
     if (photo === undefined) photo = avatar === this.profile.avatar ? this.profile.photo : null;
     if (photo != null && !validPhoto(photo)) throw errorOf('too_large');
-    const next = cleanProfile({ name, bio, avatar, photo, channels, v: Math.max(Date.now(), this.profile.v + 1) });
+    const next = cleanProfile({ name, bio, avatar, photo, channels, video, v: Math.max(Date.now(), this.profile.v + 1) });
     await this._serial(async () => {
       this.profile = next;
       await this.storage.set('profile', next);

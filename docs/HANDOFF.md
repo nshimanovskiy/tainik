@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **6 октября 2026**, версия **0.46.0** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **7 октября 2026**, версия **0.47.0** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -15,7 +15,7 @@
 - Интерфейс и крипто-ядро **одни на все платформы** (`client/` + `shared/`); платформенные различия — только в мосте `window.desktop`.
 - Языки интерфейса: русский (исходный), английский, испанский, японский.
 
-### Возможности (на 0.46.0)
+### Возможности (на 0.47.0)
 
 **Переписка**
 - Текст, ответы с цитатой, **пересылка**, **закреплённое сообщение** в чате, удаление «у меня» / «у всех», копирование, **кликабельные ссылки**.
@@ -34,7 +34,7 @@
 - Несколько аккаунтов на одном устройстве («в сети» — только открытый).
 - Блокировка, официальные галочки (у пользователей, каналов и групп).
 
-**Монетизация**: «Тайник Премиум» (xRocket Pay, криптовалюта): фото профиля, ★, **скрытие статуса «в сети»**; подарок Премиума; **монеты** (внутренняя валюта).
+**Монетизация**: «Тайник Премиум» (xRocket Pay, криптовалюта): фото профиля, ★, **скрытие статуса «в сети»**, **своё видео на фон профиля**; подарок Премиума; **монеты** (внутренняя валюта); **магазин рамок и фонов профиля** за монеты (часть — бесплатно с Премиум).
 
 **Прочее**
 - Уведомления: Web Push в браузере, трей на десктопе, постоянное соединение на Android (без Google/FCM); ответ из уведомления (Android, macOS) — с цитатой сообщения.
@@ -99,7 +99,7 @@
 | `folders` | `{v: ts, list: [{id, name, chats}]}` — папки (последнее изменение побеждает) |
 | `notice-last`, `support-last` | id последнего полученного уведомления / сообщения поддержки |
 | `gifts-seen`, `gsent`, `gpend:<id>` | подарки, свои групповые сообщения, отложенные сообщения групп |
-| `profile`, `photo:<имя>` | свой профиль `{name, bio, avatar?, photo?, channels?, v}`; большое фото собеседника |
+| `profile`, `photo:<имя>` | свой профиль `{name, bio, avatar?, photo?, channels?, video?, v}` (`video` — своё видео на фон, описание зашифрованного файла); большое фото собеседника |
 | `seen`, `devices:<имя>`, `session:<addr>`, `prekeys` | служебное |
 
 **Типы содержимого (`content.t`)** внутри зашифрованного конверта:
@@ -111,19 +111,22 @@
 
 Все изменения состояния — строго по очереди через `_serial()` (храповик не терпит гонок). Отправка — `_pumpOutbox()`. Любые новые поля проходят «чистильщики»: `cleanText`, `cleanFile`, `cleanProfile`, `cleanGroup`, `cleanNotice`, `cleanFolders` и т. д. — принимаются только известные поля.
 
+**Магазин** (0.47): что надето — на сервере (`client.look`, у собеседников — `presence.look`, `lookOf(имя)` → `{frame?, bg?}` — id товаров); `shopList/buyShopItem/equipShopItem/fetchShopFile`. Своё видео на фон — `setProfileVideo(file|null)` (Премиум, ≤15 с, ≤12 МБ, загружается как вложение и закрепляется на сервере `profile-video`), показ — `profileVideoOf(имя)` (только при Премиум владельца).
+
 Основные подсистемы ядра (по методам): группы (`createGroup/updateGroup/leaveGroup`, рассылка по парным сессиям; реестр на сервере — `_syncGroups`), каналы (`createChannel/joinChannel/_syncChannel/...`), уведомления (`_onNotices`), поддержка (`openSupport/_sendSupport/_onSupport`), архив/закрепление/папки (`setArchived/setChatPinned/setFolders`), перенос (`exportBackup/importBackup`), каналы профиля (`ownChannels/setProfileChannels`), удаление аккаунта (`deleteAccount`), пересылка, закрепление сообщений (`pinMessage`).
 
 ### 2.3 Сервер (`server/`)
 
 - `server.js` (~1500 строк) — HTTP (статика `client/`, `/healthz`, `/api/releases`, `/download/*`, `/api/blob/*`, `/api/pay/xrocket`, веб-клип iOS, админка, `/diag`) и WebSocket `/ws` (свой `ws.js`).
-- **WS-запросы:** `auth`, `auth-proof`, `upload-prekeys`, `get-identity`, `get-bundles`, `send`, `send-ephemeral`, `ack`, `list-devices`, `unlink-device`, `provision-open`, `provision-send`, `presence-subscribe`, `set-presence-visibility` (скрыть — только с Премиум, иначе `premium_presence`), `set-active`, `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`, `diag-echo`; каналы — `channel-create/get/join/leave/update/delete/post/del-post/history/admin`; `group-sync` (реестр групп, ответ `{verified, removed}`); `premium-buy`, `premium-check`, `premium-coins`; `support-send`; `delete-account {confirm: юзернейм}`.
-- **События от сервера:** `ready` (в нём `premium`, `coins`, `gifts`, `notices` за 30 дней, `support` (последние 300), `channels`, `blocks`, `billing`, `verified`, `presenceHidden`), `message`, `sent`, `delivered`, `presence`, `blocks`, `verified`, `premium`, `coins`, `gift`, `notice`, `support`, `channel-post/del/meta/deleted/left`, `group-verified`, `group-removed`, `devices-changed`, `prekey-count`, `error` (`account_deleted` с `self` — удалил сам).
-- `store.js` (~1000 строк) — SQLite (`node:sqlite`), `data/tainik.db`. Таблицы: `users` (`uid`, `presence_hidden`, `verified`), `devices` (`last_ip`, `app_version`), `opks`, `queue`, `meta`, `push_subs`, `blobs`, `ip_bans`, `blocks`, `premium`, `payments`, `coins`, `coin_log`, `channels` (`uid`, `verified`), `channel_admins`, `channel_subs`, `channel_posts`, **`notices`** (уведомления «Тайника», `user NULL` — всем, хранятся 90 дней), **`groups`** (`uid`, `owner`, `name`, `members`, `verified`, `deleted_at`) + **`group_members`**, **`support`**. Миграции — `ALTER TABLE … ADD COLUMN` при старте. Номера (`uid`) каналов и групп — общий счётчик `meta.next_chat_uid`, пользователей — `meta.next_uid`.
+- **WS-запросы:** `auth`, `auth-proof`, `upload-prekeys`, `get-identity`, `get-bundles`, `send`, `send-ephemeral`, `ack`, `list-devices`, `unlink-device`, `provision-open`, `provision-send`, `presence-subscribe`, `set-presence-visibility` (скрыть — только с Премиум, иначе `premium_presence`), `set-active`, `push-subscribe`, `get-ice`, `blob-new`, `block`, `ping`, `diag-echo`; каналы — `channel-create/get/join/leave/update/delete/post/del-post/history/admin`; `group-sync` (реестр групп, ответ `{verified, removed}`); `premium-buy`, `premium-check`, `premium-coins`; `shop-list`, `shop-buy {id, cost}`, `shop-equip {kind, id|null}`, `profile-video {id|null}`; `support-send`; `delete-account {confirm: юзернейм}`.
+- **События от сервера:** `ready` (в нём `premium`, `coins`, `gifts`, `notices` за 30 дней, `support` (последние 300), `channels`, `blocks`, `billing`, `verified`, `presenceHidden`), `message`, `sent`, `delivered`, `presence`, `blocks`, `verified`, `premium`, `coins`, `look` (надетое изменилось), `shop-owned`, `gift`, `notice`, `support`, `channel-post/del/meta/deleted/left`, `group-verified`, `group-removed`, `devices-changed`, `prekey-count`, `error` (`account_deleted` с `self` — удалил сам).
+- `store.js` (~1000 строк) — SQLite (`node:sqlite`), `data/tainik.db`. Таблицы: `users` (`uid`, `presence_hidden`, `verified`), `devices` (`last_ip`, `app_version`), `opks`, `queue`, `meta`, `push_subs`, `blobs`, `ip_bans`, `blocks`, `premium`, `payments`, `coins`, `coin_log`, `channels` (`uid`, `verified`), `channel_admins`, `channel_subs`, `channel_posts`, **`notices`** (уведомления «Тайника», `user NULL` — всем, хранятся 90 дней), **`groups`** (`uid`, `owner`, `name`, `members`, `verified`, `deleted_at`) + **`group_members`**, **`support`**, **`shop_items`** + **`shop_owned`** (магазин; надетое — `users.look_frame/look_bg`). Своё видео профиля — вложение с `blobs.pin = 'pv:<имя>'`. Миграции — `ALTER TABLE … ADD COLUMN` при старте. Номера (`uid`) каналов и групп — общий счётчик `meta.next_chat_uid`, пользователей — `meta.next_uid`.
 - `news.js` — **канал «Обновления Тайника»**: служебный владелец `~tainik` (запись в `users` без ключей; такой юзернейм нельзя зарегистрировать и он скрыт из панели), публичный канал с галочкой, ключ на сервере → сервер сам шифрует посты. При старте публикует патчноуты **всех версий** между `meta.news_version` и текущей (раздел `## x.y.z` из `CHANGELOG.md`, Markdown → простой текст); при первом запуске — только текущую. Новые пользователи подписываются при регистрации. `NEWS_CHANNEL=0` — выключить. `CHANGELOG.md` копируется в Docker-образ (`!CHANGELOG.md` в `.dockerignore`).
 - `blobs.js` — вложения (`blob-new` → `PUT /api/blob/<id>?offset=N` частями по 768 КБ, `GET` с Range, CORS `*`, удаление через `QUEUE_TTL_DAYS`).
 - `webpush.js` — Web Push без библиотек (VAPID + RFC 8291). В пуше только тип (`msg/call/notice/support`) и имя отправителя.
 - `billing.js` — xRocket Pay: счета, вебхук `POST /api/pay/xrocket` (HMAC), опрос раз в 5 минут, пакеты монет, курсы.
-- `admin.js` + `admin-ui/` — панель на `ADMIN_PATH` (по умолчанию `/adminadminadmin`), пароль `ADMIN_PASSWORD`. Вкладки: **Пользователи** (ID, статус, устройства, IP, галочка, Премиум, монеты, «Написать…», удалить), **Каналы и группы** (ID, названия, галочки, удалить, пост в канал обновлений), **Поддержка** (обращения, переписка, ответ); блоки «Уведомление всем», подписка/счета, баны IP. API: `POST /api/<действие>` с заголовком `X-Tainik-Admin: 1` (CSRF), `GET /api/overview`.
+- `admin.js` + `admin-ui/` — панель на `ADMIN_PATH` (по умолчанию `/adminadminadmin`), пароль `ADMIN_PASSWORD`. Вкладки: **Пользователи** (ID, статус, устройства, IP, галочка, Премиум, монеты, «Написать…», удалить), **Каналы и группы** (ID, названия, галочки, удалить, пост в канал обновлений), **Поддержка** (обращения, переписка, ответ), **Магазин** (загрузка, цена, «бесплатно с Премиум», изменить/скрыть/удалить, продажи); блоки «Уведомление всем», подписка/счета, баны IP. API: `POST /api/<действие>` с заголовком `X-Tainik-Admin: 1` (CSRF), `GET /api/overview`.
+- `shop.js` — магазин: файлы товаров в `data/shop/<id>` (в бэкап базы не входят), загрузка из панели частями по 512 КБ (`shop-new` → `shop-chunk` → `shop-done`), тип — по содержимому (`sniffMime`: PNG/WebP/GIF/JPEG, MP4/WebM; SVG нельзя), `GET /api/shop/<id>` — открыто, CORS `*`, `immutable`. Действует товар, если куплен, цена 0 без отметки Премиум, или с отметкой Премиум при активной подписке (`store.canUseShopItem`); статус собеседникам отдаёт уже действующее (`store.lookOf`). Смена подписки → `lookChanged`.
 - `releases.js` — ретрансляция релизов GitHub для загрузок и самообновления; `webclip.js` — профиль iOS; `backup.js`.
 
 ### 2.4 Интерфейс (`client/`)
@@ -132,6 +135,7 @@
 - **Иконки** (`icons.js` + `icons.json`, 0.46): в разметке `<i class="ic" data-icon="lock"></i>`, в коде `icon('lock')`; `MutationObserver` дорисовывает новые элементы. Набор: веб — с сервера; приложения — встроенный сразу, затем свежий с сервера аккаунта (`/icons.json`, CORS `*`), кэш в `localStorage['tainik:icons']`. `cleanIconSet` пропускает только `path/circle/rect/line/polyline/polygon/ellipse` и числовые/путевые атрибуты, `fill/stroke` — только `none/currentColor`. Эмодзи остались только в текстах (превью, системные сообщения, уведомления).
 - **Переводы**: ключ — русская строка, `t('…', …args)` с `{0}`; словари `shared/i18n-en.js`, `i18n-es.js`, `i18n-ja.js` с **одинаковым набором ключей** (испанский и японский — машинный перевод, не вычитан носителями). `translateDom` переводит статику HTML.
 - Настройки как в Telegram: `#menu-dialog`, страницы `.set-page[data-page]` (main, profile, premium, coins, privacy, blocked, backup, media, proxy, notif, bg, lang, upd, about), `data-go`, `setBack()`.
+- **Рамки и фон** (0.47): `paintAvatar` у элементов с классом `with-frame` дорисовывает рамку (`paintFrame`, картинка `.av-frame` 132% поверх аватара); обложка профиля — `paintCover(box, имя)` (`.pf-cover` в профиле собеседника, своём профиле и магазине). Файлы товаров — blob:-URL в памяти (`shopFile`), уже скачанные рисуются сразу. Страница магазина — `.set-page[data-page=shop]`, `fillShop/renderShop`.
 - Список чатов `renderContacts()`: сортировка `top` → `lastTs`; строка «Архив»; вкладки папок `renderFolderTabs()`; меню чата `openChatMenu()`.
 - Уведомления: `notifyMessage()` / `notifyOther()`; первые 4 с после подключения уведомления придерживаются (`stillUnread`), чтобы не всплывало уже прочитанное на другом устройстве; `clearChatNotices()` при прочтении/фокусе/удалении.
 - Копирование — `copyText()` синхронно в обработчике нажатия (`desktop.copyText` на Android → `execCommand` → `navigator.clipboard`).
@@ -208,13 +212,14 @@ server/
   server.js        HTTP + WS (~1500 строк)
   store.js         SQLite (~1000 строк)
   news.js          канал «Обновления Тайника»
+  shop.js          магазин рамок и фонов (файлы товаров, загрузка из панели)
   billing.js, blobs.js, webpush.js, releases.js, webclip.js, backup.js, ws.js
   admin.js + admin-ui/   панель администратора
 desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.cjs, release-key.pem
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 117 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 120 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -224,7 +229,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 117 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 120 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -289,6 +294,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.47 | Магазин рамок и фонов профиля (за монеты, часть — с Премиум), своё видео на фон (Премиум), вкладка «Магазин» в панели |
 
 ---
 
@@ -304,10 +310,13 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 - Android: сохранение файлов, выбор файлов, системный буфер обмена, ответ с цитатой из уведомления, иконки с сервера — только сборка CI, не на телефоне.
 - iPhone: выбор файла импорта, отображение — не проверялись.
 - Подписка — с поддельным xRocket, с настоящим не проверялась.
+- Видеофоны проверены в Chromium (WebM). MP4/H.264 и автозапуск без звука на iPhone и в Android WebView — не проверялись на устройствах.
 - Испанский и японский — машинный перевод без вычитки.
 
 **Функциональность**
-- Вложения живут на сервере `QUEUE_TTL_DAYS` (30 дней); постоянного локального кэша нет.
+- Вложения живут на сервере `QUEUE_TTL_DAYS` (30 дней); постоянного локального кэша нет. Исключения — вложения постов каналов и своё видео профиля (закреплены).
+- Файлы товаров магазина (`data/shop`) не входят в `deploy/backup.sh` (только база) — при переезде сервера их нужно скопировать отдельно.
+- Своё видео на фоне видят только те, кому вы писали (профиль сквозной), — как имя и фото.
 - Закреплённое сообщение в канале видно только вам (у подписчиков не синхронизируется).
 - Веб/iPhone: уведомление, пришедшее при закрытой вкладке, не снимается, если чат прочитан на другом устройстве.
 - Поле «Ответить» в уведомлении — только Android и macOS.

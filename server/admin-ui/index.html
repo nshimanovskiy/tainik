@@ -32,6 +32,7 @@
       <button type="button" class="tab on" data-tab="users" role="tab" aria-selected="true">Пользователи <span id="tab-users-n" class="muted"></span></button>
       <button type="button" class="tab" data-tab="chats" role="tab" aria-selected="false">Каналы и группы <span id="tab-chats-n" class="muted"></span></button>
       <button type="button" class="tab" data-tab="support" role="tab" aria-selected="false">Поддержка <span id="tab-support-n" class="muted"></span></button>
+      <button type="button" class="tab" data-tab="shop" role="tab" aria-selected="false">Магазин <span id="tab-shop-n" class="muted"></span></button>
     </nav>
 
     <div id="tab-chats" hidden>
@@ -68,6 +69,38 @@
         Номер (ID) канала и группы выдаётся сервером и виден только здесь. Посты и сообщения зашифрованы — сервер их не видит. Название публичного канала видно (его ключ у сервера), группы — сообщают её администраторы (приложение 0.42 и новее); название приватного канала зашифровано. «Удалить» канал — пропадает у всех подписчиков со всеми постами; группу — её участники выходят из неё (переписка у них остаётся).
         Группы появляются здесь, когда приложения участников сообщают о них серверу (версия 0.39 и новее); «участники» — сколько назвал администратор группы, «на сервере» — сколько участников уже отметились. Галочка видна всем участникам и подписчикам сразу.
       </p>
+    </div>
+
+    <div id="tab-shop" hidden>
+      <section class="bans">
+        <h2>Новый товар</h2>
+        <form id="shop-form" class="ban-form shop-form" autocomplete="off">
+          <select id="shop-kind" aria-label="Вид товара">
+            <option value="frame">Рамка вокруг фото</option>
+            <option value="bg">Фон профиля</option>
+          </select>
+          <input id="shop-name" placeholder="Название, например «Золотая»" maxlength="40" required>
+          <input id="shop-price" type="number" min="0" max="1000000" step="1" value="100" aria-label="Цена в монетах" title="Цена в монетах">
+          <label class="check"><input id="shop-premium" type="checkbox"> бесплатно с Премиум</label>
+          <input id="shop-file" type="file" accept="image/png,image/webp,image/gif,image/jpeg,video/mp4,video/webm" required>
+          <button type="submit" id="shop-submit">Загрузить</button>
+        </form>
+        <p id="shop-status" class="small muted" role="status"></p>
+        <p id="shop-error" class="error small" role="alert"></p>
+        <p class="muted small">
+          <b>Рамка</b> — квадратная картинка PNG, WebP или GIF (можно анимированную) с прозрачной серединой, до 2 МБ; лучше 512×512. Фото профиля занимает её середину — круг около 76% стороны, остальное — сама рамка.
+          <b>Фон</b> — короткое видео MP4 (H.264) или WebM без звука, до 15 МБ (лучше до 15 секунд, вертикальное или квадратное), либо картинка. Видео в профиле крутится по кругу без звука.
+          Цена — в монетах. «Бесплатно с Премиум» — подписчики надевают товар без покупки, пока подписка действует; остальные покупают за монеты (при цене 0 — только с Премиум). Цена 0 без отметки — бесплатно всем.
+        </p>
+      </section>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Товар</th><th>Вид</th><th class="num">Цена</th><th>Доступ</th><th class="num">Куплен</th><th>Добавлен</th><th></th></tr></thead>
+          <tbody id="shop-rows"></tbody>
+        </table>
+        <p id="no-shop" class="muted center small" hidden>Товаров пока нет — загрузите первый.</p>
+      </div>
+      <p class="note muted small">«Скрыть» — товар пропадает с витрины, но у купивших остаётся и продолжает действовать. «Удалить» — пропадает у всех, кто его купил или надел; монеты не возвращаются. Файлы товаров лежат в папке данных сервера (shop) и не входят в резервную копию базы.</p>
     </div>
 
     <div id="tab-support" hidden>

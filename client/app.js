@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, isSupportChat, GROUP_MAX, PROFILE_CHANNELS_MAX } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, isSupportChat, GROUP_MAX, PROFILE_CHANNELS_MAX, PROFILE_VIDEO_MAX, PROFILE_VIDEO_SEC } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -119,6 +119,11 @@ const nameOf = (username) => (username && client.account ? client.nameOf(usernam
  * цвет — по юзернейму (не меняется вместе с именем).
  */
 function paintAvatar(node, username, photo = username && client.account ? client.avatarOf(username) : null) {
+  paintAvatarBase(node, username, photo);
+  // Рамка из магазина — у аватаров в списке чатов, шапке чата и профилях (класс with-frame)
+  if (node.classList.contains('with-frame')) paintFrame(node, username);
+}
+function paintAvatarBase(node, username, photo) {
   node.classList.toggle('photo', !!photo);
   // Фото в профиле открывается на весь экран
   if (node.id === 'pf-avatar' || node.id === 'prof-avatar') {
@@ -151,6 +156,98 @@ function paintAvatar(node, username, photo = username && client.account ? client
   node.textContent = [...shown][0].toUpperCase();
   node.style.background = `hsl(${hue(username || '')} 42% 42%)`;
 }
+// ---------- Рамки и фоны профиля (магазин) ----------
+// Файлы товаров открытые и не меняются: скачиваем один раз за сеанс и держим в памяти как blob:-URL.
+// Уже скачанные рисуются сразу (список чатов перерисовывается часто — рамки не должны мигать).
+const shopFiles = new Map(); // id → Promise<{ url, type }>
+const shopReady = new Map(); // id → { url, type } — уже скачанные
+function shopFile(id) {
+  if (!shopFiles.has(id)) {
+    const p = client.fetchShopFile(id).then((blob) => {
+      const f = { url: URL.createObjectURL(blob), type: blob.type };
+      shopReady.set(id, f);
+      return f;
+    });
+    p.catch(() => setTimeout(() => shopFiles.get(id) === p && shopFiles.delete(id), 30_000)); // попробовать позже
+    shopFiles.set(id, p);
+  }
+  return shopFiles.get(id);
+}
+function frameImg(url) {
+  const img = el('img', 'av-frame');
+  img.alt = '';
+  img.setAttribute('aria-hidden', 'true');
+  img.draggable = false;
+  img.src = url;
+  return img;
+}
+/** Рамка вокруг аватара: id — товар (по умолчанию — что надето у username). */
+function paintFrame(node, username, id = username && client.account ? client.lookOf(username).frame || null : null) {
+  node.querySelector(':scope > .av-frame')?.remove();
+  node.classList.toggle('framed', !!id);
+  node.dataset.frame = id || '';
+  if (!id) return;
+  const ready = shopReady.get(id);
+  if (ready) {
+    if (ready.type.startsWith('image/')) node.append(frameImg(ready.url));
+    return;
+  }
+  shopFile(id)
+    .then((f) => {
+      if (node.dataset.frame !== id || !f.type.startsWith('image/') || node.querySelector(':scope > .av-frame')) return;
+      node.append(frameImg(f.url));
+    })
+    .catch(() => {});
+}
+// Своё видео на фоне профиля — расшифрованное, в памяти (id файла → Promise<url>)
+const coverVideos = new Map();
+function coverVideoUrl(file) {
+  if (!coverVideos.has(file.id)) {
+    const p = client.fetchFile(file).then((data) => URL.createObjectURL(new Blob([data], { type: file.mime })));
+    p.catch(() => coverVideos.get(file.id) === p && coverVideos.delete(file.id));
+    coverVideos.set(file.id, p);
+  }
+  return coverVideos.get(file.id);
+}
+/** Фон профиля в box: своё видео (Премиум) или фон из магазина; bgId — показать этот товар. */
+function paintCover(box, username, bgId) {
+  const own = bgId === undefined && username && client.account ? client.profileVideoOf(username) : null;
+  const id = bgId !== undefined ? bgId : own ? null : username && client.account ? client.lookOf(username).bg || null : null;
+  const key = own ? 'v:' + own.id : id ? 's:' + id : '';
+  const top = box.parentElement;
+  if (box.dataset.key === key) return;
+  box.dataset.key = key;
+  box.replaceChildren();
+  box.hidden = !key;
+  top?.classList.toggle('has-cover', !!key);
+  if (!key) return;
+  const show = (url, type) => {
+    if (box.dataset.key !== key) return;
+    let m;
+    if (type.startsWith('video/')) {
+      m = el('video');
+      m.muted = true;
+      m.defaultMuted = true;
+      m.loop = true;
+      m.autoplay = true;
+      m.playsInline = true;
+      m.setAttribute('playsinline', '');
+      m.setAttribute('muted', '');
+      m.disablePictureInPicture = true;
+      m.src = url;
+      m.play?.().catch(() => {});
+    } else {
+      m = el('img');
+      m.alt = '';
+      m.src = url;
+    }
+    m.setAttribute('aria-hidden', 'true');
+    box.replaceChildren(m);
+  };
+  if (own) coverVideoUrl(own).then((url) => show(url, own.mime)).catch(() => {});
+  else shopFile(id).then((f) => show(f.url, f.type)).catch(() => {});
+}
+
 // Звезда подписки Премиум рядом с именем
 function premiumStar() {
   const s = el('span', 'premium-star');
@@ -642,7 +739,7 @@ async function renderContacts() {
     const li = el('li');
     const btn = el('button', c.username === current ? 'active' : '');
     const avWrap = el('span', 'avatar-wrap');
-    const av = el('span', 'avatar');
+    const av = el('span', 'avatar with-frame');
     paintAvatar(av, c.username);
     avWrap.append(av);
     if (client.presenceOf(c.username)?.online) avWrap.append(el('span', 'online-dot'));
@@ -2587,6 +2684,7 @@ function showSetPage(name) {
   if (name === 'profile') fillProfileEdit();
   if (name === 'premium') fillPremium();
   if (name === 'coins') fillCoins();
+  if (name === 'shop') fillShop();
   if (name === 'media') openMediaPage();
   if (name === 'proxy') fillProxy();
   else stopMicMeter();
@@ -2636,6 +2734,7 @@ async function fillSettings() {
   $('set-blocked-value').textContent = client.blocked.size ? String(client.blocked.size) : '';
   fillPremiumRow();
   fillProxyRow();
+  $('row-shop-group').hidden = !client.shopOn;
   await fillNotifSettings();
 }
 
@@ -2656,6 +2755,7 @@ function fillProfileEdit() {
   $('prof-username').textContent = '@' + client.account.username;
   pendingAvatar = undefined;
   updateProfilePhoto();
+  $('prof-shop-row').hidden = !client.shopOn;
   bioCount();
   renderProfileChannels();
 }
@@ -2701,6 +2801,7 @@ function updateProfilePhoto() {
   // Без подписки фото не показывается, но убрать сохранённое можно
   const shown = pendingAvatar === undefined ? client.avatarOf(client.account.username) : premium ? pendingAvatar : null;
   paintAvatar($('prof-avatar'), client.account.username, shown);
+  paintCover($('prof-cover'), client.account.username);
   $('prof-photo-pick').hidden = !premium;
   $('prof-photo-pick').replaceChildren(icon('camera'), has ? t('Сменить фото') : t('Выбрать фото'));
   $('prof-photo-clear').hidden = !has;
@@ -2787,6 +2888,8 @@ client.on('profile', () => {
   if ($('menu-dialog').open) {
     setName($('set-name'), client.account.username, client.verified);
     paintAvatar($('set-avatar'), client.account.username);
+    if (setPage === 'profile') paintCover($('prof-cover'), client.account.username);
+    if (setPage === 'shop') paintShopPreview();
   }
 });
 // ---------- Прокси (только в приложениях: десктоп и Android) ----------
@@ -3034,6 +3137,7 @@ function fillCoins() {
   $('coins-balance').textContent = client.coins.toLocaleString(LOCALE);
   $('coins-balance-text').textContent = t('монет на балансе');
   $('coins-to-premium').hidden = !client.billing?.plans?.[0]?.coins;
+  $('coins-to-shop').hidden = !client.shopOn;
   const packs = client.billing?.packs || [];
   $('coins-buy-title').hidden = $('coins-packs').hidden = $('coins-note').hidden = !packs.length;
   const curs = client.billing?.currencies?.length ? client.billing.currencies : packs.length ? [packs[0].currency] : [];
@@ -3109,6 +3213,230 @@ client.on('coins', (n) => {
   fillPremiumRow();
   if (setPage === 'coins') fillCoins();
   if (setPage === 'premium') fillPremium();
+  if (setPage === 'shop' && shopData) renderShop();
+});
+
+// ---------- Магазин: рамки и фоны профиля ----------
+// Товары загружает администратор сервера, покупают за монеты. Товар с пометкой «Премиум»
+// бесплатен подписчикам (и действует, пока подписка есть). Надетое видят все: сервер сообщает
+// его вместе со статусом. Своё видео на фон — с Премиум, зашифровано, как фото профиля.
+let shopData = null; // { items, owned, chosen, look }
+let shopTab = 'frame';
+let shopBusy = false;
+function paintShopPreview() {
+  const me = client.account.username;
+  paintAvatar($('shop-avatar'), me);
+  setName($('shop-name'), me, client.verified);
+  paintCover($('shop-cover'), me);
+}
+async function fillShop() {
+  paintShopPreview();
+  $('shop-coins').textContent = client.coins.toLocaleString(LOCALE);
+  $('shop-topup').hidden = !client.billing?.packs?.length;
+  renderShopTabs();
+  if (!shopData) {
+    $('shop-grid').replaceChildren();
+    $('shop-empty').hidden = false;
+    $('shop-empty').textContent = t('Загружаем…');
+  }
+  try {
+    shopData = await client.shopList();
+  } catch (err) {
+    $('shop-empty').hidden = false;
+    $('shop-empty').textContent = err.message;
+    return;
+  }
+  if (setPage === 'shop') renderShop();
+}
+function renderShopTabs() {
+  for (const b of $('shop-tabs').querySelectorAll('[data-shop-tab]')) {
+    const on = b.dataset.shopTab === shopTab;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+}
+$('shop-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-shop-tab]');
+  if (!b) return;
+  shopTab = b.dataset.shopTab;
+  renderShopTabs();
+  if (shopData) renderShop();
+});
+/** Можно ли надеть без покупки (или уже куплено). */
+function shopUsable(item) {
+  return shopData.owned.includes(item.id) || (item.price === 0 && !item.premium) || (item.premium && client.isPremium());
+}
+function shopPriceText(item) {
+  if (shopData.owned.includes(item.id)) return t('Куплено');
+  if (item.premium && client.isPremium()) return t('С Премиум');
+  if (item.price === 0) return item.premium ? t('Только с Премиум') : t('Бесплатно');
+  return item.premium ? t('{0} · или с Премиум', coinsText(item.price)) : coinsText(item.price);
+}
+function shopCard(item) {
+  const kind = shopTab;
+  const worn = item ? shopData.look[kind] === item.id : !shopData.look[kind] && !(kind === 'bg' && client.profileVideoOf(client.account.username));
+  const waiting = item && !worn && shopData.chosen[kind] === item.id; // выбрано, но сейчас не действует (кончилась подписка)
+  const b = el('button', 'shop-item' + (worn ? ' worn' : ''));
+  b.type = 'button';
+  const pv = el('span', 'shop-pv' + (kind === 'bg' ? ' bg' : ''));
+  if (kind === 'frame') {
+    const av = el('span', 'avatar big');
+    paintAvatarBase(av, client.account.username, client.avatarOf(client.account.username));
+    if (item) paintFrame(av, null, item.id);
+    pv.append(av);
+  } else if (item) {
+    const box = el('span', 'shop-bg');
+    shopFile(item.id)
+      .then((f) => {
+        let m;
+        if (f.type.startsWith('video/')) {
+          m = el('video');
+          Object.assign(m, { muted: true, defaultMuted: true, loop: true, autoplay: true, playsInline: true, src: f.url });
+          m.setAttribute('playsinline', '');
+          m.setAttribute('muted', '');
+          m.play?.().catch(() => {});
+        } else {
+          m = el('img');
+          m.alt = '';
+          m.src = f.url;
+        }
+        box.replaceChildren(m);
+      })
+      .catch(() => {});
+    pv.append(box);
+  } else pv.append(icon('close', 'shop-none'));
+  if (item?.premium) {
+    const star = el('span', 'shop-prem');
+    star.append(icon('star'));
+    star.title = t('Бесплатно с подпиской Премиум');
+    pv.append(star);
+  }
+  const name = el('span', 'shop-name', item ? item.name : kind === 'frame' ? t('Без рамки') : t('Без фона'));
+  const state = el('span', 'shop-state', worn ? t('Надето') : waiting ? t('Нужен Премиум') : item ? shopPriceText(item) : '');
+  b.append(pv, name, state);
+  b.setAttribute('aria-pressed', String(worn));
+  b.addEventListener('click', () => shopClick(item, kind, worn));
+  return b;
+}
+function renderShop() {
+  const items = shopData.items.filter((i) => i.kind === shopTab);
+  $('shop-coins').textContent = client.coins.toLocaleString(LOCALE);
+  $('shop-grid').replaceChildren(shopCard(null), ...items.map(shopCard));
+  $('shop-empty').hidden = items.length > 0;
+  $('shop-empty').textContent = shopTab === 'frame' ? t('Рамок пока нет — загляните позже.') : t('Фонов пока нет — загляните позже.');
+  // Своё видео на фон — только на вкладке фонов
+  $('shop-own').hidden = shopTab !== 'bg';
+  const premium = client.isPremium();
+  const own = !!client.profile.video;
+  $('pv-pick').hidden = !premium;
+  $('pv-pick-label').textContent = own ? t('Сменить своё видео') : t('Выбрать видео');
+  $('pv-clear').hidden = !own;
+  $('pv-locked').hidden = premium || !client.billing;
+  $('pv-group').hidden = $('pv-pick').hidden && $('pv-clear').hidden && $('pv-locked').hidden;
+}
+async function shopClick(item, kind, worn) {
+  if (shopBusy || worn) return;
+  shopBusy = true;
+  try {
+    if (item && !shopUsable(item)) {
+      if (item.premium && !item.price) {
+        toast(t('Этот товар бесплатен с подпиской Премиум'));
+        if (client.billing) showSetPage('premium');
+        return;
+      }
+      if (client.coins < item.price) {
+        toast(t('Не хватает монет: нужно {0}, на балансе {1}', coinsText(item.price), coinsText(client.coins)), 5000);
+        if (client.billing?.packs?.length) showSetPage('coins');
+        return;
+      }
+      if (!confirm(t('Купить «{0}» за {1}?', item.name, coinsText(item.price)))) return;
+      await client.buyShopItem(item.id, item.price);
+      shopData.owned.push(item.id);
+    }
+    const r = await client.equipShopItem(kind, item ? item.id : null);
+    Object.assign(shopData, { chosen: r.chosen, look: r.look });
+    // На фоне — что-то одно: фон из магазина заменяет своё видео
+    if (kind === 'bg' && client.profile.video) await client.setProfileVideo(null);
+    toast(item ? (kind === 'frame' ? t('Рамка надета') : t('Фон поставлен')) : kind === 'frame' ? t('Рамка снята') : t('Фон убран'));
+  } catch (err) {
+    toast(err.message, 5000);
+    if (err.code === 'shop_unknown' || err.code === 'price_changed') shopData = null;
+  } finally {
+    shopBusy = false;
+    if (setPage === 'shop') fillShop();
+  }
+}
+// Своё видео на фон профиля (Премиум)
+function videoMeta(file) {
+  return new Promise((resolve, reject) => {
+    const v = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    const done = (fn, x) => {
+      URL.revokeObjectURL(url);
+      v.removeAttribute('src');
+      fn(x);
+    };
+    v.preload = 'metadata';
+    v.muted = true;
+    v.onloadedmetadata = () => done(resolve, { dur: v.duration, w: v.videoWidth, h: v.videoHeight });
+    v.onerror = () => done(reject, new Error(t('Не удалось открыть видео — выберите MP4 или WebM')));
+    v.src = url;
+  });
+}
+$('pv-pick').addEventListener('click', () => $('pv-input').click());
+$('pv-input').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file || shopBusy) return;
+  if (!file.type.startsWith('video/')) return toast(t('Это не видео'));
+  if (file.size > PROFILE_VIDEO_MAX) return toast(ERROR_TEXT.video_too_large);
+  shopBusy = true;
+  try {
+    const meta = await videoMeta(file);
+    if (!(meta.dur <= PROFILE_VIDEO_SEC + 0.5)) throw new Error(ERROR_TEXT.video_too_long);
+    $('pv-pick-label').textContent = t('Загружаем видео…');
+    await client.setProfileVideo(file, { mime: file.type, w: meta.w, h: meta.h, dur: meta.dur }, {
+      onProgress: (x) => ($('pv-pick-label').textContent = t('Загружаем видео… {0}%', Math.round(x * 100))),
+    });
+    toast(t('Видео стоит на фоне профиля'));
+  } catch (err) {
+    toast(err.message, 5000);
+  } finally {
+    shopBusy = false;
+    if (setPage === 'shop') fillShop();
+  }
+});
+$('pv-clear').addEventListener('click', async () => {
+  if (shopBusy || !confirm(t('Убрать своё видео с фона профиля?'))) return;
+  shopBusy = true;
+  try {
+    await client.setProfileVideo(null);
+    toast(t('Видео убрано'));
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    shopBusy = false;
+    if (setPage === 'shop') fillShop();
+  }
+});
+// Надетое изменилось (здесь, на другом своём устройстве или кончилась подписка)
+client.on('look', () => {
+  if (!client.account) return;
+  paintAvatar($('me-avatar'), client.account.username);
+  if (!$('menu-dialog').open) return;
+  paintAvatar($('set-avatar'), client.account.username);
+  if (setPage === 'profile') updateProfilePhoto();
+  if (setPage === 'shop') {
+    paintShopPreview();
+    if (shopData) {
+      shopData.look = client.look;
+      renderShop();
+    }
+  }
+});
+client.on('shop', ({ owned }) => {
+  if (shopData && owned && !shopData.owned.includes(owned)) shopData.owned.push(owned);
+  if ($('menu-dialog').open && setPage === 'shop' && shopData) renderShop();
 });
 
 function stopPremPoll() {
@@ -4677,6 +5005,7 @@ async function renderProfile() {
   const c = (await client.contacts())[name];
   const prof = c?.profile;
   paintAvatar($('pf-avatar'), name);
+  paintCover($('pf-cover'), name);
   setName($('pf-name'), name, client.isVerified(name));
   if (client.isBlocked(name)) iconText($('pf-status'), 'block', t('заблокирован'));
   else $('pf-status').textContent = presenceText(client.presenceOf(name)) || '';
@@ -4769,6 +5098,10 @@ function cachedImage(f) {
 }
 
 $('pf-close').addEventListener('click', () => $('profile-dialog').close());
+// Собеседник прислал новый профиль (имя, фото, своё видео на фон)
+client.on('profile-changed', ({ username }) => {
+  if ($('profile-dialog').open && profileFor === username) renderProfile();
+});
 $('profile-dialog').addEventListener('close', () => (profileFor = null));
 $('profile-dialog').addEventListener('click', async (e) => {
   const tab = e.target.closest('.pf-tab');

@@ -89,7 +89,7 @@
       <header class="side-head">
         <button type="button" id="me-btn" class="me" title="Аккаунты: переключиться или добавить">
           <span class="avatar-wrap">
-            <span class="avatar" id="me-avatar"></span>
+            <span class="avatar with-frame" id="me-avatar"></span>
             <span id="accounts-badge" class="accounts-badge" hidden></span>
           </span>
           <span class="me-text">
@@ -136,7 +136,7 @@
       <div id="chat-view" hidden>
         <header class="chat-head">
           <button id="back-btn" class="icon-btn back" aria-label="Назад"><i class="ic" data-icon="back"></i></button>
-          <span class="avatar" id="peer-avatar" role="button" tabindex="0" title="Профиль"></span>
+          <span class="avatar with-frame" id="peer-avatar" role="button" tabindex="0" title="Профиль"></span>
           <div class="peer" id="peer-open" role="button" tabindex="0" title="Профиль">
             <div id="peer-name" class="peer-name"></div>
             <div class="peer-sub"><span id="peer-presence" class="peer-presence"></span><span id="peer-verify" class="peer-verify"></span></div>
@@ -240,7 +240,7 @@
 
       <div class="set-page" data-page="main">
         <button type="button" class="set-profile" data-go="profile">
-          <span class="avatar big" id="set-avatar"></span>
+          <span class="avatar big with-frame" id="set-avatar"></span>
           <span class="set-profile-text">
             <span id="set-name" class="set-name"></span>
             <span id="set-username" class="set-username"></span>
@@ -251,6 +251,9 @@
         <div class="set-group" id="row-premium-group" hidden>
         <button type="button" data-go="premium" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Тайник Премиум</span><span class="set-value" id="set-premium-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="coins" class="set-row" id="row-coins" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="coin"></i></span><span class="set-label">Монеты</span><span class="set-value" id="set-coins-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
+        </div>
+        <div class="set-group" id="row-shop-group" hidden>
+        <button type="button" data-go="shop" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="bag"></i></span><span class="set-label">Магазин: рамки и фоны</span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <div class="set-group">
         <button type="submit" value="accounts" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="group"></i></span><span class="set-label">Аккаунты</span><span class="set-chev" aria-hidden="true">›</span></button>
@@ -283,7 +286,8 @@
 
       <div class="set-page" data-page="profile" data-title="Мой профиль" hidden>
         <div class="prof-photo">
-          <span class="avatar huge" id="prof-avatar"></span>
+          <div class="pf-cover" id="prof-cover" hidden></div>
+          <span class="avatar huge with-frame" id="prof-avatar"></span>
           <div class="prof-photo-actions" id="prof-photo-actions">
             <button type="button" id="prof-photo-pick" class="ghost"><i class="ic" data-icon="camera"></i>Выбрать фото</button>
             <button type="button" id="prof-photo-clear" class="ghost">Убрать фото</button>
@@ -294,6 +298,9 @@
         <div class="set-group set-pad">
           <label class="set-field"><span>Имя</span><input id="prof-name" maxlength="64" autocomplete="off" placeholder="Как вас называть"></label>
           <label class="set-field"><span>О себе <i id="prof-bio-count" class="set-count"></i></span><textarea id="prof-bio" rows="3" maxlength="140" placeholder="Пара слов о себе"></textarea></label>
+        </div>
+        <div class="set-group" id="prof-shop-row" hidden>
+          <button type="button" data-go="shop" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="bag"></i></span><span class="set-label">Рамка и фон профиля</span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
         <p class="set-note">Имя видно тем, кому вы пишете, вместо юзернейма. Оно не уникально и не хранится на сервере: уходит собеседникам в зашифрованном виде.</p>
         <div class="set-group">
@@ -342,6 +349,35 @@
         <p class="set-note">Платёжный сервис не узнаёт ваш юзернейм, а сервер Тайника — данные вашего кошелька. Фото профиля зашифровано, как и имя: сервер знает только, что у вас есть подписка.</p>
       </div>
 
+      <div class="set-page" data-page="shop" data-title="Магазин" hidden>
+        <div class="shop-preview pf-top">
+          <div class="pf-cover" id="shop-cover" hidden></div>
+          <span class="avatar huge with-frame" id="shop-avatar"></span>
+          <div id="shop-name" class="pf-name"></div>
+        </div>
+        <div class="shop-bar">
+          <span class="shop-coins"><i class="ic" data-icon="coin"></i><b id="shop-coins">0</b></span>
+          <button type="button" data-go="coins" class="ghost" id="shop-topup">Пополнить</button>
+        </div>
+        <div class="prem-curs shop-tabs" id="shop-tabs" role="tablist" aria-label="Что показать">
+          <button type="button" class="prem-cur active" data-shop-tab="frame" role="tab" aria-selected="true">Рамки</button>
+          <button type="button" class="prem-cur" data-shop-tab="bg" role="tab" aria-selected="false">Фоны</button>
+        </div>
+        <div class="shop-grid" id="shop-grid"></div>
+        <p class="set-note" id="shop-empty" hidden></p>
+        <div id="shop-own" hidden>
+          <h3 class="set-sub">Своё видео на фон</h3>
+          <div class="set-group" id="pv-group">
+            <button type="button" id="pv-pick" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="video"></i></span><span class="set-label" id="pv-pick-label">Выбрать видео</span><span class="set-chev" aria-hidden="true">›</span></button>
+            <button type="button" id="pv-clear" class="set-row danger" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Убрать своё видео</span></button>
+            <button type="button" id="pv-locked" data-go="premium" class="set-row" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Своё видео — с подпиской Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
+          </div>
+          <input type="file" id="pv-input" accept="video/mp4,video/webm,video/quicktime,video/*" hidden>
+          <p class="set-note">Видео до 15 секунд и 12 МБ, показывается без звука. Оно зашифровано: его видят только ваши собеседники и только пока действует подписка. На фоне — что-то одно: своё видео или фон из магазина.</p>
+        </div>
+        <p class="set-note">Рамку видят все: в списке чатов, в шапке чата и в профиле. Фон — в вашем профиле. Товары с пометкой «Премиум» бесплатны с подпиской и действуют, пока она есть.</p>
+      </div>
+
       <div class="set-page" data-page="coins" data-title="Монеты" hidden>
         <div class="prem-hero">
           <span class="prem-star" aria-hidden="true"><i class="ic" data-icon="coin"></i></span>
@@ -351,6 +387,7 @@
         <h3 class="set-sub">На что потратить</h3>
         <div class="set-group">
           <button type="button" data-go="premium" class="set-row" id="coins-to-premium"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="star"></i></span><span class="set-label">Тайник Премиум — себе или в подарок</span><span class="set-chev" aria-hidden="true">›</span></button>
+          <button type="button" data-go="shop" class="set-row" id="coins-to-shop" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="bag"></i></span><span class="set-label">Рамки и фоны профиля</span><span class="set-chev" aria-hidden="true">›</span></button>
           <div class="set-row set-static"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="gift"></i></span><span class="set-label">Подарки собеседникам — скоро</span></div>
         </div>
         <h3 class="set-sub" id="coins-buy-title">Купить монеты</h3>
@@ -606,7 +643,8 @@
       </header>
       <div class="set-page">
         <div class="pf-top">
-          <span class="avatar huge" id="pf-avatar"></span>
+          <div class="pf-cover" id="pf-cover" hidden></div>
+          <span class="avatar huge with-frame" id="pf-avatar"></span>
           <div id="pf-name" class="pf-name"></div>
           <div id="pf-status" class="pf-status"></div>
         </div>

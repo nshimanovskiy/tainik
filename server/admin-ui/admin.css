@@ -145,3 +145,13 @@ code.cid { font-size: 11px; color: var(--muted); }
 .sp-msg { max-width: 80%; padding: 8px 12px; border-radius: 12px; background: var(--bg, #f3f1ec); }
 .sp-msg.admin { align-self: flex-end; background: var(--accent-soft, #dcefe8); }
 .sp-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Магазин */
+.shop-form select, .shop-form input[type="number"] { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: inherit; font: inherit; }
+.shop-form input[type="number"] { flex: 0 1 110px; }
+.shop-form input[type="file"] { flex: 1 1 220px; border: 0; padding: 6px 0; background: none; }
+.shop-cell { display: inline-flex; align-items: center; gap: 10px; }
+.shop-pv { width: 56px; height: 56px; flex: none; display: grid; place-items: center; border-radius: 10px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); }
+.shop-pv img, .shop-pv video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.shop-pv.bg img, .shop-pv.bg video { object-fit: cover; }
+tr.dim td { opacity: .6; }

@@ -282,6 +282,7 @@ async function load() {
     render();
     renderChats();
     renderSupport();
+    renderShop();
   } catch {
     $('updated').textContent = 'нет связи с сервером';
   }
@@ -309,6 +310,7 @@ function showTab(name) {
   $('tab-users').hidden = name !== 'users';
   $('tab-chats').hidden = name !== 'chats';
   $('tab-support').hidden = name !== 'support';
+  $('tab-shop').hidden = name !== 'shop';
   try {
     sessionStorage.setItem('admin-tab', name);
   } catch {}
@@ -316,7 +318,7 @@ function showTab(name) {
 for (const b of document.querySelectorAll('.tabs .tab')) b.addEventListener('click', () => showTab(b.dataset.tab));
 try {
   const saved = sessionStorage.getItem('admin-tab');
-  if (saved === 'chats' || saved === 'support') showTab(saved);
+  if (saved === 'chats' || saved === 'support' || saved === 'shop') showTab(saved);
 } catch {}
 
 function verifyButton(kind, item, label) {
@@ -501,3 +503,157 @@ $('support-form').addEventListener('submit', async (e) => {
     $('support-error').textContent = err.message;
   }
 });
+
+// ---------- Магазин: рамки и фоны профиля ----------
+// Файл загружается частями (через nginx проходит не больше 1 МБ за запрос): shop-new → shop-chunk… → shop-done.
+async function post(name, body) {
+  const r = await fetch('api/' + name, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', 'X-Tainik-Admin': '1' },
+    body: JSON.stringify(body),
+  });
+  if (r.status === 401) return location.reload();
+  const res = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(res.error || 'Ошибка ' + r.status);
+  return res;
+}
+function toBase64(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+const SHOP_LIMIT = { frame: 2 * 1024 * 1024, bg: 15 * 1024 * 1024 };
+$('shop-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('shop-error').textContent = '';
+  $('shop-status').textContent = '';
+  const file = $('shop-file').files?.[0];
+  const kind = $('shop-kind').value;
+  if (!file) return;
+  if (file.size > SHOP_LIMIT[kind]) return ($('shop-error').textContent = `Файл больше ${SHOP_LIMIT[kind] / 1048576} МБ`);
+  $('shop-submit').disabled = true;
+  try {
+    const n = await post('shop-new', {
+      kind,
+      name: $('shop-name').value.trim(),
+      price: Number($('shop-price').value),
+      premium: $('shop-premium').checked,
+      size: file.size,
+    });
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    for (let off = 0; off < bytes.length; off += n.chunk) {
+      $('shop-status').textContent = `Загрузка… ${Math.round((off / bytes.length) * 100)}%`;
+      await post('shop-chunk', { id: n.id, offset: off, data: toBase64(bytes.subarray(off, off + n.chunk)) });
+    }
+    await post('shop-done', { id: n.id });
+    $('shop-status').textContent = 'Товар добавлен в магазин';
+    $('shop-form').reset();
+    $('shop-price').value = '100';
+    await load();
+  } catch (err) {
+    $('shop-status').textContent = '';
+    $('shop-error').textContent = err.message;
+  } finally {
+    $('shop-submit').disabled = false;
+  }
+});
+
+function shopPreview(item) {
+  const box = el('span', 'shop-pv ' + item.kind);
+  if (!item.ready) return box;
+  const url = '/api/shop/' + item.id;
+  if (item.mime.startsWith('video/')) {
+    const v = el('video');
+    v.muted = true;
+    v.loop = true;
+    v.autoplay = true;
+    v.playsInline = true;
+    v.src = url;
+    box.append(v);
+  } else {
+    const img = el('img');
+    img.alt = '';
+    img.src = url;
+    box.append(img);
+  }
+  return box;
+}
+let shopShown = '';
+function renderShop() {
+  const items = data?.shop || [];
+  $('tab-shop-n').textContent = items.length ? String(items.length) : '';
+  // Таблица перерисовывается, только если товары изменились (иначе видео начинались бы заново каждые 5 секунд)
+  const key = JSON.stringify(items);
+  if (key === shopShown) return;
+  shopShown = key;
+  const rows = items.map((i) => {
+    const tr = el('tr', i.hidden || !i.ready ? 'dim' : '');
+    const name = el('td', 'name');
+    const wrap = el('span', 'shop-cell');
+    const text = el('span');
+    text.append(el('b', '', i.name), el('br'), el('code', 'cid', i.id));
+    wrap.append(shopPreview(i), text);
+    name.append(wrap);
+    const access = [];
+    if (i.premium) access.push(i.price ? 'монеты или Премиум' : 'только Премиум');
+    else access.push(i.price ? 'за монеты' : 'бесплатно всем');
+    if (i.hidden) access.push('скрыт');
+    if (!i.ready) access.push(`загружается: ${Math.round((i.received / i.size) * 100)}%`);
+    const actions = el('td', 'actions');
+    if (i.ready) {
+      const edit = el('button', 'ghost', 'Изменить');
+      edit.type = 'button';
+      edit.addEventListener('click', async () => {
+        const nm = prompt('Название:', i.name);
+        if (nm === null) return;
+        const pr = prompt('Цена в монетах (0 — бесплатно):', String(i.price));
+        if (pr === null) return;
+        const prem = confirm('Бесплатно с Премиум? (OK — да, Отмена — нет)');
+        try {
+          await post('shop-update', { id: i.id, name: nm, price: Number(pr), premium: prem, hidden: i.hidden });
+          await load();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+      const hide = el('button', 'ghost', i.hidden ? 'Показать' : 'Скрыть');
+      hide.type = 'button';
+      hide.title = i.hidden ? 'Вернуть на витрину' : 'Убрать с витрины — у купивших останется';
+      hide.addEventListener('click', async () => {
+        try {
+          await post('shop-update', { id: i.id, name: i.name, price: i.price, premium: i.premium, hidden: !i.hidden });
+          await load();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+      actions.append(edit, hide);
+    }
+    const del = el('button', 'danger', 'Удалить');
+    del.type = 'button';
+    del.addEventListener('click', async () => {
+      const sold = i.sold ? ` Его купили ${i.sold} чел. — у них он пропадёт, монеты не вернутся.` : '';
+      if (!confirm(`Удалить «${i.name}»?${sold} Это необратимо.`)) return;
+      try {
+        await post('shop-delete', { id: i.id });
+        await load();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+    actions.append(del);
+    tr.append(
+      name,
+      el('td', '', i.kind === 'frame' ? 'рамка' : 'фон'),
+      el('td', 'num', String(i.price)),
+      el('td', 'small', access.join(' · ')),
+      el('td', 'num', String(i.sold || 0)),
+      el('td', 'muted small', dateFmt.format(i.createdAt)),
+      actions
+    );
+    return tr;
+  });
+  $('shop-rows').replaceChildren(...rows);
+  $('no-shop').hidden = rows.length > 0;
+}

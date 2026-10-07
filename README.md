@@ -95,6 +95,8 @@ The script runs the server on `127.0.0.1`, adds an nginx site with WebSocket sup
 
 **Tainik Premium (optional).** With xRocket Pay tokens set (`XROCKET_PAY_TOKEN`, `XROCKET_WEBHOOK_SECRET`), users can buy a subscription with cryptocurrency in Telegram (⋯ → “Tainik Premium”). For now it unlocks an end-to-end encrypted profile photo and a ★ next to the name. The server knows who is subscribed, but not the photo. See [DEPLOY.md](DEPLOY.md).
 
+**Frames and backgrounds shop.** In the admin panel (“Магазин” tab) the server owner uploads frames for profile photos and short background videos for profiles and sets a price in coins; some items can be free with Premium. The server knows what each user has equipped (like the Premium badge), so everyone sees the frame. Premium users can also set their own background video — end-to-end encrypted, like the profile photo.
+
 ## How it works
 
 | Component | Design |

@@ -16,6 +16,7 @@ import { createReleases } from './releases.js';
 import { createBlobs } from './blobs.js';
 import { createNews } from './news.js';
 import { createBilling, parsePlans, parseCurrencies, parsePacks } from './billing.js';
+import { createShop, publicItem, SHOP_ID_RE } from './shop.js';
 import { Vapid, generateVapid, validSubscription, sendPush, PUSH_HOSTS } from './webpush.js';
 import { validIdentityPub, verifySignedPreKey, sameIdentity, OPK_LOW_WATER } from '../shared/protocol/keys.js';
 import { edVerify, isKey32, te, aeadDecrypt } from '../shared/protocol/primitives.js';
@@ -49,6 +50,8 @@ const NOTICE_TEXT_MAX = 2000; // сообщение администратора
 const SUPPORT_TEXT_MAX = 4000; // сообщение в чат поддержки
 const SUPPORT_PER_HOUR = 60; // сообщений в поддержку от одного пользователя за час
 const PREMIUM_REMIND = 3 * 86400_000; // за сколько до конца подписки напомнить
+// Своё видео на фон профиля (Премиум): зашифрованный файл, не больше (с накладными расходами шифрования)
+const PROFILE_VIDEO_MAX = 12 * 1024 * 1024 + 64 * 1024;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -269,9 +272,10 @@ export function startServer({
     if (!p) return { username: name, exists: false };
     // Галочку видно всегда, даже если статус «в сети» скрыт
     // Галочку и значок Премиум (а с ним и фото профиля) видно и при скрытом статусе
-    if (p.hidden || (viewer && store.hasBlocked(name, viewer))) return { username: name, exists: true, verified: p.verified, premium: p.premium, hidden: true, online: false, lastSeen: null };
+    // Рамку и фон из магазина тоже видно всегда
+    if (p.hidden || (viewer && store.hasBlocked(name, viewer))) return { username: name, exists: true, verified: p.verified, premium: p.premium, look: p.look, hidden: true, online: false, lastSeen: null };
     const on = isOnline(name);
-    return { username: name, exists: true, verified: p.verified, premium: p.premium, hidden: false, online: on, lastSeen: on ? Date.now() : p.lastSeen };
+    return { username: name, exists: true, verified: p.verified, premium: p.premium, look: p.look, hidden: false, online: on, lastSeen: on ? Date.now() : p.lastSeen };
   }
   function broadcastPresence(name) {
     const set = watchers.get(name);
@@ -298,6 +302,12 @@ export function startServer({
   function premiumChanged(name) {
     const p = premiumOf(name);
     for (const c of onlineDevices(name)) send(c, { type: 'premium', ...p });
+    lookChanged(name); // товары «бесплатно с Премиум» включаются и выключаются вместе с подпиской
+  }
+  /** Надетые рамка и фон изменились (или перестали действовать): своим устройствам и собеседникам. */
+  function lookChanged(name) {
+    const look = store.lookOf(name);
+    for (const c of onlineDevices(name)) send(c, { type: 'look', look });
     broadcastPresence(name);
   }
   /** Подарок оплачен: сказать дарителю и получателю (у них в чате появится отметка). */
@@ -506,6 +516,8 @@ export function startServer({
           notices: store.noticesOf(p.username, Date.now() - NOTICE_RECENT),
           support: store.supportOf(p.username),
           coins: store.coinsOf(p.username),
+          look: store.lookOf(p.username),
+          shop: true, // сервер с магазином рамок и фонов (0.47)
           channels: store.channelsOf(p.username).map((id) => store.getChannel({ id })).filter(Boolean).map((c) => channelInfo(c, p.username)),
           billing: billingInfo(),
           blocks: store.blocksOf(p.username),
@@ -783,6 +795,60 @@ export function startServer({
         const watching = watchers.get(state.user);
         if (watching) for (const c of watching) if (c.meta?.user === name) send(c, { type: 'presence', list: [presenceOf(state.user, name)] });
         return send(conn, { type: 'blocks', reqId: msg.reqId, list });
+      }
+
+      // ----- магазин: рамки и фоны профиля -----
+      case 'shop-list': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        return send(conn, {
+          type: 'shop',
+          reqId: msg.reqId,
+          items: store.shopItems().map(publicItem),
+          owned: store.shopOwned(state.user),
+          chosen: store.lookChoice(state.user),
+          look: store.lookOf(state.user),
+        });
+      }
+      case 'shop-buy': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!take(state.billing, RATE.billingPerMin * 5, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        const id = String(msg.id || '');
+        if (!SHOP_ID_RE.test(id)) return error(conn, 'shop_unknown', { reqId: msg.reqId });
+        let coins;
+        try {
+          coins = store.buyShopItem(state.user, id, Number(msg.cost));
+        } catch (e) {
+          const known = ['shop_unknown', 'shop_owned', 'shop_free', 'price_changed', 'not_enough_coins'];
+          return error(conn, known.includes(e.code) ? e.code : 'internal', { reqId: msg.reqId });
+        }
+        coinsChanged(state.user);
+        for (const c of onlineDevices(state.user)) if (c !== conn) send(c, { type: 'shop-owned', id });
+        say('покупка в магазине');
+        return send(conn, { type: 'shop-bought', reqId: msg.reqId, id, coins });
+      }
+      case 'shop-equip': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        const kind = msg.kind === 'frame' || msg.kind === 'bg' ? msg.kind : null;
+        if (!kind) return error(conn, 'bad_request', { reqId: msg.reqId });
+        const id = msg.id == null ? null : String(msg.id);
+        if (id) {
+          const item = SHOP_ID_RE.test(id) ? store.shopItem(id) : null;
+          if (!item || item.kind !== kind) return error(conn, 'shop_unknown', { reqId: msg.reqId });
+          if (!store.canUseShopItem(state.user, item)) return error(conn, item.premium && !item.price ? 'premium_shop' : 'shop_not_owned', { reqId: msg.reqId });
+        }
+        store.setLook(state.user, kind, id);
+        lookChanged(state.user);
+        return send(conn, { type: 'shop-equipped', reqId: msg.reqId, chosen: store.lookChoice(state.user), look: store.lookOf(state.user) });
+      }
+      // Своё видео на фон профиля (Премиум): закрепить загруженный файл, чтобы его не удалило
+      // по сроку. Само видео зашифровано, ключ — в профиле (его видят только собеседники).
+      case 'profile-video': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        const id = msg.id == null ? null : String(msg.id);
+        if (id && !premiumOf(state.user).active) return error(conn, 'premium_video', { reqId: msg.reqId });
+        if (id && !/^[0-9a-f]{32}$/.test(id)) return error(conn, 'bad_request', { reqId: msg.reqId });
+        if (!store.pinProfileVideo(state.user, id, PROFILE_VIDEO_MAX)) return error(conn, 'video_too_large', { reqId: msg.reqId });
+        return send(conn, { type: 'profile-video', reqId: msg.reqId, id });
       }
 
       case 'set-presence-visibility': {
@@ -1085,7 +1151,7 @@ export function startServer({
       totals: { users: users.length, online: onlineUsers, devices: devicesTotal, connections: online.size, queued, media: store.blobStats() },
       users,
       bans: store.listBans(),
-      billing: billing ? { plans: billing.plans, packs: billing.packs, currencies: billing.currencies, testnet: billing.testnet, webhook: billing.webhook, active: store.premiumActiveCount(), coins: store.coinsTotal(), payments: store.recentPayments(30) } : null,
+      billing: billing ? { plans: billing.plans, packs: billing.packs, currencies: billing.currencies, testnet: billing.testnet, webhook: billing.webhook, active: store.premiumActiveCount(), coins: store.coinsTotal(), payments: store.recentPayments(30) } : null,      shop: store.shopItems({ all: true }),
     };
   }
   // Действия администратора
@@ -1206,6 +1272,28 @@ export function startServer({
         say('администратор удалил группу');
       } else throw new Error('Неверный id');
     },
+    // Магазин: новый товар загружается частями (через nginx проходит до 1 МБ за запрос)
+    shopNew(body) {
+      return shop.newItem(body || {});
+    },
+    shopChunk(body) {
+      return shop.chunk(body?.id, body?.offset, body?.data);
+    },
+    shopDone(id) {
+      return { item: shop.finish(id) };
+    },
+    shopUpdate(body) {
+      const item = shop.update(String(body?.id || ''), body || {});
+      // Товар с отметкой «бесплатно с Премиум» или с ценой 0 могли поменять — пересчитать, у кого он надет
+      for (const u of store.lookUsers(item.id)) lookChanged(u);
+      say('администратор изменил товар в магазине');
+      return { item };
+    },
+    shopDelete(id) {
+      for (const u of shop.remove(String(id || ''))) lookChanged(u);
+      say('администратор удалил товар из магазина');
+      return {};
+    },
     ban(ip, note = '') {
       ip = normIp(ip);
       if (!net.isIP(ip)) throw new Error('Неверный IP-адрес');
@@ -1239,6 +1327,7 @@ export function startServer({
     ttlDays: queueTtlDays,
     say,
   });
+  const shop = createShop({ dataDir, store, say });
 
   const billing = billingOpts?.token
     ? createBilling({
@@ -1294,6 +1383,7 @@ export function startServer({
     if (webclip(req, res)) return; // профиль iPhone; /ios → страница установки
     if (releasesHandler && releasesHandler(req, res)) return; // /api/releases, /download/…
     if (blobs.handleHttp(req, res)) return; // /api/blob/… — зашифрованные вложения
+    if (shop.handleHttp(req, res)) return; // /api/shop/… — рамки и фоны из магазина
     if (handleDiag(req, res)) return; // /api/diag/… — проверка сети
     if (req.url === '/healthz') {
       let ok = false;
@@ -1405,6 +1495,11 @@ export function startServer({
     const n = store.purgeOlderThan(queueTtlDays * 86400_000);
     if (n) say(`удалено просроченных конвертов: ${n}`);
     blobs.purge();
+    try {
+      shop.purge();
+    } catch (e) {
+      say('магазин: ошибка чистки ' + e.message);
+    }
     store.purgeNotices(NOTICE_KEEP);
   };
   const janitor = setInterval(purge, 3600_000);
