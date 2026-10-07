@@ -155,3 +155,4 @@ code.cid { font-size: 11px; color: var(--muted); }
 .shop-pv img, .shop-pv video { width: 100%; height: 100%; object-fit: contain; display: block; }
 .shop-pv.bg img, .shop-pv.bg video { object-fit: cover; }
 tr.dim td { opacity: .6; }
+button.ghost:disabled { opacity: .45; cursor: default; }

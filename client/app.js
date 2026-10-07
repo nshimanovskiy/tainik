@@ -383,6 +383,9 @@ function noticeText(c) {
       return t('★ Подписка Премиум закончилась. Продлить её можно в настройках.');
     case 'premium-soon':
       return t('★ Подписка Премиум закончится {0}. Продлить её можно в настройках.', untilText(c.until));
+    case 'shop-admin':
+      if (c.item === 'bg') return c.on ? t('🎁 Администратор выдал вам фон профиля «{0}». Поставить его — Настройки → «Магазин».', c.name) : t('Администратор забрал у вас фон профиля «{0}».', c.name);
+      return c.on ? t('🎁 Администратор выдал вам рамку «{0}». Надеть её — Настройки → «Магазин».', c.name) : t('Администратор забрал у вас рамку «{0}».', c.name);
     case 'admin':
       return String(c.body ?? '');
   }
@@ -2758,7 +2761,7 @@ function fillProfileEdit() {
   $('prof-shop-row').hidden = !client.shopOn;
   // Видео на фон — с сервера 0.47 (своё видео он закрепляет на хранении)
   $('prof-video-group').hidden = !client.shopOn;
-  if (client.shopOn) fillVideoButtons($('prof-video-group'), t('Видео на фон профиля'), t('Сменить видео на фоне'));
+  if (client.shopOn) fillVideoButtons($('prof-video-group'), t('Видео или GIF на фон'), t('Сменить видео или GIF на фоне'));
   bioCount();
   renderProfileChannels();
 }
@@ -3018,12 +3021,27 @@ for (const b of document.querySelectorAll('#prem-for .prem-cur')) {
   });
 }
 const coinsSold = () => !!(client.billing?.packs?.length || client.billing?.plans?.[0]?.coins);
+// Сумма в монетах: в тексте (подтверждения, всплывающие сообщения) — с эмодзи, в интерфейсе — со
+// своей иконкой монеты на одной линии с числом (эмодзи на разных устройствах стоит по-разному)
 const coinsText = (n) => `${n.toLocaleString(LOCALE)} 🪙`;
+function coinsNode(n) {
+  const s = el('span', 'coin-amt', n.toLocaleString(LOCALE));
+  s.append(icon('coin', 'coin-ico'));
+  s.setAttribute('aria-label', t('{0} монет', n.toLocaleString(LOCALE)));
+  return s;
+}
+/** Перевод с узлами вместо {0}, {1}… (например, сумма с иконкой монеты внутри фразы). */
+function tNodes(key, ...nodes) {
+  return t(key, ...nodes.map((_, i) => `\u0000${i}\u0000`))
+    .split('\u0000')
+    .map((part, i) => (i % 2 ? nodes[Number(part)] : part))
+    .filter((x) => x !== '');
+}
 function fillPremiumRow() {
   $('row-premium-group').hidden = !client.billing && !client.isPremium() && !client.coins;
   $('set-premium-value').textContent = client.isPremium() && client.premium.until ? t('до {0}', dateShort.format(client.premium.until)) : '';
   $('row-coins').hidden = !coinsSold() && !client.coins;
-  $('set-coins-value').textContent = client.coins ? coinsText(client.coins) : '';
+  $('set-coins-value').replaceChildren(...(client.coins ? [coinsNode(client.coins)] : []));
 }
 function fillPremium() {
   const on = client.isPremium();
@@ -3051,7 +3069,8 @@ function fillPremium() {
   $('prem-curs').hidden = curs.length < 2;
   $('prem-curs').replaceChildren(
     ...curs.map((c) => {
-      const b = el('button', 'prem-cur' + (c === premCurrency ? ' active' : ''), c === 'COINS' ? t('🪙 Монеты ({0})', client.coins.toLocaleString(LOCALE)) : CURRENCY_NAME[c] || c);
+      const b = el('button', 'prem-cur' + (c === premCurrency ? ' active' : ''), c === 'COINS' ? null : CURRENCY_NAME[c] || c);
+      if (c === 'COINS') b.replaceChildren(icon('coin', 'coin-ico'), t('Монеты ({0})', client.coins.toLocaleString(LOCALE)));
       b.type = 'button';
       b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', String(c === premCurrency));
@@ -3068,10 +3087,12 @@ function fillPremium() {
       const b = el('button', 'set-row prem-plan');
       b.type = 'button';
       const price =
-        premCurrency === 'COINS' ? coinsText(p.coins) : premCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[premCurrency] || premCurrency);
+        premCurrency === 'COINS' ? coinsNode(p.coins) : premCurrency === base ? `${p.price} ${p.currency}` : t('≈ {0} {1} в {2}', p.price, p.currency, CURRENCY_NAME[premCurrency] || premCurrency);
       const ico = el('span', 'set-ico');
     ico.append(icon('calendar'));
-    b.append(ico, el('span', 'set-label', planName(p.days)), el('span', 'set-value', price));
+    const value = el('span', 'set-value');
+    value.append(price);
+    b.append(ico, el('span', 'set-label', planName(p.days)), value);
       b.addEventListener('click', () => buyPlan(p, b));
       return b;
     })
@@ -3274,7 +3295,7 @@ function shopPriceText(item) {
   if (shopData.owned.includes(item.id)) return t('Куплено');
   if (item.premium && client.isPremium()) return t('С Премиум');
   if (item.price === 0) return item.premium ? t('Только с Премиум') : t('Бесплатно');
-  return item.premium ? t('{0} · или с Премиум', coinsText(item.price)) : coinsText(item.price);
+  return item.premium ? tNodes('{0} · или с Премиум', coinsNode(item.price)) : [coinsNode(item.price)];
 }
 function shopCard(item) {
   const kind = shopTab;
@@ -3309,15 +3330,19 @@ function shopCard(item) {
       .catch(() => {});
     pv.append(box);
   } else pv.append(icon('close', 'shop-none'));
+  // Звёздочка «бесплатно с Премиум» — в углу карточки
+  let star = null;
   if (item?.premium) {
-    const star = el('span', 'shop-prem');
+    star = el('span', 'shop-prem');
     star.append(icon('star'));
     star.title = t('Бесплатно с подпиской Премиум');
-    pv.append(star);
+    star.setAttribute('aria-label', star.title);
   }
   const name = el('span', 'shop-name', item ? item.name : kind === 'frame' ? t('Без рамки') : t('Без фона'));
-  const state = el('span', 'shop-state', worn ? t('Надето') : waiting ? t('Нужен Премиум') : item ? shopPriceText(item) : '');
+  const state = el('span', 'shop-state');
+  state.append(...[].concat(worn ? t('Надето') : waiting ? t('Нужен Премиум') : item ? shopPriceText(item) : ''));
   b.append(pv, name, state);
+  if (star) b.append(star);
   b.setAttribute('aria-pressed', String(worn));
   b.addEventListener('click', () => shopClick(item, kind, worn));
   return b;
@@ -3330,7 +3355,7 @@ function renderShop() {
   $('shop-empty').textContent = shopTab === 'frame' ? t('Рамок пока нет — загляните позже.') : t('Фонов пока нет — загляните позже.');
   // Своё видео на фон — только на вкладке фонов
   $('shop-own').hidden = shopTab !== 'bg';
-  fillVideoButtons($('pv-group'), t('Выбрать видео'), t('Сменить своё видео'));
+  fillVideoButtons($('pv-group'), t('Выбрать видео или GIF'), t('Сменить своё видео или GIF'));
 }
 /**
  * Кнопки своего видео на фоне (в магазине и в «Моём профиле»): выбрать или сменить, убрать;
@@ -3353,7 +3378,7 @@ function refreshVideoButtons() {
   if (!$('menu-dialog').open) return;
   if (setPage === 'shop' && shopData) renderShop();
   if (setPage === 'profile') {
-    fillVideoButtons($('prof-video-group'), t('Видео на фон профиля'), t('Сменить видео на фоне'));
+    fillVideoButtons($('prof-video-group'), t('Видео или GIF на фон'), t('Сменить видео или GIF на фоне'));
     paintCover($('prof-cover'), client.account.username);
   }
 }
@@ -3408,9 +3433,20 @@ function videoMeta(file) {
 }
 // Тип видео по расширению: на Android выбор файла иногда не сообщает тип
 function videoType(file) {
-  if (file.type.startsWith('video/')) return file.type;
+  if (file.type.startsWith('video/') || file.type === 'image/gif') return file.type;
   const ext = /\.([a-z0-9]+)$/i.exec(file.name || '')?.[1]?.toLowerCase();
-  return { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' }[ext] || '';
+  return { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', gif: 'image/gif' }[ext] || '';
+}
+/** Размеры GIF (длительность у GIF не проверяем — он крутится по кругу). */
+async function gifMeta(file) {
+  try {
+    const bmp = await createImageBitmap(file);
+    const meta = { w: bmp.width, h: bmp.height };
+    bmp.close?.();
+    return meta;
+  } catch {
+    throw new Error(t('Не удалось открыть GIF'));
+  }
 }
 $('menu-dialog').addEventListener('click', (e) => {
   if (e.target.closest('.pv-pick')) $('pv-input').click();
@@ -3421,20 +3457,21 @@ $('pv-input').addEventListener('change', async (e) => {
   e.target.value = '';
   if (!file || videoBusy) return;
   const type = videoType(file);
-  if (!type) return toast(t('Это не видео'));
+  if (!type) return toast(t('Нужно видео (MP4, MOV, WebM) или GIF'));
   if (file.size > PROFILE_VIDEO_MAX) return toast(ERROR_TEXT.video_too_large);
   videoBusy = t('Загружаем видео…');
   refreshVideoButtons();
   try {
-    const meta = await videoMeta(file);
-    if (!(meta.dur <= PROFILE_VIDEO_SEC + 0.5)) throw new Error(ERROR_TEXT.video_too_long);
-    await client.setProfileVideo(file, { mime: type, w: meta.w, h: meta.h, dur: meta.dur }, {
+    const gif = type === 'image/gif';
+    const meta = gif ? await gifMeta(file) : await videoMeta(file);
+    if (!gif && !(meta.dur <= PROFILE_VIDEO_SEC + 0.5)) throw new Error(ERROR_TEXT.video_too_long);
+    await client.setProfileVideo(file, { mime: type, w: meta.w, h: meta.h, dur: gif ? undefined : meta.dur }, {
       onProgress: (x) => {
         videoBusy = t('Загружаем видео… {0}%', Math.round(x * 100));
         for (const l of document.querySelectorAll('#menu-dialog .pv-pick-label')) l.textContent = videoBusy;
       },
     });
-    toast(t('Видео стоит на фоне профиля'));
+    toast(gif ? t('GIF стоит на фоне профиля') : t('Видео стоит на фоне профиля'));
   } catch (err) {
     toast(err.message, 5000);
   } finally {
@@ -3472,8 +3509,9 @@ client.on('look', () => {
     }
   }
 });
-client.on('shop', ({ owned }) => {
+client.on('shop', ({ owned, revoked }) => {
   if (shopData && owned && !shopData.owned.includes(owned)) shopData.owned.push(owned);
+  if (shopData && revoked) shopData.owned = shopData.owned.filter((id) => id !== revoked);
   if ($('menu-dialog').open && setPage === 'shop' && shopData) renderShop();
 });
 

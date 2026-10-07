@@ -696,6 +696,23 @@ export class Store {
   staleShopUploads(before) {
     return this.db.prepare('SELECT id FROM shop_items WHERE ready = 0 AND created_at < ?').all(before).map((r) => r.id);
   }
+  /** Выдать товар бесплатно (администратор). false — уже есть. */
+  grantShopItem(user, id, now = Date.now()) {
+    return this.db.prepare('INSERT OR IGNORE INTO shop_owned(user, item, price, created_at) VALUES (?, ?, 0, ?)').run(user, id, now).changes > 0;
+  }
+  /** Забрать товар (администратор): если он надет — снимается. false — его не было. */
+  revokeShopItem(user, id) {
+    return this.tx(() => {
+      const had = this.db.prepare('DELETE FROM shop_owned WHERE user = ? AND item = ?').run(user, id).changes > 0;
+      this.db.prepare('UPDATE users SET look_frame = NULL WHERE name = ? AND look_frame = ?').run(user, id);
+      this.db.prepare('UPDATE users SET look_bg = NULL WHERE name = ? AND look_bg = ?').run(user, id);
+      return had;
+    });
+  }
+  /** Кто владеет товаром: [{ user, price, at }] (price 0 — выдан администратором). */
+  shopOwners(id) {
+    return this.db.prepare('SELECT user, price, created_at FROM shop_owned WHERE item = ? ORDER BY created_at').all(id).map((r) => ({ user: r.user, price: r.price, at: r.created_at }));
+  }
   shopOwned(user) {
     return this.db.prepare('SELECT item FROM shop_owned WHERE user = ? ORDER BY created_at').all(user).map((r) => r.item);
   }

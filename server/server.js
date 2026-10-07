@@ -1291,6 +1291,30 @@ export function startServer({
       say('администратор изменил товар в магазине');
       return { item };
     },
+    // Выдать товар пользователю бесплатно или забрать (надетый — снимается)
+    shopGrant(body, on) {
+      const id = String(body?.id || '');
+      const name = String(body?.name || '').trim().replace(/^@/, '').toLowerCase();
+      const item = SHOP_ID_RE.test(id) ? store.shopItem(id) : null;
+      if (!item || !item.ready) throw new Error('Нет такого товара');
+      if (!USERNAME_RE.test(name) || !store.getUser(name)) throw new Error('Нет такого пользователя');
+      if (on) {
+        if (!store.grantShopItem(name, id)) throw new Error(`У ${name} этот товар уже есть`);
+        for (const c of onlineDevices(name)) send(c, { type: 'shop-owned', id });
+      } else {
+        if (!store.revokeShopItem(name, id)) throw new Error(`У ${name} этого товара нет`);
+        for (const c of onlineDevices(name)) send(c, { type: 'shop-revoked', id });
+      }
+      lookChanged(name);
+      notice(name, 'shop-admin', { name: item.name, kind: item.kind, on: !!on });
+      say(on ? 'администратор выдал товар магазина' : 'администратор забрал товар магазина');
+      return { owners: store.shopOwners(id) };
+    },
+    shopOwners(id) {
+      id = String(id || '');
+      if (!SHOP_ID_RE.test(id) || !store.shopItem(id)) throw new Error('Нет такого товара');
+      return { owners: store.shopOwners(id) };
+    },
     shopDelete(id) {
       for (const u of shop.remove(String(id || ''))) lookChanged(u);
       say('администратор удалил товар из магазина');

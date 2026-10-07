@@ -262,3 +262,64 @@ test('иконка двойной галочки — две полные гал�
   assert.equal(set.icons.check2.length, 2, 'каждая галочка — отдельный штрих из двух плеч');
   for (const [, a] of set.icons.check2) assert.match(a.d, /^M[\d.]+ [\d.]+l[\d.]+ [\d.]+ [\d.]+-[\d.]+$/);
 });
+
+test('панель: выдать товар бесплатно и забрать (надетый снимается), уведомления в чат «Тайник»', async (t) => {
+  const { srv, mk, adminApi, upload } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  await bob.addContact('alice');
+  // Скрытый товар тоже можно выдать — как эксклюзив
+  const frame = (await upload('frame', png(), { name: 'Эксклюзив', price: 500 })).item;
+  await adminApi('shop-update', { id: frame.id, name: 'Эксклюзив', price: 500, hidden: true });
+
+  assert.equal((await adminApi('shop-grant', { id: frame.id, name: 'nobody' })).status, 400);
+  const gotShop = waitFor(alice, 'shop', (d) => d.owned === frame.id);
+  const gotNotice = waitFor(alice, 'message', (d) => d.message.content?.kind === 'shop-admin' && d.message.content.on);
+  const g = await adminApi('shop-grant', { id: frame.id, name: '@alice' });
+  assert.equal(g.status, 200, g.error);
+  assert.deepEqual(g.owners.map((o) => [o.user, o.price]), [['alice', 0]]);
+  await gotShop;
+  const n = (await gotNotice).message.content;
+  assert.deepEqual([n.name, n.item], ['Эксклюзив', 'frame']);
+  assert.equal((await adminApi('shop-grant', { id: frame.id, name: 'alice' })).status, 400, 'второй раз — уже есть');
+  assert.equal(srv.store.coinsOf('alice'), 0, 'монеты не списываются');
+
+  // Выданный надевается; Боб видит рамку
+  await alice.equipShopItem('frame', frame.id);
+  await until(() => bob.lookOf('alice').frame === frame.id);
+  assert.deepEqual((await adminApi('shop-owners', { id: frame.id })).owners.map((o) => o.user), ['alice']);
+
+  // Забрать: рамка снимается у всех, уведомление
+  const revoked = waitFor(alice, 'shop', (d) => d.revoked === frame.id);
+  const off = waitFor(bob, 'presence', (p) => p.username === 'alice' && !p.look.frame);
+  const r = await adminApi('shop-revoke', { id: frame.id, name: 'alice' });
+  assert.equal(r.status, 200, r.error);
+  await revoked;
+  await off;
+  assert.equal(alice.look.frame, undefined);
+  assert.deepEqual(srv.store.shopOwned('alice'), []);
+  await until(async () => (await alice.messages('~tainik')).some((m) => m.content?.kind === 'shop-admin' && !m.content.on));
+  assert.equal((await adminApi('shop-revoke', { id: frame.id, name: 'alice' })).status, 400, 'забирать нечего');
+  await assert.rejects(alice.equipShopItem('frame', frame.id), (e) => e.code === 'shop_not_owned');
+});
+
+test('своё видео на фон: GIF тоже можно', async (t) => {
+  const { mk, adminApi } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  await bob.addContact('alice');
+  await alice.addContact('bob');
+  await adminApi('premium', { name: 'alice', days: 30 });
+  await until(() => alice.isPremium());
+  const gif = Buffer.concat([Buffer.from('GIF89a'), Buffer.alloc(500, 1)]);
+  const v = await alice.setProfileVideo(gif, { mime: 'image/gif', w: 320, h: 320 });
+  assert.deepEqual([v.mime, v.kind], ['image/gif', 'image']);
+  await alice.sendText('bob', 'смотри фон');
+  await until(async () => (await bob.profileOf('alice'))?.video?.id === v.id);
+  assert.equal(bob.profileVideoOf('alice').mime, 'image/gif');
+  assert.deepEqual(Buffer.from(await bob.fetchFile(bob.profileVideoOf('alice'))), gif);
+  // Обычная картинка — нет
+  await assert.rejects(alice.setProfileVideo(Buffer.alloc(10), { mime: 'image/png' }), (e) => e.code === 'bad_media');
+});

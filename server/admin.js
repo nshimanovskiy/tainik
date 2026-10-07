@@ -150,7 +150,7 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
     }
     // Действия: только с сессией, только JSON и только со своим заголовком — чужой сайт
     // не может отправить такой запрос из браузера администратора (CSRF).
-    const act = /^\/api\/(delete-user|ban|unban|verify|premium|coins|notice|chat-verify|chat-delete|news|support-thread|support-reply|shop-new|shop-chunk|shop-done|shop-update|shop-delete)$/.exec(sub);
+    const act = /^\/api\/(delete-user|ban|unban|verify|premium|coins|notice|chat-verify|chat-delete|news|support-thread|support-reply|shop-new|shop-chunk|shop-done|shop-update|shop-delete|shop-grant|shop-revoke|shop-owners)$/.exec(sub);
     if (req.method === 'POST' && act) {
       const json = (status, obj) => send(res, status, JSON.stringify(obj), 'application/json; charset=utf-8');
       if (!authed) return json(401, { error: 'unauthorized' }), true;
@@ -166,6 +166,9 @@ export function createAdmin({ password, basePath, overview, actions = {}, client
           if (act[1] === 'shop-done') return json(200, { ok: true, ...actions.shopDone(body.id) });
           if (act[1] === 'shop-update') return json(200, { ok: true, ...actions.shopUpdate(body) });
           if (act[1] === 'shop-delete') return json(200, { ok: true, ...actions.shopDelete(body.id) });
+          if (act[1] === 'shop-grant') return json(200, { ok: true, ...actions.shopGrant(body, true) });
+          if (act[1] === 'shop-revoke') return json(200, { ok: true, ...actions.shopGrant(body, false) });
+          if (act[1] === 'shop-owners') return json(200, { ok: true, ...actions.shopOwners(body.id) });
           if (act[1] === 'support-thread') return json(200, { ok: true, ...actions.supportThread(body.name) });
           if (act[1] === 'support-reply') return json(200, { ok: true, ...actions.supportReply(body.name, body.text) });
           if (act[1] === 'news') {

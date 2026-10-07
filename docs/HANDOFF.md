@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **7 октября 2026**, версия **0.47.1** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **7 октября 2026**, версия **0.47.2** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -219,7 +219,7 @@ desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 122 теста (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 124 теста (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -229,7 +229,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 122 теста, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 124 теста, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -255,7 +255,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 2. **Каждая новая русская строка интерфейса** (в `t('…')`, текст и `placeholder/title/aria-label/alt` в HTML, `data-title`) → во **все три** словаря `shared/i18n-en.js`, `i18n-es.js`, `i18n-ja.js` с одинаковыми ключами; в переводах не должно быть кириллицы. Десктоп — `desktop/i18n.cjs` (EN/ES/JA), Android — `I18n.tr(ru, en)` + перевод в словари `ES`/`JA` в `I18n.kt`.
 3. **CSP без инлайна.** Новые источники — в трёх местах: `server/server.js`, `desktop/lib.cjs`, `android/.../AssetServer.kt`.
 4. **Пользовательский текст — только `textContent` / DOM-узлы**, никакого `innerHTML`.
-5. **Иконки:** новая иконка — в `client/icons.json` (тест проверяет, что все `data-icon`/`icon('…')` есть в наборе). Не затирать `textContent` у кнопок с иконкой — использовать `replaceChildren(icon(...), текст)` / `iconText()`.
+5. **Иконки:** у `.ic` по умолчанию отступ справа (под текст) — иконке без текста рядом его снимать (список в `style.css`), иначе она стоит не по центру. Новая иконка — в `client/icons.json` (тест проверяет, что все `data-icon`/`icon('…')` есть в наборе). Не затирать `textContent` у кнопок с иконкой — использовать `replaceChildren(icon(...), текст)` / `iconText()`.
 6. **Новые поля сообщений** — через «чистильщики»; старые клиенты игнорируют неизвестные `content.t` — сохранять совместимость.
 7. **Служебные чаты** (`~tainik`, `~support`) — при новых возможностях чатов проверить, как они ведут себя для них.
 8. Каждое изменение формата на сервере — учесть офлайн-устройства (данные в `ready`, сверка при входе).
@@ -294,6 +294,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.47.2 | GIF как свой фон профиля, ровные иконки монеты и звезды (`coinsNode`), выдача и отзыв товаров в панели (`shop-grant/revoke/owners`, уведомление `shop-admin`) |
 | 0.47.1 | Чёткая двойная галочка, видео на фон в «Моём профиле», примеры рамок (`server/shop-samples`, один раз при первом запуске, `SHOP_SAMPLES=0` — не добавлять) |
 | 0.47 | Магазин рамок и фонов профиля (за монеты, часть — с Премиум), своё видео на фон (Премиум), вкладка «Магазин» в панели |
 

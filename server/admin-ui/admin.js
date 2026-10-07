@@ -628,7 +628,44 @@ function renderShop() {
           alert(err.message);
         }
       });
-      actions.append(edit, hide);
+      // Выдать бесплатно (в том числе скрытый — эксклюзив) или забрать у пользователя
+      const give = el('button', 'ghost', 'Выдать…');
+      give.type = 'button';
+      give.title = 'Выдать бесплатно пользователю — ему придёт уведомление в чат «Тайник»';
+      give.addEventListener('click', async () => {
+        const who = prompt(`Кому выдать «${i.name}»? Юзернейм:`, '');
+        if (!who) return;
+        try {
+          await post('shop-grant', { id: i.id, name: who });
+          await load();
+          alert(`«${i.name}» выдан пользователю ${who.trim().replace(/^@/, '')}`);
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+      const take = el('button', 'ghost', 'Забрать…');
+      take.type = 'button';
+      take.title = 'Забрать у пользователя — если надет, снимется';
+      take.disabled = !i.sold;
+      take.addEventListener('click', async () => {
+        let owners = [];
+        try {
+          owners = (await post('shop-owners', { id: i.id })).owners;
+        } catch (err) {
+          return alert(err.message);
+        }
+        if (!owners.length) return alert('Этого товара пока ни у кого нет');
+        const list = owners.map((o) => `${o.user}${o.price ? ` (купил за ${o.price})` : ' (выдан)'}`).join(', ');
+        const who = prompt(`У кого забрать «${i.name}»? Монеты не возвращаются.\nЕсть у: ${list}\n\nЮзернейм:`, owners.length === 1 ? owners[0].user : '');
+        if (!who) return;
+        try {
+          await post('shop-revoke', { id: i.id, name: who });
+          await load();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+      actions.append(edit, hide, give, take);
     }
     const del = el('button', 'danger', 'Удалить');
     del.type = 'button';

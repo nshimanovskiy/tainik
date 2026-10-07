@@ -74,11 +74,13 @@ const PROVISION_AVATARS = 30_000; // сколько места под фото �
 // Короткое: не длиннее PROFILE_VIDEO_SEC секунд и PROFILE_VIDEO_MAX байт.
 export const PROFILE_VIDEO_MAX = 12 * 1024 * 1024;
 export const PROFILE_VIDEO_SEC = 15;
-/** Видео для фона профиля из профиля: { id, key, size, mime, kind: 'video', w?, h?, dur? } или null. */
+/** Фон профиля — видео или GIF (0.47.2): анимированная картинка, тоже без звука и по кругу. */
+export const isProfileBgMime = (mime) => kindOf(mime) === 'video' || mime === 'image/gif';
+/** Своё видео (или GIF) для фона из профиля: { id, key, size, mime, kind, w?, h?, dur? } или null. */
 function cleanProfileVideo(v) {
   const f = cleanFile(v);
-  if (!f || f.kind !== 'video' || f.size > PROFILE_VIDEO_MAX) return null;
-  const out = { id: f.id, key: f.key, size: f.size, mime: f.mime, kind: 'video' };
+  if (!f || !isProfileBgMime(f.mime) || f.kind !== kindOf(f.mime) || f.size > PROFILE_VIDEO_MAX) return null;
+  const out = { id: f.id, key: f.key, size: f.size, mime: f.mime, kind: f.kind };
   if (f.w && f.h) Object.assign(out, { w: f.w, h: f.h });
   if (f.dur !== undefined) out.dur = f.dur;
   return out;
@@ -181,7 +183,7 @@ export const isSupportChat = (chat) => chat === SUPPORT_CHAT;
 export const SUPPORT_TEXT_MAX = 4000;
 const NEWS_OWNER = '~tainik'; // владелец официального канала обновлений (см. server/news.js)
 export const NOTICE_TEXT_MAX = 2000;
-const NOTICE_KINDS = new Set(['welcome', 'device', 'verified', 'coins-buy', 'coins-admin', 'premium', 'premium-gift', 'gift-sent', 'premium-admin', 'premium-off', 'premium-ended', 'premium-soon', 'admin']);
+const NOTICE_KINDS = new Set(['welcome', 'device', 'verified', 'coins-buy', 'coins-admin', 'premium', 'premium-gift', 'gift-sent', 'premium-admin', 'premium-off', 'premium-ended', 'premium-soon', 'admin', 'shop-admin']);
 const int = (n) => (Number.isSafeInteger(n) ? n : 0);
 const time = (n) => (Number.isFinite(n) && n > 0 ? n : null);
 /** Уведомление от сервера → содержимое сообщения { t: 'notice', kind, … } или null. */
@@ -227,6 +229,11 @@ export function cleanNotice(n) {
       break;
     case 'premium-soon':
       c.until = time(d.until);
+      break;
+    case 'shop-admin': // администратор выдал или забрал рамку (фон)
+      c.name = cleanProfileText(d.name, 40).replace(/\n/g, ' ');
+      c.item = d.kind === 'bg' ? 'bg' : 'frame';
+      c.on = d.on === true;
       break;
     case 'admin':
       c.body = String(d.text ?? '').slice(0, NOTICE_TEXT_MAX);
@@ -1018,8 +1025,11 @@ export class MessengerClient extends Emitter {
       case 'look':
         this._setLook(msg.look);
         return;
-      case 'shop-owned': // куплено на другом своём устройстве
+      case 'shop-owned': // куплено на другом своём устройстве или выдано администратором
         this.emit('shop', { owned: String(msg.id || '') });
+        return;
+      case 'shop-revoked': // администратор забрал товар
+        this.emit('shop', { revoked: String(msg.id || '') });
         return;
       case 'notice':
         this._serial(() => this._onNotices([msg.notice])).catch((e) => console.error('notices', e));
@@ -1481,12 +1491,12 @@ export class MessengerClient extends Emitter {
     if (!this.isPremium()) throw errorOf('premium_video');
     const size = source.size ?? source.length;
     const mime = String(meta.mime || source.type || '').toLowerCase();
-    if (kindOf(mime) !== 'video') throw errorOf('bad_media');
+    if (!isProfileBgMime(mime)) throw errorOf('bad_media');
     if (!size || size > PROFILE_VIDEO_MAX) throw errorOf('video_too_large');
     if (Number.isFinite(meta.dur) && meta.dur > PROFILE_VIDEO_SEC + 0.5) throw errorOf('video_too_long');
     const { keyB64, id } = await this._upload(source, size, onProgress, signal);
     await this._request({ type: 'profile-video', id });
-    const video = cleanProfileVideo({ id, key: keyB64, size, mime, kind: 'video', name: 'bg', w: meta.w, h: meta.h, dur: meta.dur != null ? Math.round(meta.dur) : undefined });
+    const video = cleanProfileVideo({ id, key: keyB64, size, mime, kind: kindOf(mime), name: 'bg', w: meta.w, h: meta.h, dur: meta.dur != null ? Math.round(meta.dur) : undefined });
     if (!video) throw errorOf('bad_media');
     await this.setProfile({ video });
     if (this.look.bg) await this.equipShopItem('bg', null).catch(() => {});
