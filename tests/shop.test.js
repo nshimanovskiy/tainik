@@ -245,7 +245,7 @@ test('примеры рамок: выставляются один раз, уд�
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   let srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, log: false, shopSamples: true });
   const items = srv.store.shopItems();
-  assert.deepEqual(items.map((i) => i.name).sort(), ['Жемчуг', 'Звёздная пыль', 'Золото', 'Золото 3D', 'Изумруд 3D', 'Неон', 'Рубиновые бусы', 'Сакура', 'Хром 3D']);
+  assert.deepEqual(items.map((i) => i.name).sort(), ['Звёздная пыль', 'Золото', 'Неон', 'Сакура']);
   assert.ok(items.every((i) => i.kind === 'frame' && i.mime === 'image/png'));
   const r = await fetch(`http://127.0.0.1:${srv.port}/api/shop/${items[0].id}`);
   assert.equal(r.headers.get('content-type'), 'image/png');
@@ -253,19 +253,31 @@ test('примеры рамок: выставляются один раз, уд�
   srv.store.deleteShopItem(items[0].id);
   await srv.close();
   srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, log: false, shopSamples: true });
-  assert.equal(srv.store.shopItems().length, 8, 'второй запуск ничего не добавляет');
+  assert.equal(srv.store.shopItems().length, 3, 'второй запуск ничего не добавляет');
   await srv.close();
 
-  // Сервер, где примеры добавлялись до 0.47.6 (только отметка «добавлены»): появляются лишь новые
+  // Сервер 0.47.6 успел выставить объёмные рамки — в 0.47.7 они убраны и снимаются (один раз);
+  // переименованную администратором рамку не трогаем
   const old = fs.mkdtempSync(path.join(os.tmpdir(), 'tainik-shop-old-'));
   t.after(() => fs.rmSync(old, { recursive: true, force: true }));
-  srv = await startServer({ port: 0, host: '127.0.0.1', dataDir: old, log: false });
-  srv.store.setMeta('shop_samples', '1');
+  srv = await startServer({ port: 0, host: '127.0.0.1', dataDir: old, log: false, shopSamples: true });
+  const add = (id, name) => {
+    srv.store.addShopItem({ id, kind: 'frame', name, price: 150, premium: false, size: 10 });
+    srv.store.shopReceived(id, 10);
+    srv.store.shopReady(id, 'image/png');
+  };
+  add('aaaaaaaaaaaaaaa1', 'Хром 3D');
+  add('aaaaaaaaaaaaaaa2', 'Мой жемчуг'); // был «Жемчуг», администратор переименовал
+  const seeded = JSON.parse(srv.store.getMeta('shop_samples_seeded'));
+  srv.store.setMeta('shop_samples_seeded', JSON.stringify([...seeded, 'chrome-3d.png', 'pearl-3d.png']));
   await srv.close();
   srv = await startServer({ port: 0, host: '127.0.0.1', dataDir: old, log: false, shopSamples: true });
   const last = srv;
   t.after(() => last.close().catch(() => {}));
-  assert.deepEqual(srv.store.shopItems().map((i) => i.name).sort(), ['Жемчуг', 'Золото 3D', 'Изумруд 3D', 'Рубиновые бусы', 'Хром 3D']);
+  const names = srv.store.shopItems().map((i) => i.name);
+  assert.ok(!names.includes('Хром 3D'), 'объёмная рамка снята');
+  assert.ok(names.includes('Мой жемчуг'), 'переименованная — остаётся');
+  assert.equal(names.length, 5);
 });
 
 test('иконка двойной галочки — две полные галочки', async () => {

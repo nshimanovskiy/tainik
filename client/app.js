@@ -5161,6 +5161,12 @@ async function renderProfile() {
   else $('pf-status').textContent = presenceText(client.presenceOf(name)) || '';
   $('pf-status').classList.toggle('online', !!client.presenceOf(name)?.online && !client.isBlocked(name));
   $('pf-username').textContent = '@' + name;
+  // Своё имя и фото для собеседника; под ним — как он подписан сам
+  const alias = client.aliasOf(name);
+  $('pf-alias-value').textContent = alias?.name || (alias?.avatar ? t('своё фото') : '');
+  const real = alias?.name && client.profileNameOf(name) !== alias.name ? client.profileNameOf(name) : '';
+  $('pf-realname').hidden = !real;
+  $('pf-realname').textContent = real ? t('в профиле: {0}', real) : '';
   $('pf-bio-row').hidden = !prof?.bio;
   $('pf-bio').replaceChildren();
   linkNodes($('pf-bio'), prof?.bio || '');
@@ -5248,6 +5254,76 @@ function cachedImage(f) {
 }
 
 $('pf-close').addEventListener('click', () => $('profile-dialog').close());
+
+// ---------- Своё имя и фото для собеседника ----------
+// Видны только вам (и вашим устройствам) — как «Изменить контакт» в Telegram
+let aliasFor = null;
+let aliasAvatar; // undefined — не меняли, null — убрать, строка — новое фото
+function paintAliasAvatar() {
+  const a = client.aliasOf(aliasFor);
+  const shown = aliasAvatar === undefined ? client.avatarOf(aliasFor) : aliasAvatar || client.profileAvatarOf(aliasFor);
+  paintAvatarBase($('al-avatar'), aliasFor, shown);
+  const has = aliasAvatar === undefined ? !!a?.avatar : !!aliasAvatar;
+  $('al-photo-pick').replaceChildren(icon('camera'), has ? t('Сменить фото') : t('Выбрать фото'));
+  $('al-photo-clear').hidden = !has;
+}
+function openAlias(name) {
+  aliasFor = name;
+  aliasAvatar = undefined;
+  const a = client.aliasOf(name);
+  $('al-name').value = a?.name || '';
+  $('al-name').placeholder = client.profileNameOf(name);
+  $('al-error').textContent = '';
+  $('al-reset').hidden = !a;
+  paintAliasAvatar();
+  $('alias-dialog').showModal();
+  if (!touchUI()) $('al-name').focus();
+}
+$('pf-alias').addEventListener('click', () => profileFor && openAlias(profileFor));
+$('al-photo-pick').addEventListener('click', () => $('al-photo-input').click());
+$('al-photo-input').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    aliasAvatar = (await makeAvatar(file)).avatar;
+    paintAliasAvatar();
+  } catch (err) {
+    $('al-error').textContent = err.message;
+  }
+});
+$('al-photo-clear').addEventListener('click', () => {
+  aliasAvatar = null;
+  paintAliasAvatar();
+});
+$('al-cancel').addEventListener('click', () => $('alias-dialog').close());
+$('al-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const old = client.aliasOf(aliasFor);
+  const next = { name: $('al-name').value.trim(), avatar: aliasAvatar === undefined ? old?.avatar : aliasAvatar };
+  try {
+    await client.setAlias(aliasFor, next.name || next.avatar ? next : null);
+    $('alias-dialog').close();
+    toast(next.name || next.avatar ? t('Сохранено — это видите только вы') : t('Своё имя и фото убраны'));
+  } catch (err) {
+    $('al-error').textContent = err.message;
+  }
+});
+$('al-reset').addEventListener('click', async () => {
+  try {
+    await client.setAlias(aliasFor, null);
+    $('alias-dialog').close();
+    toast(t('Своё имя и фото убраны'));
+  } catch (err) {
+    $('al-error').textContent = err.message;
+  }
+});
+// Своё имя или фото поменялись (здесь или на другом своём устройстве) — перерисовать, где видно
+client.on('alias', ({ chat }) => {
+  renderContacts();
+  if (chat === current) renderHeader();
+  if ($('profile-dialog').open && profileFor === chat) renderProfile();
+});
 // Собеседник прислал новый профиль (имя, фото, своё видео на фон)
 client.on('profile-changed', ({ username }) => {
   if ($('profile-dialog').open && profileFor === username) renderProfile();

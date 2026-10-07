@@ -16,16 +16,19 @@ import { fileURLToPath } from 'node:url';
 // Примеры рамок: сервер выставляет их в магазин один раз, при первом запуске с магазином
 // (дальше администратор меняет или удаляет их, как любые товары — удалённые не возвращаются)
 const SAMPLES_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'shop-samples');
+// Убранные примеры: если сервер их уже выставил — снять из магазина один раз (по исходному названию;
+// переименованные администратором не трогаются). Объёмные (3D) рамки из 0.47.6 убраны в 0.47.7.
+export const RETIRED_SAMPLES = [
+  { file: 'chrome-3d.png', name: 'Хром 3D' },
+  { file: 'gold-3d.png', name: 'Золото 3D' },
+  { file: 'emerald-3d.png', name: 'Изумруд 3D' },
+  { file: 'ruby-beads-3d.png', name: 'Рубиновые бусы' },
+  { file: 'pearl-3d.png', name: 'Жемчуг' },
+];
 export const SAMPLES = [
   { file: 'sakura.png', kind: 'frame', name: 'Сакура', price: 0, premium: false },
   { file: 'gold.png', kind: 'frame', name: 'Золото', price: 100, premium: false },
   { file: 'stardust.png', kind: 'frame', name: 'Звёздная пыль', price: 50, premium: true },
-  // 0.47.6 — объёмные (3D) рамки
-  { file: 'chrome-3d.png', kind: 'frame', name: 'Хром 3D', price: 150, premium: false },
-  { file: 'gold-3d.png', kind: 'frame', name: 'Золото 3D', price: 200, premium: false },
-  { file: 'emerald-3d.png', kind: 'frame', name: 'Изумруд 3D', price: 250, premium: true },
-  { file: 'ruby-beads-3d.png', kind: 'frame', name: 'Рубиновые бусы', price: 300, premium: false },
-  { file: 'pearl-3d.png', kind: 'frame', name: 'Жемчуг', price: 0, premium: true },
   { file: 'neon.png', kind: 'frame', name: 'Неон', price: 0, premium: true },
 ];
 
@@ -169,6 +172,19 @@ export function createShop({ dataDir, store, say = () => {} }) {
       store.shopReady(id, mime);
       n++;
     }
+    // Убранные примеры, которые этот сервер успел выставить, — снять (один раз)
+    let retired = 0;
+    for (const x of RETIRED_SAMPLES) {
+      if (!done.has(x.file) || done.has('retired:' + x.file)) continue;
+      done.add('retired:' + x.file);
+      for (const item of store.shopItems({ all: true })) {
+        if (item.kind === 'frame' && item.name === x.name) {
+          remove(item.id);
+          retired++;
+        }
+      }
+    }
+    if (retired) say(`магазин: сняты убранные примеры рамок (${retired})`);
     store.setMeta('shop_samples', String(Date.now()));
     store.setMeta('shop_samples_seeded', JSON.stringify([...done]));
     if (n) say(`магазин: добавлены примеры рамок (${n})`);

@@ -991,4 +991,12 @@ export default {
   "Тема": "Tema",
   "Своя тема — свои цвета фона, сообщений и акцента — скоро": "Tema personalizado — tus colores de fondo, mensajes y acento — próximamente",
   "Тема запоминается на этом устройстве. «Как в системе» — светлая днём и тёмная ночью, если так настроен телефон или компьютер.": "El tema se guarda en este dispositivo. «Como el sistema» es claro de día y oscuro de noche si tu teléfono u ordenador está configurado así.",
+  "своё фото": "tu foto",
+  "в профиле: {0}": "en el perfil: {0}",
+  "Сохранено — это видите только вы": "Guardado: solo tú lo ves",
+  "Своё имя и фото убраны": "Se quitaron tu nombre y foto personalizados",
+  "Своё имя можно дать только собеседнику": "Solo puedes renombrar a un contacto",
+  "Своё имя и фото": "Nombre y foto personalizados",
+  "Имя и фото видите только вы — в списке чатов, в чате, уведомлениях и группах. Собеседник об этом не узнает. Они сохраняются на всех ваших устройствах.": "Solo tú ves este nombre y foto: en la lista de chats, el chat, las notificaciones y los grupos. El contacto no lo sabrá. Se guardan en todos tus dispositivos.",
+  "Сбросить": "Restablecer",
 };

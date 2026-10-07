@@ -658,6 +658,7 @@
           <div class="pf-cover" id="pf-cover" hidden></div>
           <span class="avatar huge with-frame" id="pf-avatar"></span>
           <div id="pf-name" class="pf-name"></div>
+          <div id="pf-realname" class="pf-realname" hidden></div>
           <div id="pf-status" class="pf-status"></div>
         </div>
         <div class="pf-actions">
@@ -667,6 +668,7 @@
         </div>
         <div class="set-group">
           <button type="button" class="set-row pf-info" id="pf-username-row" title="Скопировать"><span class="set-ico" aria-hidden="true">@</span><span class="pf-info-text"><b id="pf-username"></b><span class="small muted">Юзернейм</span></span></button>
+          <button type="button" class="set-row" id="pf-alias"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="user"></i></span><span class="set-label">Своё имя и фото</span><span class="set-value" id="pf-alias-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
           <div class="set-row set-static pf-info" id="pf-bio-row" hidden><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="pf-bio" class="pf-bio"></span><span class="small muted">О себе</span></span></div>
           <div id="pf-channels"></div>
           <button type="button" class="set-row" id="pf-gift" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="gift"></i></span><span class="set-label">Подарить Премиум</span><span class="set-chev" aria-hidden="true">›</span></button>
@@ -880,6 +882,29 @@
       <div class="dialog-actions">
         <button type="button" id="fd-delete" class="ghost danger-text" hidden>Удалить папку</button>
         <button type="button" id="fd-cancel" class="ghost">Отмена</button>
+        <button type="submit" class="primary">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Своё имя и фото для собеседника (видны только вам) -->
+  <dialog id="alias-dialog">
+    <form class="dialog-body" id="al-form" autocomplete="off">
+      <h2>Своё имя и фото</h2>
+      <div class="al-photo">
+        <span class="avatar huge" id="al-avatar"></span>
+        <div class="prof-photo-actions">
+          <button type="button" id="al-photo-pick" class="ghost"><i class="ic" data-icon="camera"></i>Выбрать фото</button>
+          <button type="button" id="al-photo-clear" class="ghost">Убрать фото</button>
+          <input type="file" id="al-photo-input" accept="image/*" hidden>
+        </div>
+      </div>
+      <input id="al-name" maxlength="64" aria-label="Имя">
+      <p class="small muted" id="al-note">Имя и фото видите только вы — в списке чатов, в чате, уведомлениях и группах. Собеседник об этом не узнает. Они сохраняются на всех ваших устройствах.</p>
+      <p id="al-error" class="error small" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="al-reset" class="ghost danger-text">Сбросить</button>
+        <button type="button" id="al-cancel" class="ghost">Отмена</button>
         <button type="submit" class="primary">Сохранить</button>
       </div>
     </form>

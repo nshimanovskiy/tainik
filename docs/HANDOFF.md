@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **7 октября 2026**, версия **0.47.6** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **7 октября 2026**, версия **0.47.7** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -106,7 +106,7 @@
 - сообщения: `text`, `file` (`{body: подпись, file:{id,key,size,name,mime,kind,w,h,dur,thumb,as?,wave?}, reply?, fwd?}`);
 - `call` (эфемерно, без очереди), `delete`, `clear-chat`, `profile`, `profile-req`, `pin` (закрепить сообщение у собеседника);
 - группы: `gmsg`, `group`, `group-leave`, `gdelete`, `gpin`;
-- свои устройства: `sync-sent`, `sync-read`, `sync-delete`, `sync-delete-chat`, `sync-profile`, `sync-channel`, `sync-pin`, `sync-archive`, `sync-top`, `sync-folders`;
+- свои устройства: `sync-sent`, `sync-read`, `sync-delete`, `sync-delete-chat`, `sync-profile`, `sync-profile-req`, `sync-channel`, `sync-pin`, `sync-archive`, `sync-top`, `sync-folders`, `sync-alias`;
 - локальные системные (`dir:'sys'`): `call`, `group` (события, в т.ч. `ev:'deleted'` — группа удалена администратором сервера), `gift`, `rejected`, `key-accepted`; уведомления «Тайника» — `{t:'notice', kind, …}` (`dir:'in'`).
 
 Все изменения состояния — строго по очереди через `_serial()` (храповик не терпит гонок). Отправка — `_pumpOutbox()`. Любые новые поля проходят «чистильщики»: `cleanText`, `cleanFile`, `cleanProfile`, `cleanGroup`, `cleanNotice`, `cleanFolders` и т. д. — принимаются только известные поля.
@@ -220,7 +220,7 @@ desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 128 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 129 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -230,7 +230,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 128 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 129 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -295,6 +295,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.47.7 | Своё имя и фото для собеседника (`contact.alias {name?, avatar?}` + `aliasTs`, `setAlias`, `sync-alias`, привязка, перенос; `nameOf/avatarOf` учитывают, `profileNameOf/profileAvatarOf` — без него); 3D-рамки убраны (`RETIRED_SAMPLES` снимаются по названию) |
 | 0.47.6 | Тема «как в системе / светлая / тёмная» (`client/theme.js` в `<head>`, `:root[data-theme=dark]`, задел на свою тему — `tainikTheme.set({id:'custom', base, vars})`); 3D-рамки в примерах (`shop_samples_seeded` — учёт по каждой рамке); правка цены и доступа в таблице панели |
 | 0.47.5 | Свой фон — ещё и фото (JPEG/PNG/WebP → JPEG ≤1600 px на устройстве), только в магазине; `PROFILE_SCHEMA = 3` |
 | 0.47.4 | Фон, потерянный старой версией, переспрашивается (`PROFILE_SCHEMA = 2`: `contact.profileSchema` + `profile-req` у собеседников с Премиум, `sync-profile-req` у своих устройств при первом входе новой версии) |

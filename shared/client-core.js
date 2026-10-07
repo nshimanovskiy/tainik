@@ -151,6 +151,21 @@ function cleanProfileChannels(list) {
   }
   return out;
 }
+/**
+ * Своё имя и фото для собеседника (как «Изменить контакт» в Telegram): { name?, avatar? } или null.
+ * Видны только вам и вашим устройствам; собеседник и сервер о них не знают.
+ */
+export function cleanAlias(a) {
+  if (!a || typeof a !== 'object') return null;
+  const out = {};
+  const name = cleanProfileText(a.name, NAME_MAX).replace(/\n/g, ' ');
+  if (name) out.name = name;
+  if (validAvatar(a.avatar)) out.avatar = a.avatar;
+  return out.name || out.avatar ? out : null;
+}
+/** Чат, которому можно дать своё имя: личный чат с другим пользователем. */
+const aliasable = (chat) => typeof chat === 'string' && USER_RE.test(chat);
+
 /** Профиль { name, bio, avatar?, channels?, v } из сообщения (только известные поля) или null. */
 function cleanProfile(p) {
   if (!p || !Number.isFinite(p.v) || p.v <= 0) return null;
@@ -530,6 +545,7 @@ export class MessengerClient extends Emitter {
     this._verifiedChats = new Set(); // группы и каналы с галочкой (ключи чатов)
     this._avatars = new Map(); // фото профиля собеседника по юзернейму
     this._videos = new Map(); // своё видео на фоне профиля собеседника (описание файла)
+    this._aliases = new Map(); // свои имена и фото для собеседников: юзернейм → { name?, avatar? }
     this._profileReplies = new Map(); // кому и когда повторно отправляли профиль по запросу
     this.push = { vapidKey: null, endpoint: null }; // Web Push: ключ сервера и текущая подписка этого устройства
   }
@@ -716,6 +732,8 @@ export class MessengerClient extends Emitter {
       const prof = cleanProfile(c.profile);
       if (prof) contacts[c.username].profile = prof;
       if (c.shareProfile) contacts[c.username].shareProfile = true;
+      const alias = cleanAlias(c.alias);
+      if (alias) Object.assign(contacts[c.username], { alias, aliasTs: 1 });
     }
     // Группы: состав и название (переписка, как и в личных чатах, не переносится)
     for (const raw of Array.isArray(p.groups) ? p.groups : []) {
@@ -755,15 +773,26 @@ export class MessengerClient extends Emitter {
     }
     // Фото собеседников — сколько влезет в канал привязки, начиная с недавних чатов
     let room = PROVISION_AVATARS;
-    const contacts = Object.values(await this.contacts())
-      .sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0))
+    // Свои имена для собеседников — все; их фото — первыми в общем запасе места
+    const aliasOf = (c) => {
+      if (!c.alias) return undefined;
+      const a = { ...c.alias };
+      if (a.avatar) {
+        if (a.avatar.length <= room) room -= a.avatar.length;
+        else delete a.avatar;
+      }
+      return cleanAlias(a) || undefined;
+    };
+    const sorted = Object.values(await this.contacts()).sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+    const aliases = new Map(sorted.map((c) => [c.username, aliasOf(c)]));
+    const contacts = sorted
       .map((c) => {
         let profile = c.profile || undefined;
         if (profile?.avatar) {
           if (profile.avatar.length <= room) room -= profile.avatar.length;
           else profile = { ...profile, avatar: undefined };
         }
-        return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile };
+        return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile, alias: aliases.get(c.username) };
       })
       .filter((c) => !isGroupChat(c.username) && !isChannelChat(c.username) && !isSystemChat(c.username) && !isSupportChat(c.username));
     const groups = Object.values(await this.contacts())
@@ -1255,15 +1284,24 @@ export class MessengerClient extends Emitter {
 
   /** Фото профиля для показа: только если у владельца действует подписка. */
   avatarOf(username) {
+    // Своё фото для собеседника — всегда (оно только ваше, подписка не нужна)
+    const own = this._aliases.get(username)?.avatar;
+    if (own) return own;
     if (!this.hasPremium(username)) return null;
     if (this.account && username === this.account.username) return this.profile.avatar || null;
     return this._avatars.get(username) || null;
+  }
+
+  /** Фото из профиля собеседника (без вашего своего фото для него), если у него Премиум. */
+  profileAvatarOf(username) {
+    return this.hasPremium(username) ? this._avatars.get(username) || null : null;
   }
 
   /** Фото профиля для просмотра на весь экран: большое, если есть, иначе маленькое; null — нет фото. */
   async photoOf(username) {
     const small = this.avatarOf(username);
     if (!small) return null;
+    if (this._aliases.get(username)?.avatar) return small; // своё фото для собеседника
     if (this.account && username === this.account.username) return this.profile.photo || small;
     const big = await this.storage.get('photo:' + username);
     return validPhoto(big) ? big : small;
@@ -1689,6 +1727,7 @@ export class MessengerClient extends Emitter {
     this._names.clear();
     this._avatars.clear();
     this._videos.clear();
+    this._aliases.clear();
     (this._verifiedChats ||= new Set()).clear();
     (this._archived ||= new Set()).clear();
     (this._top ||= new Set()).clear();
@@ -1704,6 +1743,7 @@ export class MessengerClient extends Emitter {
       if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
       if (c.profile?.name) this._names.set(c.username, c.profile.name);
       if (c.profile?.avatar) this._avatars.set(c.username, c.profile.avatar);
+      if (c.alias) this._aliases.set(c.username, c.alias);
       if (c.profile?.video) this._videos.set(c.username, c.profile.video);
     }
   }
@@ -1711,7 +1751,45 @@ export class MessengerClient extends Emitter {
   /** Имя для показа: имя из профиля или юзернейм; для группы — её название. */
   nameOf(username) {
     if (this.account && username === this.account.username) return this.profile.name || username;
+    return this._aliases.get(username)?.name || this._names.get(username) || username;
+  }
+
+  /** Имя из профиля собеседника (без вашего своего имени для него) или юзернейм. */
+  profileNameOf(username) {
     return this._names.get(username) || username;
+  }
+
+  /** Своё имя и фото, которые вы дали собеседнику: { name?, avatar? } или null. */
+  aliasOf(username) {
+    return this._aliases.get(username) || null;
+  }
+
+  /**
+   * Дать собеседнику своё имя и/или фото (видны только вам и вашим устройствам); null — убрать.
+   * Фото — маленький data:-URL, как фото профиля (validAvatar), подписка для этого не нужна.
+   */
+  async setAlias(username, alias) {
+    if (!aliasable(username) || username === this.account?.username) throw new Error(t('Своё имя можно дать только собеседнику'));
+    const a = alias == null ? null : cleanAlias(alias);
+    if (alias != null && alias.avatar != null && !validAvatar(alias.avatar)) throw errorOf('too_large');
+    const ts = Date.now();
+    await this._serial(async () => {
+      if (!(await this._applyAlias(await this.contacts(), username, a, ts))) return;
+      await this._queueToSelf({ t: 'sync-alias', chat: username, alias: a, ts });
+    });
+    this._pumpOutbox();
+  }
+
+  async _applyAlias(all, chat, alias, ts) {
+    const c = all[chat];
+    if (!c || !aliasable(chat) || !Number.isFinite(ts) || (c.aliasTs && c.aliasTs >= ts)) return false;
+    c.aliasTs = ts; // последнее изменение побеждает
+    const a = cleanAlias(alias);
+    if (a) c.alias = a;
+    else delete c.alias;
+    await this._saveContacts(all);
+    this.emit('alias', { chat, alias: a });
+    return true;
   }
 
   /** Профиль собеседника { name, bio, v } или null. */
@@ -2975,6 +3053,10 @@ export class MessengerClient extends Emitter {
         // Имя и фото собеседника из копии — если здесь их ещё нет
         if (!c.profile && bc.profile && typeof bc.profile === 'object') c.profile = bc.profile;
         if (!c.pinned && bc.pinned && typeof bc.pinned === 'object') c.pinned = bc.pinned;
+        // Своё имя и фото для собеседника — из копии, если здесь своего нет (только проверенные поля)
+        const alias = aliasable(chat) ? cleanAlias(c.alias || bc.alias) : null;
+        if (alias) Object.assign(c, { alias, aliasTs: c.aliasTs || bc.aliasTs || 1 });
+        else delete c.alias;
         const here = await this.messages(chat);
         const delHere = (await this.storage.get('deleted:' + chat)) || [];
         const del = new Set([...delHere, ...(Array.isArray(srcDel[chat]) ? srcDel[chat] : [])]);
@@ -3304,6 +3386,10 @@ export class MessengerClient extends Emitter {
       }
       if (c?.t === 'sync-folders') {
         await this._applyFolders(c.v, c.list);
+        return ack(false);
+      }
+      if (c?.t === 'sync-alias' && typeof c.chat === 'string') {
+        await this._applyAlias(await this.contacts(), c.chat, c.alias ?? null, c.ts);
         return ack(false);
       }
       if (c?.t === 'sync-archive' && typeof c.chat === 'string') {

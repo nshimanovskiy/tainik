@@ -1063,4 +1063,12 @@ export default {
   "Тема": "Theme",
   "Своя тема — свои цвета фона, сообщений и акцента — скоро": "Custom theme — your own background, message and accent colors — coming soon",
   "Тема запоминается на этом устройстве. «Как в системе» — светлая днём и тёмная ночью, если так настроен телефон или компьютер.": "The theme is saved on this device. “System default” is light by day and dark at night if your phone or computer is set up that way.",
+  "своё фото": "your photo",
+  "в профиле: {0}": "in profile: {0}",
+  "Сохранено — это видите только вы": "Saved — only you can see this",
+  "Своё имя и фото убраны": "Your custom name and photo removed",
+  "Своё имя можно дать только собеседнику": "You can only rename a contact",
+  "Своё имя и фото": "Custom name and photo",
+  "Имя и фото видите только вы — в списке чатов, в чате, уведомлениях и группах. Собеседник об этом не узнает. Они сохраняются на всех ваших устройствах.": "Only you see this name and photo — in the chat list, the chat, notifications and groups. The contact won't know. They're saved on all your devices.",
+  "Сбросить": "Reset",
 };

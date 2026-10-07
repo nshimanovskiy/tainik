@@ -132,3 +132,52 @@ test('профиль: свои каналы (не больше двух) вид�
 
   assert.equal((await bob.profileOf('alice')).channels.length, 2);
 });
+
+test('своё имя и фото для собеседника: только у вас и на ваших устройствах, без Премиум', async (t) => {
+  const { srv, mk } = await setup(t);
+  const alice = mk();
+  const bob = mk();
+  await alice.register('alice');
+  await bob.register('bob');
+  const alice2 = mk();
+  await link(alice2, alice);
+  await bob.setProfile({ name: 'Боб' });
+  await alice.addContact('bob');
+  await bob.addContact('alice');
+  const got = incoming(alice, 'я Боб');
+  await bob.sendText('alice', 'я Боб');
+  await got;
+  await waitFor(alice, 'contacts', () => alice.nameOf('bob') === 'Боб').catch(() => {});
+  assert.equal(alice.nameOf('bob'), 'Боб');
+
+  // Фото без подписки — своё, видно только Алисе
+  const photo = 'data:image/png;base64,' + Buffer.alloc(200, 9).toString('base64');
+  const synced = waitFor(alice2, 'alias', (d) => d.chat === 'bob' && d.alias?.name === 'Бобби');
+  await alice.setAlias('bob', { name: '  Бобби ', avatar: photo });
+  assert.equal(alice.nameOf('bob'), 'Бобби');
+  assert.equal(alice.profileNameOf('bob'), 'Боб', 'имя из профиля доступно отдельно');
+  assert.equal(alice.avatarOf('bob'), photo, 'своё фото — без Премиум у собеседника');
+  assert.equal(alice.profileAvatarOf('bob'), null);
+  await synced; // второе устройство Алисы
+  assert.equal(alice2.nameOf('bob'), 'Бобби');
+  assert.equal(alice2.avatarOf('bob'), photo);
+  assert.equal(bob.nameOf('bob'), 'Боб', 'собеседник ничего не знает');
+  const db = ['', '-wal'].map((x) => srv.store.file + x).filter((f) => fs.existsSync(f)).map((f) => fs.readFileSync(f).toString('utf8')).join('');
+  assert.ok(!db.includes('Бобби'), 'сервер своего имени не видит');
+
+  // Новое устройство при привязке получает свои имена
+  const alice3 = mk();
+  await link(alice3, alice);
+  assert.equal(alice3.nameOf('bob'), 'Бобби');
+  assert.equal(alice3.avatarOf('bob'), photo);
+
+  // Группе и самому себе своё имя не дать; сброс — снова имя из профиля
+  await assert.rejects(alice.setAlias('#0123456789abcdef01234567', { name: 'x' }));
+  await assert.rejects(alice.setAlias('alice', { name: 'x' }));
+  const reset = waitFor(alice2, 'alias', (d) => d.chat === 'bob' && !d.alias);
+  await alice.setAlias('bob', null);
+  await reset;
+  assert.equal(alice.nameOf('bob'), 'Боб');
+  assert.equal(alice2.nameOf('bob'), 'Боб');
+  assert.equal(alice.avatarOf('bob'), null);
+});
