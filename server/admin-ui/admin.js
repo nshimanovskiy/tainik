@@ -537,8 +537,7 @@ $('shop-form').addEventListener('submit', async (e) => {
     const n = await post('shop-new', {
       kind,
       name: $('shop-name').value.trim(),
-      price: Number($('shop-price').value),
-      premium: $('shop-premium').checked,
+      ...fromAccess($('shop-access').value, Number($('shop-price').value) || 0),
       size: file.size,
     });
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -550,6 +549,8 @@ $('shop-form').addEventListener('submit', async (e) => {
     $('shop-status').textContent = 'Товар добавлен в магазин';
     $('shop-form').reset();
     $('shop-price').value = '100';
+    $('shop-access').value = 'coins';
+    $('shop-price').disabled = false;
     await load();
   } catch (err) {
     $('shop-status').textContent = '';
@@ -579,55 +580,110 @@ function shopPreview(item) {
   }
   return box;
 }
+// Доступ к товару: цена в монетах и отметка «бесплатно с Премиум» — одним списком
+const ACCESS = [
+  ['coins', 'за монеты'],
+  ['coins-premium', 'монеты или бесплатно с Премиум'],
+  ['premium', 'только с Премиум'],
+  ['free', 'бесплатно всем'],
+];
+const accessOf = (price, premium) => (premium ? (price ? 'coins-premium' : 'premium') : price ? 'coins' : 'free');
+const accessSelect = (value) => {
+  const sel = el('select', 'access');
+  sel.setAttribute('aria-label', 'Доступ');
+  for (const [v, label] of ACCESS) {
+    const o = el('option', '', label);
+    o.value = v;
+    sel.append(o);
+  }
+  sel.value = value;
+  return sel;
+};
+/** Цена и отметка Премиум из выбранного доступа: при «только с Премиум» и «бесплатно всем» цена 0. */
+function fromAccess(access, price) {
+  const paid = access === 'coins' || access === 'coins-premium';
+  return { price: paid ? price : 0, premium: access === 'coins-premium' || access === 'premium' };
+}
 let shopShown = '';
+const shopDirty = new Set(); // строки, которые сейчас правят — не перерисовывать их автообновлением
 function renderShop() {
   const items = data?.shop || [];
   $('tab-shop-n').textContent = items.length ? String(items.length) : '';
-  // Таблица перерисовывается, только если товары изменились (иначе видео начинались бы заново каждые 5 секунд)
+  // Таблица перерисовывается, только если товары изменились (иначе видео начинались бы заново
+  // каждые 5 секунд) и никто не правит строку
   const key = JSON.stringify(items);
-  if (key === shopShown) return;
+  if (key === shopShown || shopDirty.size) return;
   shopShown = key;
   const rows = items.map((i) => {
     const tr = el('tr', i.hidden || !i.ready ? 'dim' : '');
     const name = el('td', 'name');
     const wrap = el('span', 'shop-cell');
-    const text = el('span');
-    text.append(el('b', '', i.name), el('br'), el('code', 'cid', i.id));
+    const text = el('span', 'shop-text');
+    const nameIn = el('input', 'shop-name-in');
+    nameIn.value = i.name;
+    nameIn.maxLength = 40;
+    nameIn.setAttribute('aria-label', 'Название');
+    text.append(nameIn, el('code', 'cid', i.id));
     wrap.append(shopPreview(i), text);
     name.append(wrap);
-    const access = [];
-    if (i.premium) access.push(i.price ? 'монеты или Премиум' : 'только Премиум');
-    else access.push(i.price ? 'за монеты' : 'бесплатно всем');
-    if (i.hidden) access.push('скрыт');
-    if (!i.ready) access.push(`загружается: ${Math.round((i.received / i.size) * 100)}%`);
+
+    const priceIn = el('input', 'shop-price-in');
+    priceIn.type = 'number';
+    priceIn.min = '0';
+    priceIn.max = '1000000';
+    priceIn.step = '1';
+    priceIn.value = String(i.price || '');
+    priceIn.placeholder = '0';
+    priceIn.setAttribute('aria-label', 'Цена в монетах');
+    const access = accessSelect(accessOf(i.price, i.premium));
+    const shown = el('label', 'check small');
+    const shownIn = el('input');
+    shownIn.type = 'checkbox';
+    shownIn.checked = !i.hidden;
+    shown.append(shownIn, document.createTextNode(' на витрине'));
+    shown.title = 'Снять — товар пропадёт с витрины, у купивших останется';
+    const accessTd = el('td', 'small');
+    const accessBox = el('div', 'access-cell');
+    accessBox.append(access, shown);
+    if (!i.ready) accessBox.append(el('div', 'muted', `загружается: ${Math.round((i.received / i.size) * 100)}%`));
+    accessTd.append(accessBox);
+
     const actions = el('td', 'actions');
+    const save = el('button', '', 'Сохранить');
+    save.type = 'button';
+    save.hidden = true;
+    const sync = () => {
+      const paid = access.value === 'coins' || access.value === 'coins-premium';
+      priceIn.disabled = !paid;
+      if (!paid) priceIn.value = '';
+      else if (!priceIn.value) priceIn.value = String(i.price || 100);
+      const next = { name: nameIn.value.trim(), ...fromAccess(access.value, Number(priceIn.value) || 0), hidden: !shownIn.checked };
+      const dirty = next.name !== i.name || next.price !== i.price || next.premium !== i.premium || next.hidden !== i.hidden;
+      save.hidden = !dirty;
+      if (dirty) shopDirty.add(i.id);
+      else shopDirty.delete(i.id);
+      return next;
+    };
+    for (const n of [nameIn, priceIn]) n.addEventListener('input', sync);
+    for (const n of [access, shownIn]) n.addEventListener('change', sync);
+    save.addEventListener('click', async () => {
+      const next = sync();
+      if (next.price === 0 && access.value === 'coins') return alert('Укажите цену или выберите «бесплатно всем»');
+      save.disabled = true;
+      try {
+        await post('shop-update', { id: i.id, ...next });
+        shopDirty.delete(i.id);
+        shopShown = '';
+        await load();
+      } catch (err) {
+        alert(err.message);
+        save.disabled = false;
+      }
+    });
+    sync();
+    if (!i.ready) for (const n of [nameIn, priceIn, access, shownIn]) n.disabled = true;
+
     if (i.ready) {
-      const edit = el('button', 'ghost', 'Изменить');
-      edit.type = 'button';
-      edit.addEventListener('click', async () => {
-        const nm = prompt('Название:', i.name);
-        if (nm === null) return;
-        const pr = prompt('Цена в монетах (0 — бесплатно):', String(i.price));
-        if (pr === null) return;
-        const prem = confirm('Бесплатно с Премиум? (OK — да, Отмена — нет)');
-        try {
-          await post('shop-update', { id: i.id, name: nm, price: Number(pr), premium: prem, hidden: i.hidden });
-          await load();
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-      const hide = el('button', 'ghost', i.hidden ? 'Показать' : 'Скрыть');
-      hide.type = 'button';
-      hide.title = i.hidden ? 'Вернуть на витрину' : 'Убрать с витрины — у купивших останется';
-      hide.addEventListener('click', async () => {
-        try {
-          await post('shop-update', { id: i.id, name: i.name, price: i.price, premium: i.premium, hidden: !i.hidden });
-          await load();
-        } catch (err) {
-          alert(err.message);
-        }
-      });
       // Выдать бесплатно (в том числе скрытый — эксклюзив) или забрать у пользователя
       const give = el('button', 'ghost', 'Выдать…');
       give.type = 'button';
@@ -665,7 +721,7 @@ function renderShop() {
           alert(err.message);
         }
       });
-      actions.append(edit, hide, give, take);
+      actions.append(save, give, take);
     }
     const del = el('button', 'danger', 'Удалить');
     del.type = 'button';
@@ -673,6 +729,7 @@ function renderShop() {
       const sold = i.sold ? ` Его купили ${i.sold} чел. — у них он пропадёт, монеты не вернутся.` : '';
       if (!confirm(`Удалить «${i.name}»?${sold} Это необратимо.`)) return;
       try {
+        shopDirty.delete(i.id);
         await post('shop-delete', { id: i.id });
         await load();
       } catch (err) {
@@ -680,17 +737,18 @@ function renderShop() {
       }
     });
     actions.append(del);
-    tr.append(
-      name,
-      el('td', '', i.kind === 'frame' ? 'рамка' : 'фон'),
-      el('td', 'num', String(i.price)),
-      el('td', 'small', access.join(' · ')),
-      el('td', 'num', String(i.sold || 0)),
-      el('td', 'muted small', dateFmt.format(i.createdAt)),
-      actions
-    );
+    const priceTd = el('td', 'num');
+    priceTd.append(priceIn);
+    tr.append(name, el('td', '', i.kind === 'frame' ? 'рамка' : 'фон'), priceTd, accessTd, el('td', 'num', String(i.sold || 0)), el('td', 'muted small', dateFmt.format(i.createdAt)), actions);
     return tr;
   });
   $('shop-rows').replaceChildren(...rows);
   $('no-shop').hidden = rows.length > 0;
 }
+
+// Форма нового товара: при «только с Премиум» и «бесплатно всем» цены нет
+$('shop-access').addEventListener('change', () => {
+  const paid = $('shop-access').value === 'coins' || $('shop-access').value === 'coins-premium';
+  $('shop-price').disabled = !paid;
+  if (paid && !$('shop-price').value) $('shop-price').value = '100';
+});

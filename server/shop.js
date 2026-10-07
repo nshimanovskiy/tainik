@@ -20,6 +20,12 @@ export const SAMPLES = [
   { file: 'sakura.png', kind: 'frame', name: 'Сакура', price: 0, premium: false },
   { file: 'gold.png', kind: 'frame', name: 'Золото', price: 100, premium: false },
   { file: 'stardust.png', kind: 'frame', name: 'Звёздная пыль', price: 50, premium: true },
+  // 0.47.6 — объёмные (3D) рамки
+  { file: 'chrome-3d.png', kind: 'frame', name: 'Хром 3D', price: 150, premium: false },
+  { file: 'gold-3d.png', kind: 'frame', name: 'Золото 3D', price: 200, premium: false },
+  { file: 'emerald-3d.png', kind: 'frame', name: 'Изумруд 3D', price: 250, premium: true },
+  { file: 'ruby-beads-3d.png', kind: 'frame', name: 'Рубиновые бусы', price: 300, premium: false },
+  { file: 'pearl-3d.png', kind: 'frame', name: 'Жемчуг', price: 0, premium: true },
   { file: 'neon.png', kind: 'frame', name: 'Неон', price: 0, premium: true },
 ];
 
@@ -131,11 +137,23 @@ export function createShop({ dataDir, store, say = () => {} }) {
     return users;
   }
 
-  /** Выставить примеры рамок, если этого ещё не делали на этом сервере. */
+  /**
+   * Выставить примеры рамок, которых ещё не выставляли на этом сервере: каждая — один раз
+   * (новые примеры в новых версиях добавятся, удалённые администратором — не вернутся).
+   */
   function seedSamples() {
-    if (store.getMeta('shop_samples')) return 0;
+    let done;
+    try {
+      done = new Set(JSON.parse(store.getMeta('shop_samples_seeded') || 'null') || []);
+    } catch {
+      done = new Set();
+    }
+    // До 0.47.6 отмечалось только «примеры уже добавлены» — это были первые четыре
+    if (!store.getMeta('shop_samples_seeded') && store.getMeta('shop_samples')) for (const f of ['sakura.png', 'gold.png', 'stardust.png', 'neon.png']) done.add(f);
     let n = 0;
     for (const x of SAMPLES) {
+      if (done.has(x.file)) continue;
+      done.add(x.file);
       let data;
       try {
         data = fs.readFileSync(path.join(SAMPLES_DIR, x.file));
@@ -152,6 +170,7 @@ export function createShop({ dataDir, store, say = () => {} }) {
       n++;
     }
     store.setMeta('shop_samples', String(Date.now()));
+    store.setMeta('shop_samples_seeded', JSON.stringify([...done]));
     if (n) say(`магазин: добавлены примеры рамок (${n})`);
     return n;
   }

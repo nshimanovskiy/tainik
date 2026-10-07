@@ -16,6 +16,8 @@
   <meta name="theme-color" content="#f3f1ec" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#111513" media="(prefers-color-scheme: dark)">
   <link rel="stylesheet" href="style.css">
+  <!-- Тема оформления — до отрисовки, чтобы не мигала -->
+  <script src="theme.js"></script>
   <script type="module" src="app.js"></script>
 </head>
 <body>
@@ -266,6 +268,7 @@
         <button type="button" data-go="notif" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="bell"></i></span><span class="set-label">Уведомления</span><span class="set-value" id="set-notif-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="proxy" class="set-row" id="row-proxy" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="shield"></i></span><span class="set-label">Прокси</span><span class="set-value" id="set-proxy-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="bg" class="set-row" id="row-bg" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="battery"></i></span><span class="set-label">Работа в фоне</span><span class="set-chev" aria-hidden="true">›</span></button>
+        <button type="button" data-go="theme" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="palette"></i></span><span class="set-label">Оформление</span><span class="set-value" id="set-theme-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="lang" class="set-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="globe"></i></span><span class="set-label">Язык</span><span class="set-value" id="set-lang-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         <button type="button" data-go="upd" class="set-row" id="row-upd" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="update"></i></span><span class="set-label">Обновления</span><span class="set-value" id="set-upd-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
         </div>
@@ -484,6 +487,15 @@
           <label class="set-row set-toggle"><span class="set-label" id="bg-autostart-text">Запускать при входе в систему</span><input type="checkbox" id="bg-autostart"></label>
         </div>
         <p class="set-note" id="bg-hint" hidden></p>
+      </div>
+
+      <div class="set-page" data-page="theme" data-title="Оформление" hidden>
+        <h3 class="set-sub">Тема</h3>
+        <div class="set-group" id="theme-list" role="radiogroup" aria-label="Тема"></div>
+        <div class="set-group">
+          <div class="set-row set-static muted-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="sparkles"></i></span><span class="set-label">Своя тема — свои цвета фона, сообщений и акцента — скоро</span></div>
+        </div>
+        <p class="set-note">Тема запоминается на этом устройстве. «Как в системе» — светлая днём и тёмная ночью, если так настроен телефон или компьютер.</p>
       </div>
 
       <div class="set-page" data-page="lang" data-title="Язык" hidden>

@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **7 октября 2026**, версия **0.47.5** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **7 октября 2026**, версия **0.47.6** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -134,7 +134,8 @@
 - `index.html` + `app.js` (~5800 строк) + `style.css` — весь мессенджер. `call.js` — `CallManager` (WebRTC).
 - **Иконки** (`icons.js` + `icons.json`, 0.46): в разметке `<i class="ic" data-icon="lock"></i>`, в коде `icon('lock')`; `MutationObserver` дорисовывает новые элементы. Набор: веб — с сервера; приложения — встроенный сразу, затем свежий с сервера аккаунта (`/icons.json`, CORS `*`), кэш в `localStorage['tainik:icons']`. `cleanIconSet` пропускает только `path/circle/rect/line/polyline/polygon/ellipse` и числовые/путевые атрибуты, `fill/stroke` — только `none/currentColor`. Эмодзи остались только в текстах (превью, системные сообщения, уведомления).
 - **Переводы**: ключ — русская строка, `t('…', …args)` с `{0}`; словари `shared/i18n-en.js`, `i18n-es.js`, `i18n-ja.js` с **одинаковым набором ключей** (испанский и японский — машинный перевод, не вычитан носителями). `translateDom` переводит статику HTML.
-- Настройки как в Telegram: `#menu-dialog`, страницы `.set-page[data-page]` (main, profile, premium, coins, privacy, blocked, backup, media, proxy, notif, bg, lang, upd, about), `data-go`, `setBack()`.
+- **Тема** (0.47.6): `client/theme.js` — обычный скрипт в `<head>`, ставит `data-theme` (light/dark) до отрисовки, выбор в `localStorage['tainik:theme']`; тёмная палитра — `:root[data-theme="dark"]` в `style.css`. Своя тема — переменные CSS поверх основы, только из списка `VARS` и только `#rgb/#rrggbb`.
+- Настройки как в Telegram: `#menu-dialog`, страницы `.set-page[data-page]` (main, profile, premium, coins, shop, privacy, blocked, backup, media, proxy, notif, bg, theme, lang, upd, about), `data-go`, `setBack()`.
 - **Рамки и фон** (0.47): `paintAvatar` у элементов с классом `with-frame` дорисовывает рамку (`paintFrame`, картинка `.av-frame` 132% поверх аватара); обложка профиля — `paintCover(box, имя)` (`.pf-cover` в профиле собеседника, своём профиле и магазине). Файлы товаров — blob:-URL в памяти (`shopFile`), уже скачанные рисуются сразу. Страница магазина — `.set-page[data-page=shop]`, `fillShop/renderShop`.
 - Список чатов `renderContacts()`: сортировка `top` → `lastTs`; строка «Архив»; вкладки папок `renderFolderTabs()`; меню чата `openChatMenu()`.
 - Уведомления: `notifyMessage()` / `notifyOther()`; первые 4 с после подключения уведомления придерживаются (`stillUnread`), чтобы не всплывало уже прочитанное на другом устройстве; `clearChatNotices()` при прочтении/фокусе/удалении.
@@ -219,7 +220,7 @@ desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 126 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 128 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -229,7 +230,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 126 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 128 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -294,6 +295,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.47.6 | Тема «как в системе / светлая / тёмная» (`client/theme.js` в `<head>`, `:root[data-theme=dark]`, задел на свою тему — `tainikTheme.set({id:'custom', base, vars})`); 3D-рамки в примерах (`shop_samples_seeded` — учёт по каждой рамке); правка цены и доступа в таблице панели |
 | 0.47.5 | Свой фон — ещё и фото (JPEG/PNG/WebP → JPEG ≤1600 px на устройстве), только в магазине; `PROFILE_SCHEMA = 3` |
 | 0.47.4 | Фон, потерянный старой версией, переспрашивается (`PROFILE_SCHEMA = 2`: `contact.profileSchema` + `profile-req` у собеседников с Премиум, `sync-profile-req` у своих устройств при первом входе новой версии) |
 | 0.47.3 | Пуш о сообщении в группе — с названием и автором (`send.group` → пуш `{t:'msg', from, g, gn}`, только если оба в реестре группы); автор в уведомлениях фоновых аккаунтов |

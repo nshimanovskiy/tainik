@@ -156,3 +156,16 @@ code.cid { font-size: 11px; color: var(--muted); }
 .shop-pv.bg img, .shop-pv.bg video { object-fit: cover; }
 tr.dim td { opacity: .6; }
 button.ghost:disabled { opacity: .45; cursor: default; }
+
+.shop-text { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+.shop-name-in, .shop-price-in, select.access, #shop-access {
+  padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; font: inherit;
+}
+.shop-name-in { font-weight: 600; width: 100%; }
+.shop-price-in { width: 90px; text-align: right; }
+.shop-price-in:disabled { opacity: .5; }
+.access-cell { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+select.access { max-width: 230px; }
+.shop-table td.actions { white-space: normal; min-width: 200px; }
+.shop-table td.actions button { margin: 0 0 6px 6px; }
+.shop-table td.actions button + button { margin-left: 6px; }

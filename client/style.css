@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f3f1ec;
   --panel: #fbfaf7;
   --surface: #ffffff;
@@ -20,25 +21,25 @@
   --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #111513;
-    --panel: #161b19;
-    --surface: #1c2220;
-    --line: #2a322f;
-    --text: #e6ece9;
-    --muted: #8d9894;
-    --accent: #3fae8c;
-    --accent-ink: #08130f;
-    --accent-soft: #1b3a31;
-    --out: #2a7d66;
-    --out-ink: #eefbf6;
-    --in: #212926;
-    --danger: #e0685e;
-    --danger-soft: #3a1f1c;
-    --ok: #4cc28a;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 28px rgba(0, 0, 0, .25);
-  }
+/* Тёмная тема: выбрана в настройках или «как в системе» при тёмной системе (атрибут ставит theme.js) */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111513;
+  --panel: #161b19;
+  --surface: #1c2220;
+  --line: #2a322f;
+  --text: #e6ece9;
+  --muted: #8d9894;
+  --accent: #3fae8c;
+  --accent-ink: #08130f;
+  --accent-soft: #1b3a31;
+  --out: #2a7d66;
+  --out-ink: #eefbf6;
+  --in: #212926;
+  --danger: #e0685e;
+  --danger-soft: #3a1f1c;
+  --ok: #4cc28a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 28px rgba(0, 0, 0, .25);
 }
 
 * { box-sizing: border-box; }
@@ -1066,3 +1067,10 @@ a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset:
 .coin-amt .ic.coin-ico { margin: 0; width: 1.05em; height: 1.05em; vertical-align: 0; color: #d79b22; }
 .coin-amt .coin-ico svg { stroke-width: 2.2; }
 .prem-cur .ic.coin-ico { margin-right: .3em; width: 1.1em; height: 1.1em; vertical-align: -0.2em; }
+
+/* Оформление: образцы тем */
+.theme-swatch { display: block; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); }
+.theme-swatch.light { background: linear-gradient(135deg, #fbfaf7 50%, #1f6f5c 50%); }
+.theme-swatch.dark { background: linear-gradient(135deg, #161b19 50%, #3fae8c 50%); }
+.theme-swatch.system { background: linear-gradient(135deg, #fbfaf7 50%, #161b19 50%); }
+.muted-row .set-label { color: var(--muted); }

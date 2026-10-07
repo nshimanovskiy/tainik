@@ -245,7 +245,7 @@ test('примеры рамок: выставляются один раз, уд�
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   let srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, log: false, shopSamples: true });
   const items = srv.store.shopItems();
-  assert.deepEqual(items.map((i) => i.name).sort(), ['Звёздная пыль', 'Золото', 'Неон', 'Сакура']);
+  assert.deepEqual(items.map((i) => i.name).sort(), ['Жемчуг', 'Звёздная пыль', 'Золото', 'Золото 3D', 'Изумруд 3D', 'Неон', 'Рубиновые бусы', 'Сакура', 'Хром 3D']);
   assert.ok(items.every((i) => i.kind === 'frame' && i.mime === 'image/png'));
   const r = await fetch(`http://127.0.0.1:${srv.port}/api/shop/${items[0].id}`);
   assert.equal(r.headers.get('content-type'), 'image/png');
@@ -253,8 +253,19 @@ test('примеры рамок: выставляются один раз, уд�
   srv.store.deleteShopItem(items[0].id);
   await srv.close();
   srv = await startServer({ port: 0, host: '127.0.0.1', dataDir, log: false, shopSamples: true });
-  assert.equal(srv.store.shopItems().length, 3, 'второй запуск ничего не добавляет');
+  assert.equal(srv.store.shopItems().length, 8, 'второй запуск ничего не добавляет');
   await srv.close();
+
+  // Сервер, где примеры добавлялись до 0.47.6 (только отметка «добавлены»): появляются лишь новые
+  const old = fs.mkdtempSync(path.join(os.tmpdir(), 'tainik-shop-old-'));
+  t.after(() => fs.rmSync(old, { recursive: true, force: true }));
+  srv = await startServer({ port: 0, host: '127.0.0.1', dataDir: old, log: false });
+  srv.store.setMeta('shop_samples', '1');
+  await srv.close();
+  srv = await startServer({ port: 0, host: '127.0.0.1', dataDir: old, log: false, shopSamples: true });
+  const last = srv;
+  t.after(() => last.close().catch(() => {}));
+  assert.deepEqual(srv.store.shopItems().map((i) => i.name).sort(), ['Жемчуг', 'Золото 3D', 'Изумруд 3D', 'Рубиновые бусы', 'Хром 3D']);
 });
 
 test('иконка двойной галочки — две полные галочки', async () => {

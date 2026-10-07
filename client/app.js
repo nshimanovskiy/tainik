@@ -970,6 +970,39 @@ async function clearChatNotices(chat) {
     for (const n of (await reg?.getNotifications({ tag: 'msg:' + chat })) || []) n.close();
   } catch {}
 }
+// ---------- Оформление: тема ----------
+// Тему ставит theme.js (до отрисовки страницы); здесь — только выбор. Своя тема — позже.
+const THEME_NAMES = [
+  ['system', t('Как в системе')],
+  ['light', t('Светлая')],
+  ['dark', t('Тёмная')],
+];
+const theme = window.tainikTheme;
+function renderThemes() {
+  const cur = theme?.get().id || 'system';
+  $('set-theme-value').textContent = THEME_NAMES.find(([id]) => id === cur)?.[1] || t('Своя');
+  $('theme-list').replaceChildren(
+    ...THEME_NAMES.map(([id, name]) => {
+      const b = el('button', 'set-row set-radio');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(id === cur));
+      const ico = el('span', 'set-ico');
+      ico.append(el('span', 'theme-swatch ' + id));
+      const check = el('span', 'set-check');
+      if (id === cur) check.append(icon('check'));
+      b.append(ico, el('span', 'set-label', name), check);
+      b.addEventListener('click', () => {
+        theme?.set(id);
+        renderThemes();
+      });
+      return b;
+    })
+  );
+}
+if (theme) renderThemes();
+else $('menu-dialog').querySelector('[data-go="theme"]').hidden = true;
+
 // ---------- Язык ----------
 const LANGS = LANG_LIST;
 {

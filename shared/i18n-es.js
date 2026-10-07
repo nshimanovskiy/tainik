@@ -983,4 +983,12 @@ export default {
   "Убрать свой фон": "Quitar tu fondo",
   "Свой фон — с подпиской Премиум": "Tu propio fondo — con Premium",
   "Фото (JPEG, PNG, WebP), GIF или видео до 15 секунд, до 12 МБ; GIF и видео крутятся по кругу без звука. Файл зашифрован: его видят только ваши собеседники и только пока действует подписка. На фоне — что-то одно: свой фон или фон из магазина.": "Una foto (JPEG, PNG, WebP), un GIF o un vídeo de hasta 15 segundos, de hasta 12 MB; los GIF y vídeos se repiten sin sonido. El archivo está cifrado: solo lo ven tus contactos y solo mientras la suscripción esté activa. De fondo va una sola cosa: el tuyo o uno de la tienda.",
+  "Как в системе": "Como el sistema",
+  "Светлая": "Clara",
+  "Тёмная": "Oscura",
+  "Своя": "Personalizado",
+  "Оформление": "Apariencia",
+  "Тема": "Tema",
+  "Своя тема — свои цвета фона, сообщений и акцента — скоро": "Tema personalizado — tus colores de fondo, mensajes y acento — próximamente",
+  "Тема запоминается на этом устройстве. «Как в системе» — светлая днём и тёмная ночью, если так настроен телефон или компьютер.": "El tema se guarda en este dispositivo. «Como el sistema» es claro de día y oscuro de noche si tu teléfono u ordenador está configurado así.",
 };

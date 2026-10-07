@@ -1055,4 +1055,12 @@ export default {
   "Убрать свой фон": "Remove your background",
   "Свой фон — с подпиской Премиум": "Your own background — with Premium",
   "Фото (JPEG, PNG, WebP), GIF или видео до 15 секунд, до 12 МБ; GIF и видео крутятся по кругу без звука. Файл зашифрован: его видят только ваши собеседники и только пока действует подписка. На фоне — что-то одно: свой фон или фон из магазина.": "A photo (JPEG, PNG, WebP), a GIF or a video up to 15 seconds, up to 12 MB; GIFs and videos loop without sound. The file is encrypted: only your contacts see it, and only while your subscription is active. The background is one thing: your own or one from the shop.",
+  "Как в системе": "System default",
+  "Светлая": "Light",
+  "Тёмная": "Dark",
+  "Своя": "Custom",
+  "Оформление": "Appearance",
+  "Тема": "Theme",
+  "Своя тема — свои цвета фона, сообщений и акцента — скоро": "Custom theme — your own background, message and accent colors — coming soon",
+  "Тема запоминается на этом устройстве. «Как в системе» — светлая днём и тёмная ночью, если так настроен телефон или компьютер.": "The theme is saved on this device. “System default” is light by day and dark at night if your phone or computer is set up that way.",
 };
