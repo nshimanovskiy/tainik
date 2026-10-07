@@ -3024,7 +3024,10 @@ export class MessengerClient extends Emitter {
     }
     // notify: обычное сообщение — серверу можно разбудить офлайн-устройство пушем (служебные — нет)
     const notify = item.kind === 'msg';
-    if (!this._send({ type: 'send', to: name, id: item.id, cid, messages, notify })) this._inflight.delete(cid);
+    const req = { type: 'send', to: name, id: item.id, cid, messages, notify };
+    // Сообщение в группе: серверу — id группы, чтобы в пуше было её название (оно ему известно из реестра групп)
+    if (notify && item.content?.t === 'gmsg' && GID_RE.test(String(item.content.g))) req.group = item.content.g;
+    if (!this._send(req)) this._inflight.delete(cid);
   }
 
   /** Закреплённая личность получателя (для себя — своя). Бросает key_changed, если ключ изменился. */

@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **7 октября 2026**, версия **0.47.2** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **7 октября 2026**, версия **0.47.3** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -123,7 +123,7 @@
 - `store.js` (~1000 строк) — SQLite (`node:sqlite`), `data/tainik.db`. Таблицы: `users` (`uid`, `presence_hidden`, `verified`), `devices` (`last_ip`, `app_version`), `opks`, `queue`, `meta`, `push_subs`, `blobs`, `ip_bans`, `blocks`, `premium`, `payments`, `coins`, `coin_log`, `channels` (`uid`, `verified`), `channel_admins`, `channel_subs`, `channel_posts`, **`notices`** (уведомления «Тайника», `user NULL` — всем, хранятся 90 дней), **`groups`** (`uid`, `owner`, `name`, `members`, `verified`, `deleted_at`) + **`group_members`**, **`support`**, **`shop_items`** + **`shop_owned`** (магазин; надетое — `users.look_frame/look_bg`). Своё видео профиля — вложение с `blobs.pin = 'pv:<имя>'`. Миграции — `ALTER TABLE … ADD COLUMN` при старте. Номера (`uid`) каналов и групп — общий счётчик `meta.next_chat_uid`, пользователей — `meta.next_uid`.
 - `news.js` — **канал «Обновления Тайника»**: служебный владелец `~tainik` (запись в `users` без ключей; такой юзернейм нельзя зарегистрировать и он скрыт из панели), публичный канал с галочкой, ключ на сервере → сервер сам шифрует посты. При старте публикует патчноуты **всех версий** между `meta.news_version` и текущей (раздел `## x.y.z` из `CHANGELOG.md`, Markdown → простой текст); при первом запуске — только текущую. Новые пользователи подписываются при регистрации. `NEWS_CHANNEL=0` — выключить. `CHANGELOG.md` копируется в Docker-образ (`!CHANGELOG.md` в `.dockerignore`).
 - `blobs.js` — вложения (`blob-new` → `PUT /api/blob/<id>?offset=N` частями по 768 КБ, `GET` с Range, CORS `*`, удаление через `QUEUE_TTL_DAYS`).
-- `webpush.js` — Web Push без библиотек (VAPID + RFC 8291). В пуше только тип (`msg/call/notice/support`) и имя отправителя.
+- `webpush.js` — Web Push без библиотек (VAPID + RFC 8291). В пуше только тип (`msg/call/notice/support`) и имя отправителя; для группы — ещё её id и название из реестра (`g`, `gn`).
 - `billing.js` — xRocket Pay: счета, вебхук `POST /api/pay/xrocket` (HMAC), опрос раз в 5 минут, пакеты монет, курсы.
 - `admin.js` + `admin-ui/` — панель на `ADMIN_PATH` (по умолчанию `/adminadminadmin`), пароль `ADMIN_PASSWORD`. Вкладки: **Пользователи** (ID, статус, устройства, IP, галочка, Премиум, монеты, «Написать…», удалить), **Каналы и группы** (ID, названия, галочки, удалить, пост в канал обновлений), **Поддержка** (обращения, переписка, ответ), **Магазин** (загрузка, цена, «бесплатно с Премиум», изменить/скрыть/удалить, продажи); блоки «Уведомление всем», подписка/счета, баны IP. API: `POST /api/<действие>` с заголовком `X-Tainik-Admin: 1` (CSRF), `GET /api/overview`.
 - `shop.js` — магазин: файлы товаров в `data/shop/<id>` (в бэкап базы не входят), загрузка из панели частями по 512 КБ (`shop-new` → `shop-chunk` → `shop-done`), тип — по содержимому (`sniffMime`: PNG/WebP/GIF/JPEG, MP4/WebM; SVG нельзя), `GET /api/shop/<id>` — открыто, CORS `*`, `immutable`. Действует товар, если куплен, цена 0 без отметки Премиум, или с отметкой Премиум при активной подписке (`store.canUseShopItem`); статус собеседникам отдаёт уже действующее (`store.lookOf`). Смена подписки → `lookChanged`.
@@ -219,7 +219,7 @@ desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 124 теста (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 125 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -229,7 +229,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 124 теста, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 125 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -294,6 +294,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.47.3 | Пуш о сообщении в группе — с названием и автором (`send.group` → пуш `{t:'msg', from, g, gn}`, только если оба в реестре группы); автор в уведомлениях фоновых аккаунтов |
 | 0.47.2 | GIF как свой фон профиля, ровные иконки монеты и звезды (`coinsNode`), выдача и отзыв товаров в панели (`shop-grant/revoke/owners`, уведомление `shop-admin`) |
 | 0.47.1 | Чёткая двойная галочка, видео на фон в «Моём профиле», примеры рамок (`server/shop-samples`, один раз при первом запуске, `SHOP_SAMPLES=0` — не добавлять) |
 | 0.47 | Магазин рамок и фонов профиля (за монеты, часть — с Премиум), своё видео на фон (Премиум), вкладка «Магазин» в панели |

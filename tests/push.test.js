@@ -189,3 +189,51 @@ test('сервер: пуш офлайн-устройству — только о
   await bob.setPushSubscription(null);
   assert.equal(srv.store.getPushSub('bob', 1), null);
 });
+
+test('пуш о сообщении в группе — с названием группы (из реестра) и автором', async (t) => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tainik-push-g-'));
+  const sent = [];
+  const srv = await startServer({
+    port: 0,
+    host: '127.0.0.1',
+    dataDir,
+    log: false,
+    push: { subject: 'mailto:t@example.com', hosts: ['push.test'], fetch: async (url, init) => (sent.push({ url, init }), new Response(null, { status: 201 })) },
+  });
+  const url = `ws://127.0.0.1:${srv.port}/ws`;
+  const alice = new MessengerClient({ url, storage: new MemoryStorage() });
+  const bob = new MessengerClient({ url, storage: new MemoryStorage() });
+  t.after(async () => {
+    alice.disconnect();
+    bob.disconnect();
+    await srv.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
+  await alice.register('alice');
+  await bob.register('bob');
+  const { ua, auth, keys } = newUa();
+  await bob.setPushSubscription({ endpoint: 'https://push.test/bob', keys });
+  const chat = await alice.createGroup('Дача', ['bob']);
+  const gid = chat.slice(1);
+  await waitFor(bob, 'message', (d) => d.contact === chat);
+  // Оба участника отметились в реестре групп (название сообщил администратор группы)
+  for (let i = 0; i < 200 && !(srv.store.groupMembers(gid).includes('bob') && srv.store.getGroup(gid)?.name); i++) await sleep(25);
+  assert.deepEqual(srv.store.groupMembers(gid).sort(), ['alice', 'bob']);
+
+  bob.disconnect();
+  await sleep(100);
+  const sentP = waitFor(alice, 'status-change', (d) => d.status === 'sent');
+  await alice.sendText(chat, 'кто едет?');
+  await sentP;
+  await sleep(100);
+  assert.equal(sent.length, 1);
+  const payload = JSON.parse(uaDecrypt(Buffer.from(sent[0].init.body), ua, auth));
+  assert.deepEqual(payload, { t: 'msg', from: 'alice', g: gid, gn: 'Дача' });
+
+  // Сразу же личное сообщение от того же человека — отдельный пуш (группа и личный чат не склеиваются)
+  await alice.addContact('bob');
+  await alice.sendText('bob', 'и лично тебе');
+  for (let i = 0; i < 100 && sent.length < 2; i++) await sleep(25);
+  assert.equal(sent.length, 2);
+  assert.deepEqual(JSON.parse(uaDecrypt(Buffer.from(sent[1].init.body), ua, auth)), { t: 'msg', from: 'alice' });
+});

@@ -6042,7 +6042,8 @@ async function notifyOther(acc, contact, message) {
   const text = preview ? textOf(message.content).replace(/\s+/g, ' ').slice(0, 160) : '';
   await showNotice({
     title: `${others.get(acc.id)?.client.nameOf(contact) || contact} → ${acc.username}`,
-    body: text || t('Новое сообщение'),
+    // Группа: в заголовке — название, в тексте — кто написал
+    body: (message.from ? `${others.get(acc.id)?.client.nameOf(message.from) || message.from}: ` : '') + (text || t('Новое сообщение')),
     chat: `${contact}@${acc.id}`,
     tag: `msg:${acc.id}:${contact}`,
     force: true,

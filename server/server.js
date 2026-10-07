@@ -208,11 +208,11 @@ export function startServer({
     if (!vapid) return;
     const sub = store.getPushSub(username, deviceId);
     if (!sub) return;
-    const k = `${username}.${deviceId}|${payload.t}|${payload.from}`;
+    const k = `${username}.${deviceId}|${payload.t}|${payload.from}|${payload.g || ''}`; // группа — отдельно от личного чата
     const now = Date.now();
     if (now - (pushLast.get(k) || 0) < PUSH_GAP) return;
     pushLast.set(k, now);
-    const topic = createHash('sha256').update(`${payload.t}|${payload.from}`).digest('base64url').slice(0, 22);
+    const topic = createHash('sha256').update(`${payload.t}|${payload.from}|${payload.g || ''}`).digest('base64url').slice(0, 22);
     sendPush(sub, payload, { vapid, fetch: push.fetch, topic, ttl: payload.t === 'call' ? 60 : 86400 })
       .then((r) => {
         if (r.gone) store.delPushSub(username, deviceId, sub.endpoint);
@@ -658,12 +658,21 @@ export function startServer({
         // Получатель заблокировал отправителя: как в Telegram — «отправлено», но не доставляется
         if (to !== state.user && store.hasBlocked(to, state.user)) return send(conn, { type: 'sent', cid: msg.cid, id: msg.id, to });
         const now = Date.now();
+        // Пуш о сообщении в группе — с её названием: только если оба в реестре этой группы
+        let pushData = { t: 'msg', from: state.user };
+        if (msg.notify === true && GROUP_ID_RE.test(String(msg.group || ''))) {
+          const g = store.getGroup(msg.group);
+          if (g && !g.deleted) {
+            const members = store.groupMembers(g.id);
+            if (members.includes(state.user) && members.includes(to)) pushData = { ...pushData, g: g.id, gn: g.name || '' };
+          }
+        }
         for (const { deviceId, envelope } of msg.messages) {
           const item = { qid: b64(randomBytes(12)), from: state.user, envelope, ts: now };
           if (!store.enqueue(to, deviceId, item)) continue; // уже в очереди (повторная отправка)
           const rc = online.get(addr(to, deviceId));
           if (rc) send(rc, { type: 'message', qid: item.qid, from: item.from, envelope, ts: now });
-          else if (msg.notify === true && to !== state.user) pushTo(to, deviceId, { t: 'msg', from: state.user });
+          else if (msg.notify === true && to !== state.user) pushTo(to, deviceId, pushData);
         }
         return send(conn, { type: 'sent', cid: msg.cid, id: msg.id, to });
       }
