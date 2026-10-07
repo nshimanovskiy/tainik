@@ -323,3 +323,45 @@ test('своё видео на фон: GIF тоже можно', async (t) => {
   // Обычная картинка — нет
   await assert.rejects(alice.setProfileVideo(Buffer.alloc(10), { mime: 'image/png' }), (e) => e.code === 'bad_media');
 });
+
+test('фон, потерянный старой версией приложения, приходит снова после обновления (собеседнику и своему устройству)', async (t) => {
+  const { mk, adminApi } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  const alice2 = mk();
+  {
+    let gotCode;
+    const codeP = new Promise((r) => (gotCode = r));
+    const { done } = alice2.linkAsNewDevice({ deviceName: 'Телефон', onCode: ({ code }) => gotCode(code) });
+    await alice.linkDevice(await codeP);
+    await done;
+  }
+  await adminApi('premium', { name: 'alice', days: 30 });
+  await until(() => alice.isPremium() && alice2.isPremium());
+  await bob.addContact('alice');
+  await alice.addContact('bob');
+  await alice.sendText('bob', 'привет');
+  const v = await alice.setProfileVideo(mp4(), { mime: 'video/mp4', dur: 3 });
+  await until(async () => (await bob.profileOf('alice'))?.video?.id === v.id && alice2.profile.video?.id === v.id);
+
+  // Так профиль сохранила бы версия до 0.47: без фона (незнакомое поле отброшено), та же версия профиля
+  const strip = ({ video, ...rest }) => rest;
+  bob.disconnect();
+  const all = await bob.contacts();
+  all.alice.profile = strip(all.alice.profile);
+  delete all.alice.profileSchema;
+  delete all.alice.profileAskedS;
+  await bob._saveContacts(all);
+  alice2.disconnect();
+  alice2.profile = strip(alice2.profile);
+  await alice2.storage.set('profile', alice2.profile);
+  await alice2.storage.del('profile-schema');
+  assert.equal(bob.profileVideoOf('alice'), null);
+  assert.equal(alice2.profile.video, undefined);
+
+  // Обновились и подключились: фон приходит сам, без изменений профиля у Алисы
+  await bob.connect();
+  await alice2.connect();
+  await until(() => bob.profileVideoOf('alice')?.id === v.id && alice2.profile.video?.id === v.id, 10000);
+});

@@ -1477,7 +1477,14 @@ export function startServer({
         const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], channel: [], support: [], diag: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
-          if (!take(state.msgs, RATE.msgsPerSec, 1000)) return error(conn, 'rate_limited');
+          if (!take(state.msgs, RATE.msgsPerSec, 1000)) {
+            // С номером запроса — чтобы приложение сразу узнало об отказе, а не ждало ответа до таймаута
+            let reqId;
+            try {
+              reqId = JSON.parse(text)?.reqId;
+            } catch {}
+            return error(conn, 'rate_limited', Number.isSafeInteger(reqId) ? { reqId } : {});
+          }
           let msg;
           try {
             msg = JSON.parse(text);

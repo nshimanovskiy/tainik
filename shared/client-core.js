@@ -73,6 +73,10 @@ const PROVISION_AVATARS = 30_000; // сколько места под фото �
 // Своё видео на фон профиля (Премиум): зашифрованный файл на сервере, ключ — в профиле.
 // Короткое: не длиннее PROFILE_VIDEO_SEC секунд и PROFILE_VIDEO_MAX байт.
 export const PROFILE_VIDEO_MAX = 12 * 1024 * 1024;
+// Формат профиля, который понимает это приложение: 2 — со своим видео на фоне (0.47). Профиль,
+// принятый старой версией, могли получить без фона (незнакомое поле отбрасывается) — его
+// переспрашивают один раз: у собеседников (profile-req) и у своих устройств (sync-profile-req).
+export const PROFILE_SCHEMA = 2;
 export const PROFILE_VIDEO_SEC = 15;
 /** Фон профиля — видео или GIF (0.47.2): анимированная картинка, тоже без звука и по кругу. */
 export const isProfileBgMime = (mime) => kindOf(mime) === 'video' || mime === 'image/gif';
@@ -594,6 +598,7 @@ export class MessengerClient extends Emitter {
     // Новый аккаунт: уведомления «Тайника» с первого входа — обычные (с приветствием).
     // У привязанного устройства отметки нет: всё, что было до него, ляжет прочитанным и без всплывающих.
     await this.storage.set('notice-last', 0);
+    await this.storage.set('profile-schema', PROFILE_SCHEMA); // новый аккаунт — переспрашивать профиль не у кого
     this.account = this._makeAccount(username, identity, deviceName);
     const keys = await this._newDeviceKeys(identity);
     return this._firstLogin({ register: { ...keys, deviceName } }, timeout);
@@ -733,6 +738,8 @@ export class MessengerClient extends Emitter {
     this._indexNames(contacts);
     this.profile = cleanProfile(p.profile) || { name: '', bio: '', v: 0 };
     if (this.profile.v) await this.storage.set('profile', this.profile);
+    // Профиль только что пришёл при привязке в этом формате — переспрашивать свои устройства не нужно
+    await this.storage.set('profile-schema', PROFILE_SCHEMA);
     const keys = await this._newDeviceKeys(identity);
     return this._firstLogin({ newDevice: { ...keys, deviceName } }, timeout);
   }
@@ -1001,6 +1008,7 @@ export class MessengerClient extends Emitter {
           this._firstReady = null;
         }
         this._pumpOutbox();
+        this._serial(() => this._askOwnProfile()).catch(() => {});
         this._maintainPrekeys(msg.opkCount).catch((e) => console.error('prekeys', e));
         return;
       case 'presence':
@@ -1558,10 +1566,14 @@ export class MessengerClient extends Emitter {
     let asked = false;
     for (const name of names) {
       const c = all[name];
-      if (!c || c.profile?.avatar || c.keyChanged || this.isBlocked(name) || name === this.account.username) continue;
+      if (!c || c.keyChanged || this.isBlocked(name) || name === this.account.username) continue;
+      // Профиль полный (с фото) и принят этой версией — спрашивать нечего
+      const fresh = (c.profileSchema || 1) >= PROFILE_SCHEMA;
+      if (c.profile?.avatar && fresh) continue;
       const v = c.profile?.v || 0;
-      if (c.profileAskedV === v) continue;
+      if (c.profileAskedV === v && (c.profileAskedS || 1) >= PROFILE_SCHEMA) continue;
       c.profileAskedV = v;
+      c.profileAskedS = PROFILE_SCHEMA;
       outbox.push({ id: randomId(), to: name, kind: 'ctl', content: { t: 'profile-req', v }, attempts: 0 });
       asked = true;
     }
@@ -1736,6 +1748,19 @@ export class MessengerClient extends Emitter {
       await this._saveContacts(all);
     });
     this.emit('profile', this.profile);
+    this._pumpOutbox();
+  }
+
+  /**
+   * Один раз после обновления до формата профиля PROFILE_SCHEMA: попросить свои устройства
+   * прислать профиль ещё раз — прежняя версия этого устройства могла отбросить фон.
+   */
+  async _askOwnProfile() {
+    if ((await this.storage.get('profile-schema')) >= PROFILE_SCHEMA) return;
+    await this.storage.set('profile-schema', PROFILE_SCHEMA);
+    const outbox = (await this.storage.get('outbox')) || [];
+    outbox.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-profile-req' }, attempts: 0 });
+    await this.storage.set('outbox', outbox);
     this._pumpOutbox();
   }
 
@@ -3229,9 +3254,21 @@ export class MessengerClient extends Emitter {
         await this._applyReadSync(c.chat, c.upTo);
         return ack(false);
       }
+      // Своё устройство после обновления просит профиль ещё раз (старая версия могла отбросить фон)
+      if (c?.t === 'sync-profile-req') {
+        if (this.profile.v) {
+          const outbox = (await this.storage.get('outbox')) || [];
+          if (!outbox.some((x) => x.kind === 'ctl' && x.content?.t === 'sync-profile')) {
+            outbox.push({ id: randomId(), to: me, kind: 'ctl', content: { t: 'sync-profile', self: 1 }, attempts: 0 });
+            await this.storage.set('outbox', outbox);
+            this._pumpOutbox();
+          }
+        }
+        return ack(false);
+      }
       if (c?.t === 'sync-profile') {
         const prof = cleanProfile(c);
-        if (prof && prof.v > this.profile.v) {
+        if (prof && (prof.v > this.profile.v || (prof.v === this.profile.v && prof.video && !this.profile.video))) {
           this.profile = prof;
           await this.storage.set('profile', prof);
           this.emit('profile', prof);
@@ -3396,7 +3433,9 @@ export class MessengerClient extends Emitter {
       const prof = cleanProfile(res.content);
       const old = c.profile;
       // Та же версия, но с фото (повтор по запросу) — тоже принимаем
-      if (prof && (prof.v > (old?.v || 0) || (prof.v === old?.v && prof.avatar && !old.avatar))) {
+      const fuller = prof && prof.v === old?.v && ((prof.avatar && !old.avatar) || (prof.video && !old.video));
+      if (prof) c.profileSchema = PROFILE_SCHEMA; // профиль собеседника принят этой версией (с фоном)
+      if (prof && (prof.v > (old?.v || 0) || fuller)) {
         // Большое фото — отдельно от контактов (список контактов перезаписывается часто)
         const { photo, ...rest } = prof;
         await this.storage.set('photo:' + from, photo || null);

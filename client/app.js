@@ -244,8 +244,10 @@ function paintCover(box, username, bgId) {
     m.setAttribute('aria-hidden', 'true');
     box.replaceChildren(m);
   };
-  if (own) coverVideoUrl(own).then((url) => show(url, own.mime)).catch(() => {});
-  else shopFile(id).then((f) => show(f.url, f.type)).catch(() => {});
+  // Не скачалось (нет сети) — при следующей отрисовке попробовать снова, а не оставлять пустой фон
+  const failed = () => box.dataset.key === key && (box.dataset.key = '');
+  if (own) coverVideoUrl(own).then((url) => show(url, own.mime)).catch(failed);
+  else shopFile(id).then((f) => show(f.url, f.type)).catch(failed);
 }
 
 // Звезда подписки Премиум рядом с именем
