@@ -78,6 +78,11 @@ export const PROFILE_VIDEO_MAX = 12 * 1024 * 1024;
 // принятый старой версией, могли получить без фона (незнакомое поле отбрасывается) — его
 // переспрашивают один раз: у собеседников (profile-req) и у своих устройств (sync-profile-req).
 export const PROFILE_SCHEMA = 3;
+// Формат своих настроек (папки, архив, закрепления, свои имена). Поднимается, когда синхронизируется
+// новое: после обновления устройство один раз обменивается полным состоянием со своими устройствами
+// (sync-state) — то, что старая версия отбросила, приходит снова.
+export const STATE_SCHEMA = 1;
+const STATE_ALIAS_ROOM = 120_000; // символов под фото своих имён в одном sync-state
 export const PROFILE_VIDEO_SEC = 15;
 /** Свой фон профиля — видео, GIF (0.47.2) или фото JPEG, PNG, WebP (0.47.5). */
 export const isProfileBgMime = (mime) => kindOf(mime) === 'video' || /^image\/(gif|jpeg|png|webp)$/.test(mime);
@@ -163,6 +168,20 @@ export function cleanAlias(a) {
   if (validAvatar(a.avatar)) out.avatar = a.avatar;
   return out.name || out.avatar ? out : null;
 }
+// ---------- Записи о звонках ----------
+const CALL_RESULTS = ['answered', 'missed', 'declined', 'busy', 'no_answer', 'unavailable', 'failed', 'cancelled', 'elsewhere'];
+/** Запись о звонке { t: 'call', direction, result, duration, video, missed? } (только известные поля) или null. */
+export function cleanCallLog(c) {
+  if (!c || c.t !== 'call' || !CALL_RESULTS.includes(c.result)) return null;
+  const out = { t: 'call', direction: c.direction === 'out' ? 'out' : 'in', result: c.result, duration: Number.isSafeInteger(c.duration) && c.duration >= 0 ? Math.min(c.duration, 7 * 86400) : 0, video: c.video === true };
+  if (c.result === 'missed') out.missed = true;
+  return out;
+}
+/** Насколько запись о звонке точная: «ответили на другом устройстве» уступает записи того устройства. */
+const callRank = (c) => (c?.result === 'elsewhere' ? 0 : c?.result === 'missed' ? 1 : 2);
+/** id записи о звонке: по номеру звонка (одинаковый на всех устройствах), иначе случайный. */
+const callLogId = (callId) => 'call-' + (typeof callId === 'string' && /^[0-9a-f]{8,40}$/.test(callId) ? callId : randomId(8));
+
 /** Чат, которому можно дать своё имя: личный чат с другим пользователем. */
 const aliasable = (chat) => typeof chat === 'string' && USER_RE.test(chat);
 
@@ -616,6 +635,7 @@ export class MessengerClient extends Emitter {
     // У привязанного устройства отметки нет: всё, что было до него, ляжет прочитанным и без всплывающих.
     await this.storage.set('notice-last', 0);
     await this.storage.set('profile-schema', PROFILE_SCHEMA); // новый аккаунт — переспрашивать профиль не у кого
+    await this.storage.set('state-schema', STATE_SCHEMA);
     this.account = this._makeAccount(username, identity, deviceName);
     const keys = await this._newDeviceKeys(identity);
     return this._firstLogin({ register: { ...keys, deviceName } }, timeout);
@@ -759,6 +779,7 @@ export class MessengerClient extends Emitter {
     if (this.profile.v) await this.storage.set('profile', this.profile);
     // Профиль только что пришёл при привязке в этом формате — переспрашивать свои устройства не нужно
     await this.storage.set('profile-schema', PROFILE_SCHEMA);
+    await this.storage.set('state-schema', STATE_SCHEMA); // папки, архив и свои имена пришли при привязке
     const keys = await this._newDeviceKeys(identity);
     return this._firstLogin({ newDevice: { ...keys, deviceName } }, timeout);
   }
@@ -1835,12 +1856,81 @@ export class MessengerClient extends Emitter {
    * прислать профиль ещё раз — прежняя версия этого устройства могла отбросить фон.
    */
   async _askOwnProfile() {
-    if ((await this.storage.get('profile-schema')) >= PROFILE_SCHEMA) return;
-    await this.storage.set('profile-schema', PROFILE_SCHEMA);
     const outbox = (await this.storage.get('outbox')) || [];
-    outbox.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-profile-req' }, attempts: 0 });
+    let asked = false;
+    if (!((await this.storage.get('profile-schema')) >= PROFILE_SCHEMA)) {
+      await this.storage.set('profile-schema', PROFILE_SCHEMA);
+      outbox.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-profile-req' }, attempts: 0 });
+      asked = true;
+    }
+    // Свои настройки: отдать своё состояние и попросить состояние остальных устройств
+    if (!((await this.storage.get('state-schema')) >= STATE_SCHEMA)) {
+      await this.storage.set('state-schema', STATE_SCHEMA);
+      outbox.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { ...(await this._ownState()), req: 1 }, attempts: 0 });
+      asked = true;
+    }
+    if (!asked) return;
     await this.storage.set('outbox', outbox);
     this._pumpOutbox();
+  }
+
+  /**
+   * Полное состояние своих настроек одним сообщением: папки (с версией), архив, закреплённые
+   * чаты и свои имена для собеседников (с временем изменения). Фото своих имён — сколько влезет.
+   */
+  async _ownState() {
+    const f = await this.storage.get('folders');
+    const st = { t: 'sync-state', archive: [], top: [], alias: [] };
+    if (f?.v) st.folders = { v: f.v, list: f.list || [] };
+    let room = STATE_ALIAS_ROOM;
+    const all = Object.values(await this.contacts()).sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
+    for (const c of all) {
+      if (c.archivedTs) st.archive.push([c.username, !!c.archived, c.archivedTs]);
+      if (c.topTs) st.top.push([c.username, !!c.top, c.topTs]);
+      if (c.aliasTs && aliasable(c.username)) {
+        let a = c.alias || null;
+        if (a?.avatar) {
+          if (a.avatar.length <= room) room -= a.avatar.length;
+          else a = a.name ? { name: a.name } : null; // фото не влезло — его пришлёт следующее изменение
+        }
+        st.alias.push([c.username, a, c.aliasTs]);
+      }
+    }
+    return st;
+  }
+
+  /** Применить состояние с другого своего устройства: везде побеждает последнее изменение. */
+  async _applyState(st) {
+    if (st.folders) await this._applyFolders(st.folders.v, st.folders.list);
+    const all = await this.contacts();
+    let changed = false;
+    const rows = (x) => (Array.isArray(x) ? x.slice(0, 5000) : []);
+    for (const [chat, on, ts] of rows(st.archive)) {
+      const c = typeof chat === 'string' && all[chat];
+      if (!c || !Number.isFinite(ts) || (c.archivedTs && c.archivedTs >= ts)) continue;
+      c.archivedTs = ts;
+      if (on === true) c.archived = true;
+      else delete c.archived;
+      changed = true;
+    }
+    for (const [chat, on, ts] of rows(st.top)) {
+      const c = typeof chat === 'string' && all[chat];
+      if (!c || !Number.isFinite(ts) || (c.topTs && c.topTs >= ts)) continue;
+      c.topTs = ts;
+      if (on === true) c.top = ts;
+      else delete c.top;
+      changed = true;
+    }
+    for (const [chat, alias, ts] of rows(st.alias)) {
+      const c = aliasable(chat) && all[chat];
+      if (!c || !Number.isFinite(ts) || (c.aliasTs && c.aliasTs >= ts)) continue;
+      c.aliasTs = ts;
+      const a = cleanAlias(alias);
+      if (a) c.alias = a;
+      else delete c.alias;
+      changed = true;
+    }
+    if (changed) await this._saveContacts(all);
   }
 
   /** Собеседник, которому вы пишете или которого добавили, получает ваш профиль. */
@@ -3253,17 +3343,55 @@ export class MessengerClient extends Emitter {
     return (await this._request({ type: 'get-ice' })).iceServers || [];
   }
 
-  /** Запись о звонке в истории чата (только на этом устройстве). */
+  /**
+   * Запись о звонке в истории чата — здесь и на всех своих устройствах (sync-call). У записи
+   * id по номеру звонка: звонок, который звонил на нескольких устройствах, остаётся одной записью
+   * (точнее — та, что с устройства, где на него ответили или откуда звонили).
+   */
   async logCall(username, info) {
-    return this._serial(async () => {
-      const all = await this.contacts();
-      if (all[username]) {
-        all[username].lastTs = Date.now();
-        if (info.missed) all[username].unread = (all[username].unread || 0) + 1;
-        await this._saveContacts(all);
-      }
-      await this._appendMsg(username, { id: 'call-' + randomId(8), dir: 'sys', ts: Date.now(), content: { t: 'call', ...info } });
+    const content = cleanCallLog({ t: 'call', ...info });
+    if (!content) return;
+    const msg = { id: callLogId(info.callId), dir: 'sys', ts: Date.now(), content };
+    await this._serial(async () => {
+      if (!(await this._applyCallLog(username, msg))) return;
+      if (aliasable(username)) await this._queueToSelf({ t: 'sync-call', chat: username, msg });
     });
+    this._pumpOutbox();
+  }
+
+  /** Записать звонок в историю (или уточнить запись того же звонка). false — нечего менять. */
+  async _applyCallLog(username, m) {
+    const content = cleanCallLog(m?.content);
+    if (!content || typeof m.id !== 'string' || !/^call-[0-9a-z]{6,48}$/.test(m.id) || !Number.isFinite(m.ts)) return false;
+    const all = await this.contacts();
+    if (!all[username]) return false;
+    const msgs = await this.messages(username);
+    const old = msgs.find((x) => x.id === m.id);
+    if (old) {
+      // Уже есть запись этого звонка: заменить, только если новая точнее
+      if (callRank(content) <= callRank(old.content)) return false;
+      const wasMissed = old.content?.result === 'missed';
+      old.content = content;
+      await this.storage.set('chat:' + username, msgs);
+      const c = all[username];
+      if (wasMissed && content.result !== 'missed' && c.unread > 0) c.unread--; // ответили на другом устройстве
+      await this._saveContacts(all);
+      this.emit('message-updated', { contact: username, message: old });
+      return true;
+    }
+    const c = all[username];
+    c.lastTs = Math.max(c.lastTs || 0, m.ts);
+    if (content.result === 'missed') c.unread = (c.unread || 0) + 1;
+    delete c.hidden;
+    await this._saveContacts(all);
+    // Запись с другого устройства могла прийти позже других сообщений — на своё место по времени
+    const msg = { id: m.id, dir: 'sys', ts: m.ts, content };
+    let i = msgs.length;
+    while (i > 0 && msgs[i - 1].ts > msg.ts) i--;
+    msgs.splice(i, 0, msg);
+    await this.storage.set('chat:' + username, msgs);
+    this.emit('message', { contact: username, message: msg });
+    return true;
   }
 
   async _onSent(cid) {
@@ -3386,6 +3514,21 @@ export class MessengerClient extends Emitter {
       }
       if (c?.t === 'sync-folders') {
         await this._applyFolders(c.v, c.list);
+        return ack(false);
+      }
+      // Своё устройство после обновления прислало полное состояние настроек (и, возможно, просит наше)
+      if (c?.t === 'sync-state') {
+        await this._applyState(c);
+        const now = Date.now();
+        if (c.req === 1 && now - (this._stateReplied || 0) > 60_000) {
+          this._stateReplied = now;
+          await this._queueToSelf(await this._ownState());
+          this._pumpOutbox();
+        }
+        return ack(false);
+      }
+      if (c?.t === 'sync-call' && typeof c.chat === 'string' && aliasable(c.chat) && c.msg) {
+        await this._applyCallLog(c.chat, c.msg);
         return ack(false);
       }
       if (c?.t === 'sync-alias' && typeof c.chat === 'string') {

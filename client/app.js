@@ -3963,6 +3963,11 @@ window.addEventListener('focus', async () => {
     renderContacts();
   }
 });
+// Запись о звонке уточнилась (пришла с другого своего устройства)
+client.on('message-updated', async ({ contact }) => {
+  if (contact === current) await renderChat();
+  renderContacts();
+});
 client.on('status-change', ({ contact, id, status }) => {
   if (contact !== current) return;
   const node = document.querySelector(`.msg.out[data-id="${CSS.escape(id)}"]`);

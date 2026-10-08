@@ -603,6 +603,7 @@ export class CallManager {
     this._emit();
     this.client
       .logCall(c.peer, {
+        callId: c.id, // одна запись о звонке на всех своих устройствах
         direction: c.role === 'caller' ? 'out' : 'in',
         result,
         duration: c.duration,
