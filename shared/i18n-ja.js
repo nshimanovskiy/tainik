@@ -760,7 +760,7 @@ export default {
   "Выбрать файл": "ファイルを選択",
   "Галерея": "ギャラリー",
   "Прикрепить": "添付",
-  "VPN — бот @tainavpn_bot": "VPN — @tainavpn_bot",
+  "VPN — бот @vpnplatina_bot": "VPN — @vpnplatina_bot",
   "Купить прокси — @SteelProxyBot": "プロキシを購入 — @SteelProxyBot",
   "Переслано от {0}": "{0} から転送",
   "Переслано: {0}": "{0} へ転送しました",

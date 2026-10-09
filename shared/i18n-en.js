@@ -832,7 +832,7 @@ export default {
   'Выбрать файл': 'Choose file',
   'Галерея': 'Gallery',
   'Прикрепить': 'Attach',
-  'VPN — бот @tainavpn_bot': 'VPN — @tainavpn_bot',
+  'VPN — бот @vpnplatina_bot': 'VPN — @vpnplatina_bot',
   'Купить прокси — @SteelProxyBot': 'Buy a proxy — @SteelProxyBot',
   'Переслано от {0}': 'Forwarded from {0}',
   'Переслано: {0}': 'Forwarded to {0}',
