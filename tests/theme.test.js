@@ -16,6 +16,7 @@ function boot({ stored = null, systemDark = false } = {}) {
   const mq = { matches: systemDark, addEventListener: (_, f) => listeners.push(f) };
   const root = {
     setAttribute: (k, v) => (attrs[k] = v),
+    removeAttribute: (k) => delete attrs[k],
     style: { setProperty: (k, v) => (props[k] = v), removeProperty: (k) => delete props[k] },
   };
   const window = {
@@ -61,4 +62,21 @@ test('своя тема: только известные переменные и
   assert.deepEqual(plain(b.props), { '--accent': '#d35d8b', '--bg': '#000' });
   b.api.set('light');
   assert.deepEqual(plain(b.props), {}, 'цвета своей темы снимаются');
+});
+
+test('стиль sdsds: отдельно от режима, сохраняется при смене режима и после перезапуска', () => {
+  let b = boot({ systemDark: true });
+  assert.equal(b.api.palette(), 'tainik');
+  assert.equal(b.attrs['data-palette'], undefined);
+  b.api.setPalette('sdsds');
+  assert.equal(b.attrs['data-palette'], 'sdsds');
+  assert.equal(b.attrs['data-theme'], 'dark', 'режим «как в системе» остался');
+  b.api.set('light');
+  assert.equal(b.attrs['data-palette'], 'sdsds', 'смена режима не сбрасывает стиль');
+  assert.equal(b.attrs['data-theme'], 'light');
+  b = boot({ stored: b.store.get('tainik:theme'), systemDark: true });
+  assert.deepEqual([b.attrs['data-palette'], b.attrs['data-theme']], ['sdsds', 'light']);
+  b.api.setPalette('tainik');
+  assert.equal(b.attrs['data-palette'], undefined);
+  assert.equal(boot({ stored: '{"id":"dark","palette":"<script>"}' }).attrs['data-palette'], undefined, 'чужой стиль не принимается');
 });

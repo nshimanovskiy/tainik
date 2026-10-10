@@ -978,9 +978,43 @@ const THEME_NAMES = [
   ['dark', t('Тёмная')],
 ];
 const theme = window.tainikTheme;
+// Стили (палитры): образец — фон, панель и «своё сообщение» в светлом и тёмном виде
+const PALETTE_NAMES = [
+  ['tainik', t('Тайник'), [['#f3f1ec', '#1f6f5c'], ['#111513', '#2a7d66']]],
+  ['sdsds', 'sdsds', [['#f4f1ea', '#ff5a1f'], ['#16161a', '#ff5a1f']]],
+];
+function renderPalettes() {
+  const cur = theme?.palette() || 'tainik';
+  $('palette-list').replaceChildren(
+    ...PALETTE_NAMES.map(([id, name, sw]) => {
+      const b = el('button', 'palette-card' + (id === cur ? ' on' : ''));
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(id === cur));
+      const prev = el('span', 'palette-prev');
+      prev.setAttribute('aria-hidden', 'true');
+      for (const [bg, bubble] of sw) {
+        const half = el('span');
+        half.style.background = bg;
+        const i = el('i');
+        i.style.background = bubble;
+        half.append(i);
+        prev.append(half);
+      }
+      b.append(prev, el('span', '', name));
+      b.addEventListener('click', () => {
+        theme?.setPalette(id);
+        renderThemes();
+      });
+      return b;
+    })
+  );
+}
 function renderThemes() {
+  renderPalettes();
   const cur = theme?.get().id || 'system';
-  $('set-theme-value').textContent = THEME_NAMES.find(([id]) => id === cur)?.[1] || t('Своя');
+  const pal = theme?.palette() || 'tainik';
+  $('set-theme-value').textContent = (pal !== 'tainik' ? PALETTE_NAMES.find(([id]) => id === pal)?.[1] + ' · ' : '') + (THEME_NAMES.find(([id]) => id === cur)?.[1] || t('Своя'));
   $('theme-list').replaceChildren(
     ...THEME_NAMES.map(([id, name]) => {
       const b = el('button', 'set-row set-radio');

@@ -1071,4 +1071,5 @@ export default {
   "Своё имя и фото": "Custom name and photo",
   "Имя и фото видите только вы — в списке чатов, в чате, уведомлениях и группах. Собеседник об этом не узнает. Они сохраняются на всех ваших устройствах.": "Only you see this name and photo — in the chat list, the chat, notifications and groups. The contact won't know. They're saved on all your devices.",
   "Сбросить": "Reset",
+  "Стиль": "Style",
 };

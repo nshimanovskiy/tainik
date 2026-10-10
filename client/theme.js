@@ -9,6 +9,8 @@
   'use strict';
   var KEY = 'tainik:theme';
   var CHOICES = ['system', 'light', 'dark', 'custom'];
+  // Стиль (палитра): «tainik» — свой зелёный, «sdsds» — как на sdsds.top. Режим (светлая/тёмная) — отдельно
+  var PALETTES = ['tainik', 'sdsds'];
   // Переменные, которые может задать своя тема
   var VARS = ['--bg', '--panel', '--surface', '--line', '--text', '--muted', '--accent', '--accent-ink', '--accent-soft', '--out', '--out-ink', '--in', '--danger', '--danger-soft', '--ok', '--warn'];
   var COLOR = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -18,10 +20,15 @@
   function clean(t) {
     if (typeof t === 'string') t = { id: t };
     if (!t || CHOICES.indexOf(t.id) < 0) return { id: 'system' };
-    if (t.id !== 'custom') return { id: t.id };
-    var vars = {};
-    for (var k in t.vars || {}) if (VARS.indexOf(k) >= 0 && COLOR.test(String(t.vars[k]))) vars[k] = String(t.vars[k]);
-    return { id: 'custom', base: t.base === 'dark' ? 'dark' : 'light', vars: vars };
+    var out;
+    if (t.id !== 'custom') out = { id: t.id };
+    else {
+      var vars = {};
+      for (var k in t.vars || {}) if (VARS.indexOf(k) >= 0 && COLOR.test(String(t.vars[k]))) vars[k] = String(t.vars[k]);
+      out = { id: 'custom', base: t.base === 'dark' ? 'dark' : 'light', vars: vars };
+    }
+    if (PALETTES.indexOf(t.palette) > 0) out.palette = t.palette; // по умолчанию — свой стиль, поле не пишем
+    return out;
   }
   function load() {
     try {
@@ -41,6 +48,8 @@
   function apply() {
     var base = resolved(current);
     root.setAttribute('data-theme', base);
+    if (current.palette) root.setAttribute('data-palette', current.palette);
+    else root.removeAttribute('data-palette');
     for (var i = 0; i < VARS.length; i++) root.style.removeProperty(VARS[i]);
     if (current.id === 'custom') for (var k in current.vars) root.style.setProperty(k, current.vars[k]);
     // Цвет строки состояния (телефон, PWA) — под фон темы
@@ -72,16 +81,26 @@
     base: function () {
       return resolved(current);
     },
-    /** Сменить тему: 'system' | 'light' | 'dark' или { id: 'custom', base, vars }. */
+    /** Сменить тему: 'system' | 'light' | 'dark' или { id: 'custom', base, vars }. Стиль сохраняется. */
     set: function (t) {
-      current = clean(t);
+      var next = typeof t === 'string' ? { id: t } : t || {};
+      if (next.palette === undefined && current.palette) next = Object.assign({}, next, { palette: current.palette });
+      current = clean(next);
       try {
         localStorage.setItem(KEY, JSON.stringify(current));
       } catch (e) {}
       apply();
       return this.get();
     },
+    /** Сменить стиль ('tainik' | 'sdsds'), режим остаётся. */
+    setPalette: function (p) {
+      return this.set(Object.assign({}, current, { palette: PALETTES.indexOf(p) > 0 ? p : 'tainik' }));
+    },
+    palette: function () {
+      return current.palette || 'tainik';
+    },
     clean: clean,
     VARS: VARS.slice(),
+    PALETTES: PALETTES.slice(),
   };
 })();
