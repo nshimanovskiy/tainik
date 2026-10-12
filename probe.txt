@@ -1,0 +1,55 @@
++ M=onnx-community/whisper-small
++ curl -fsSL https://huggingface.co/api/models/onnx-community/whisper-small
++ python3 -c 'import json,sys; d=json.load(sys.stdin); print('\''SHA'\'', d['\''sha'\''])'
+SHA 36050c46d777d46dc4b5f43f6d90574fc38f8732
++ mkdir -p out/models/whisper-small/onnx
++ cd out/models/whisper-small
++ for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx
++ curl -fsSL -o config.json https://huggingface.co/onnx-community/whisper-small/resolve/main/config.json
++ for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx
++ curl -fsSL -o generation_config.json https://huggingface.co/onnx-community/whisper-small/resolve/main/generation_config.json
++ for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx
++ curl -fsSL -o preprocessor_config.json https://huggingface.co/onnx-community/whisper-small/resolve/main/preprocessor_config.json
++ for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx
++ curl -fsSL -o tokenizer.json https://huggingface.co/onnx-community/whisper-small/resolve/main/tokenizer.json
++ for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx
++ curl -fsSL -o tokenizer_config.json https://huggingface.co/onnx-community/whisper-small/resolve/main/tokenizer_config.json
++ for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx
++ curl -fsSL -o onnx/encoder_model_quantized.onnx https://huggingface.co/onnx-community/whisper-small/resolve/main/onnx/encoder_model_quantized.onnx
++ for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx
++ curl -fsSL -o onnx/decoder_model_merged_quantized.onnx https://huggingface.co/onnx-community/whisper-small/resolve/main/onnx/decoder_model_merged_quantized.onnx
++ sha256sum config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/decoder_model_merged_quantized.onnx onnx/encoder_model_quantized.onnx
+457854d452f17661e197d74aee12b8e74fb75ba30ebfaa7426d0d61ea1e08a18  config.json
+f538b28220c6a6d6f1af1458d4141cacb4ef4963df3de98a19490440c412ddf0  generation_config.json
+a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d  preprocessor_config.json
+27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566  tokenizer.json
+2a4c4281cf9f51ac6ccc406fdc711a087afe6530f671fa7b80953edc498275ce  tokenizer_config.json
+ec07c3cbb64172c39791e26ee870a65ac22b458c36722bfe2776b3dbf741e0c9  onnx/decoder_model_merged_quantized.onnx
+a43a83f3c5361cd591cfa7c36f14b43cf7cb22f47a415cc14a8d557be800fa92  onnx/encoder_model_quantized.onnx
++ cd /home/runner/work/tainik/tainik
++ sudo apt-get install -y -q espeak-ng
+
+Running kernel seems to be up-to-date.
+
+No services need to be restarted.
+
+No containers need to be restarted.
+
+No user sessions are running outdated binaries.
+
+No VM guests are running outdated hypervisor (qemu) binaries on this host.
++ espeak-ng -v ru -s 130 'Завтра в десять утра мы встречаемся у входа в парк. Не забудь взять документы и зарядку для телефона.' -w out/ru2.wav
++ ls -la out out/models/whisper-small/onnx
+out:
+total 340
+drwxr-xr-x  3 runner runner   4096 Oct 12 14:35 .
+drwxr-xr-x 14 runner runner   4096 Oct 12 14:34 ..
+drwxr-xr-x  3 runner runner   4096 Oct 12 14:34 models
+-rw-r--r--  1 runner runner 332716 Oct 12 14:35 ru2.wav
+
+out/models/whisper-small/onnx:
+total 243252
+drwxr-xr-x 2 runner runner      4096 Oct 12 14:34 .
+drwxr-xr-x 3 runner runner      4096 Oct 12 14:34 ..
+-rw-r--r-- 1 runner runner 156750845 Oct 12 14:34 decoder_model_merged_quantized.onnx
+-rw-r--r-- 1 runner runner  92326160 Oct 12 14:34 encoder_model_quantized.onnx
