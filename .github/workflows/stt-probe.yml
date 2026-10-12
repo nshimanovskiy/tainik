@@ -1,0 +1,20 @@
+name: stt-probe
+on:
+  push:
+    branches: [stt-probe-voice]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get install -y -q ffmpeg >/dev/null
+          mkdir out
+          curl -fsSL -A "tainik-probe/1.0" -o a.ogg "https://commons.wikimedia.org/wiki/Special:FilePath/Ru-Washington,_D.C._(intro).ogg"
+          curl -fsSL -A "tainik-probe/1.0" -o b.ogg "https://commons.wikimedia.org/wiki/Special:FilePath/Ru-Руслан_и_Людмила,_отрывок_(У_лукоморья_дуб_зеленый).ogg"
+          ffmpeg -loglevel error -i a.ogg -t 20 -ac 1 -ar 48000 out/wash.wav
+          ffmpeg -loglevel error -i b.ogg -t 20 -ac 1 -ar 48000 out/luk.wav
+          git config user.name probe; git config user.email probe@example.com
+          git checkout -q -b o; git add -f out; git commit -qm audio; git push --force origin o:stt-probe-voice-out
