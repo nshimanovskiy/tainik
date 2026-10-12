@@ -6,7 +6,8 @@ import config from './config.js';
 import { CallManager, CALL_RESULT_TEXT } from './call.js';
 import { t, LANG, LOCALE, setLang, translateDom, LANGS as LANG_LIST } from '/shared/i18n.js';
 import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
-import { linkify } from '/shared/linkify.js';
+import { linkify, profileLinkOf } from '/shared/linkify.js';
+import { translateText, hasLocal as hasLocalTranslator } from './translate.js';
 import { loadIcons, icon } from './icons.js';
 import { VERSION } from '/shared/version.js';
 
@@ -760,7 +761,10 @@ async function renderContacts() {
     else if (c.keyChanged) top.append(withIcon('shield warn', 'warning', t('ключ изменён')));
     else if (c.verified) top.append(withIcon('shield', 'check', t('проверен')));
     if (c.top) top.append(icon('pin', 'c-pin'));
-    body.append(top, el('div', 'c-preview', previewOf(lasts[i])));
+    const typing = typingText(c.username);
+    const prev = el('div', 'c-preview' + (typing ? ' typing' : ''), typing || previewOf(lasts[i]));
+    if (typing) prev.dataset.typing = '1';
+    body.append(top, prev);
     btn.append(avWrap, body);
     if (c.unread && c.username !== current) btn.append(el('span', 'badge', String(c.unread)));
     btn.dataset.chat = c.username;
@@ -934,9 +938,12 @@ $('cf-form').addEventListener('submit', async (e) => {
 
 $('add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const name = $('add-input').value.trim().replace(/^@/, '').toLowerCase();
+  const raw = $('add-input').value.trim();
   $('add-error').textContent = '';
-  if (!name) return;
+  if (!raw) return;
+  // Вставили ссылку https://сервер/@имя (или сервер/@имя) — берём имя из неё
+  const link = profileLinkOf(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw);
+  const name = (link ? link.name : raw).replace(/^@/, '').toLowerCase();
   try {
     const c = await client.addContact(name);
     $('add-input').value = '';
@@ -1087,6 +1094,7 @@ async function renderHeader() {
     $('peer-presence').textContent = '';
     $('key-banner').hidden = true;
     updateComposer(c);
+    if (c.group) renderPresence(); // «… печатает» в группе
     return;
   }
   if (c.keyChanged) {
@@ -1123,12 +1131,43 @@ function presenceText(p) {
   return t('был(а) {0}', dmFmt.format(d));
 }
 function renderPresence() {
-  if (!current || isGroupChat(current) || isChannelChat(current) || isSystemChat(current) || isSupportChat(current)) return;
-  const p = client.presenceOf(current);
+  if (!current || isChannelChat(current) || isSystemChat(current) || isSupportChat(current)) return;
   const node = $('peer-presence');
+  // «Печатает…» — вместо статуса (в группе — кто именно)
+  const typing = typingText(current);
+  node.classList.toggle('typing', !!typing);
+  if (typing) {
+    node.textContent = typing;
+    node.classList.remove('online');
+    return;
+  }
+  if (isGroupChat(current)) return void (node.textContent = '');
+  const p = client.presenceOf(current);
   node.textContent = client.status === 'online' ? presenceText(p) : '';
   node.classList.toggle('online', !!p?.online);
 }
+/** «печатает…» / «Аня печатает…» / «Аня и Боб печатают…» или ''. */
+function typingText(chat) {
+  const who = client.account ? client.typingIn(chat) : [];
+  if (!who.length) return '';
+  if (!isGroupChat(chat)) return t('печатает…');
+  if (who.length === 1) return t('{0} печатает…', nameOf(who[0]));
+  if (who.length === 2) return t('{0} и {1} печатают…', nameOf(who[0]), nameOf(who[1]));
+  return t('{0} и ещё {1} печатают…', nameOf(who[0]), who.length - 1);
+}
+client.on('typing', ({ chat }) => {
+  if (chat === current) renderPresence();
+  // В списке чатов — вместо последнего сообщения
+  const row = document.querySelector(`#contacts [data-chat="${CSS.escape(chat)}"] .c-preview`);
+  if (row) {
+    const typing = typingText(chat);
+    if (typing) {
+      row.dataset.typing = '1';
+      row.classList.add('typing');
+      row.textContent = typing;
+    } else if (row.dataset.typing) renderContacts();
+  }
+});
 setInterval(renderPresence, 30_000);
 
 async function updateComposer(c) {
@@ -1220,6 +1259,7 @@ function linkNodes(parent, text) {
     a.target = '_blank';
     a.rel = 'noopener noreferrer';
     if (p.ch) a.dataset.ch = p.href;
+    if (p.at && p.at.host === serverHost()) a.dataset.at = p.at.name; // ссылка на пользователя этого сервера
     parent.append(a);
   }
   return parent;
@@ -1232,8 +1272,101 @@ document.addEventListener('click', (e) => {
   if (a.dataset.ch && client.account) {
     e.preventDefault();
     openChannels(a.dataset.ch.slice(a.dataset.ch.indexOf('#ch=')));
+  } else if (a.dataset.at && client.account) {
+    e.preventDefault();
+    openByName(a.dataset.at);
   }
 });
+
+// ---------- Ссылки на пользователей: https://сервер/@имя ----------
+/** Адрес сервера аккаунта (в вебе — этот сайт, в приложениях — сервер из настроек). */
+const serverHost = () => (desktop ? new URL(client._httpBase()).host : location.host).toLowerCase();
+/** Ссылка на свой профиль (или профиль name). */
+const profileLink = (name) => `${desktop ? client._httpBase() : location.origin}/@${name}`;
+/**
+ * Открыть пользователя по имени из ссылки: свой чат, если он уже есть, иначе — добавить и открыть.
+ * Нет такого пользователя — возможно, это публичный канал (@имя у них общие).
+ */
+async function openByName(raw) {
+  const name = String(raw || '').trim().replace(/^@/, '').toLowerCase();
+  if (!/^[a-z0-9_]{3,32}$/.test(name)) return toast(t('Неверная ссылка'));
+  if (name === client.account?.username) return openSettings('profile');
+  try {
+    const all = await client.contacts();
+    if (all[name] && !all[name].hidden) return openChat(name);
+    const c = await client.addContact(name);
+    await openChat(c.username);
+  } catch (err) {
+    if (err.code === 'unknown_recipient' || err.message === 'unknown_recipient') return openChannels('@' + name);
+    toast(ERROR_TEXT[err.code] || err.message);
+  }
+}
+
+// ---------- Перевод сообщений ----------
+// На устройстве (встроенный переводчик браузера) или через Google — только с согласия
+// (Настройки → «Конфиденциальность»). Перевод — только для показа, в историю не пишется.
+const translations = new Map(); // id сообщения → { text, via, loading? }
+const cloudOk = () => {
+  try {
+    return localStorage.getItem('tainik:translate-cloud') === '1';
+  } catch {
+    return false;
+  }
+};
+function setCloudOk(on) {
+  try {
+    if (on) localStorage.setItem('tainik:translate-cloud', '1');
+    else localStorage.removeItem('tainik:translate-cloud');
+  } catch {}
+}
+function translationNode(tr) {
+  const box = el('div', 'tr' + (tr.loading ? ' loading' : ''));
+  const head = el('div', 'tr-head');
+  head.append(icon('globe'), tr.loading ? t('Переводим…') : tr.via === 'local' ? t('Перевод на устройстве') : t('Перевод Google'));
+  box.append(head);
+  if (!tr.loading) box.append(linkNodes(el('div', 'tr-text'), tr.text));
+  return box;
+}
+function redrawMsg(id) {
+  const node = $('messages').querySelector(`.msg[data-id="${CSS.escape(id)}"]`);
+  if (!node) return;
+  findMsg(id).then((m) => m && node.replaceWith(messageNode(m)));
+}
+async function translateMsg(id) {
+  if (translations.has(id) && !translations.get(id).loading) {
+    translations.delete(id); // второй раз — скрыть перевод
+    return redrawMsg(id);
+  }
+  const m = await findMsg(id);
+  const text = m?.content?.body || '';
+  if (!text.trim()) return toast(t('Здесь нечего переводить'));
+  const locked = client.isProtected(current, m);
+  let cloud = cloudOk() && !locked;
+  translations.set(id, { loading: true });
+  redrawMsg(id);
+  try {
+    let r;
+    try {
+      r = await translateText(text, LANG, { cloud });
+    } catch (e) {
+      if (e.code !== 'translate_cloud_needed') throw e;
+      // Сообщение под запретом копирования в чужой сервис не отправляем
+      if (locked) throw new Error(t('Это сообщение можно перевести только на устройстве, а этот браузер так не умеет'));
+      if (!confirm(t('Перевести через Google? Текст этого сообщения уйдёт в Google — сервер Тайника в этом не участвует. Согласие можно отозвать в Настройках → «Конфиденциальность».'))) throw null;
+      setCloudOk(true);
+      cloud = true;
+      r = await translateText(text, LANG, { cloud });
+    }
+    if (r.same) {
+      translations.delete(id);
+      toast(t('Сообщение уже на вашем языке'));
+    } else translations.set(id, r);
+  } catch (err) {
+    translations.delete(id);
+    if (err) toast(err.code === 'translate_failed' ? t('Не удалось перевести — попробуйте позже') : err.message);
+  }
+  redrawMsg(id);
+}
 
 /** Отметка о запрете копирования в чате. */
 function protectText(c) {
@@ -1308,6 +1441,9 @@ function messageNode(m) {
   } else {
     linkNodes(bubble, m.content?.body ?? '');
   }
+  // Перевод (если его попросили) — под текстом
+  const tr = translations.get(m.id);
+  if (tr) bubble.append(translationNode(tr));
   li.append(bubble);
   const acts = el('div', 'msg-actions');
   const noReply = isChannelChat(current) || isSystemChat(current) || isSupportChat(current);
@@ -1452,6 +1588,8 @@ ta.addEventListener('input', () => {
   ta.style.height = 'auto';
   ta.style.height = Math.min(ta.scrollHeight, 160) + 'px';
   updateComposer();
+  // «Печатает…» собеседнику (в канал и служебные чаты — нет; лишние вызовы ядро отбрасывает)
+  if (current && ta.value.trim() && !isChannelChat(current) && !isSystemChat(current) && !isSupportChat(current)) client.sendTyping(current);
 });
 ta.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && reply) {
@@ -2859,6 +2997,7 @@ function fillProfileEdit() {
   $('prof-bio').value = client.profile.bio;
   $('prof-name').placeholder = client.account.username;
   $('prof-username').textContent = '@' + client.account.username;
+  $('prof-link').textContent = profileLink(client.account.username).replace(/^https?:\/\//, '');
   pendingAvatar = undefined;
   updateProfilePhoto();
   $('prof-shop-row').hidden = !client.shopOn;
@@ -2977,6 +3116,13 @@ function bioCount() {
   $('prof-bio-count').textContent = String(140 - $('prof-bio').value.length);
 }
 $('prof-bio').addEventListener('input', bioCount);
+// Ссылка на свой профиль: по ней вас откроют в Тайнике (https://сервер/@юзернейм)
+$('prof-link-row').addEventListener('click', () => {
+  const link = profileLink(client.account.username);
+  copyText(link)
+    .then(() => toast(t('Ссылка скопирована')))
+    .catch(() => toast(link, 8000));
+});
 $('prof-save').addEventListener('click', async () => {
   try {
     const next = { name: $('prof-name').value, bio: $('prof-bio').value };
@@ -4342,6 +4488,18 @@ function consumeChatLink() {
     history.replaceState(null, '', location.pathname + location.search);
     return openChannels(ref);
   }
+  // Ссылка на пользователя: /@имя → /app#u=имя (переадресует сервер)
+  if (location.hash.startsWith('#u=') && client.account) {
+    let name = '';
+    try {
+      name = decodeURIComponent(location.hash.slice(3));
+    } catch {}
+    history.replaceState(null, '', location.pathname + location.search);
+    if (client.status === 'online') return openByName(name);
+    // При запуске соединение ещё не готово — открыть, как только появится
+    const off = client.on('status', (st) => st === 'online' && (off(), openByName(name)));
+    return;
+  }
   if (!location.hash.startsWith('#chat=') || !client.account) return;
   let chat = '';
   try {
@@ -5080,6 +5238,10 @@ async function openMenu(id, x, y) {
   menu.querySelector('[data-act="pin"]').hidden = sys;
   const pinnedId = (await client.contacts())[current]?.pinned?.id;
   menu.querySelector('[data-act="pin"]').replaceChildren(icon('pin'), pinnedId === id ? t('Открепить') : t('Закрепить'));
+  // Перевести — сообщения с текстом (не свои); второй раз — «Скрыть перевод»
+  const canTr = !!m && m.dir === 'in' && !!m.content?.body?.trim();
+  menu.querySelector('[data-act="translate"]').hidden = !canTr;
+  if (canTr) menu.querySelector('[data-act="translate"]').replaceChildren(icon('globe'), translations.has(id) ? t('Скрыть перевод') : t('Перевести'));
   const locked = client.isProtected(current, m);
   menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys || locked;
   menu.querySelector('[data-act="copy"]').hidden = (!!m?.content?.file && !m.content.body) || locked;
@@ -5151,6 +5313,7 @@ $('msg-menu').addEventListener('click', async (e) => {
   const id = menuFor;
   closeMenu();
   if (b.dataset.act === 'reply') return replyTo(id);
+  if (b.dataset.act === 'translate') return translateMsg(id);
   if (['forward', 'save', 'copy'].includes(b.dataset.act) && client.isProtected(current, await findMsg(id))) return toast(ERROR_TEXT.protected);
   if (b.dataset.act === 'forward') return openForward(id);
   if (b.dataset.act === 'pin') {
@@ -6103,6 +6266,12 @@ client.on('presence', ({ username }) => {
 client.on('verified', (on) => client.account && setName($('me-name'), client.account.username, on));
 client.on('status', renderPresence);
 // Скрыть статус — возможность Премиум: без подписки статус виден, переключатель заблокирован
+// Перевод через Google: согласие (хранится на этом устройстве)
+$('translate-cloud').checked = cloudOk();
+$('translate-cloud').addEventListener('change', (e) => {
+  setCloudOk(e.target.checked);
+  toast(e.target.checked ? t('Перевод через Google включён') : hasLocalTranslator() ? t('Переводим только на устройстве') : t('Перевод через Google выключен'));
+});
 function renderPresenceToggle() {
   const premium = client.isPremium();
   $('presence-visible').checked = !(client.presenceHidden && premium);

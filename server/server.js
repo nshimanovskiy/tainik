@@ -105,6 +105,12 @@ function serveStatic(req, res) {
     base = path.join(ROOT, 'shared');
     rel = rel.slice('/shared'.length);
   }
+  // Ссылка на пользователя или публичный канал: /@имя → мессенджер, он сам откроет чат или канал
+  const at = /^\/@([A-Za-z0-9_]{3,32})\/?$/.exec(rel);
+  if (at) {
+    res.writeHead(302, { Location: '/app#u=' + at[1].toLowerCase(), 'Cache-Control': 'no-store' }).end();
+    return;
+  }
   // Главная — описание и загрузки; мессенджер — /app
   if (rel === '/' || rel === '') rel = '/landing.html';
   else if (rel === '/app') rel = '/index.html';
@@ -133,7 +139,7 @@ function serveStatic(req, res) {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self), speaker-selection=(self), geolocation=()',
       'Content-Security-Policy':
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss: https://translate.googleapis.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     });
     res.end(req.method === 'HEAD' ? undefined : data);
   });

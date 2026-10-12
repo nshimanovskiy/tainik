@@ -168,6 +168,12 @@ export function cleanAlias(a) {
   if (validAvatar(a.avatar)) out.avatar = a.avatar;
   return out.name || out.avatar ? out : null;
 }
+// ---------- «Печатает…» ----------
+const TYPING_EVERY = 4000; // не чаще раза в 4 секунды на чат
+const TYPING_TTL = 6000; // гаснет сам через 6 секунд
+const TYPING_GROUP_MAX = 10; // в группах побольше — не рассылается
+const TYPING_PER_MIN = 40; // своих сигналов «печатает» в минуту (лимит сервера на мгновенные — 120)
+
 // ---------- Записи о звонках ----------
 const CALL_RESULTS = ['answered', 'missed', 'declined', 'busy', 'no_answer', 'unavailable', 'failed', 'cancelled', 'elsewhere'];
 /** Запись о звонке { t: 'call', direction, result, duration, video, missed? } (только известные поля) или null. */
@@ -2303,6 +2309,7 @@ export class MessengerClient extends Emitter {
   async sendText(username, text, { replyTo = null } = {}) {
     text = String(text);
     if (!text.trim()) return;
+    this._typingSent?.delete(String(username).toLowerCase()); // собеседник уже погасил «печатает» — следующий ввод сообщит сразу
     await this._sendContent(username, { t: 'text', body: text }, replyTo);
   }
 
@@ -2933,6 +2940,7 @@ export class MessengerClient extends Emitter {
     delete rec.hidden;
     await this._saveContacts(all);
     await this._appendMsg(key, { id, dir: 'in', ts, from, content });
+    this._setTyping(key, from, false); // написал — уже не печатает
     return true;
   }
 
@@ -3430,6 +3438,74 @@ export class MessengerClient extends Emitter {
     this._pumpOutbox();
   }
 
+  // ---------- «Печатает…» ----------
+  // Мгновенный сигнал без истории (как сигналы звонка): не хранится и не ставится в очередь,
+  // доходит только до тех устройств собеседника, что сейчас в сети. Не чаще TYPING_EVERY на чат,
+  // в группах — до TYPING_GROUP_MAX участников; гаснет сам через TYPING_TTL или с приходом сообщения.
+
+  /** Сообщить, что вы печатаете в чате (вызывать при вводе; лишние вызовы отбрасываются). */
+  sendTyping(chat) {
+    // Скрыли, что вы в сети, — «печатает» тоже не сообщаем
+    if (!this.account || this.status !== 'online' || this.presenceHidden || typeof chat !== 'string') return;
+    const now = Date.now();
+    this._typingSent ||= new Map();
+    if (now - (this._typingSent.get(chat) || 0) < TYPING_EVERY) return;
+    // Свой общий предел: «печатает» не должен занимать запас сигналов звонков на сервере
+    this._typingLog = (this._typingLog || []).filter((x) => now - x < 60_000);
+    if (this._typingLog.length >= TYPING_PER_MIN) return;
+    this._typingSent.set(chat, now);
+    (async () => {
+      const all = await this.contacts();
+      const c = all[chat];
+      if (!c || c.hidden === true) return;
+      let to = [];
+      let content = { t: 'typing', ts: now };
+      if (isGroupChat(chat)) {
+        const g = c.group;
+        if (!g || g.left || g.removed || g.members.length > TYPING_GROUP_MAX) return;
+        // Только тем, чей ключ уже известен: сигнал не заводит новых знакомств
+        to = g.members.filter((m) => m !== this.account.username && all[m]?.keys && !all[m].keyChanged && !this.isBlocked(m));
+        content = { ...content, g: g.id };
+      } else if (aliasable(chat)) {
+        if (c.keyChanged || this.isBlocked(chat)) return;
+        to = [chat];
+      }
+      for (const name of to) {
+        if (this._typingLog.length >= TYPING_PER_MIN) break;
+        this._typingLog.push(Date.now());
+        this.sendEphemeral(name, content).catch(() => {});
+      }
+    })().catch(() => {});
+  }
+
+  /** Кто сейчас печатает в чате: [юзернейм…] (в личном чате — собеседник или пусто). */
+  typingIn(chat) {
+    const m = this._typing?.get(chat);
+    if (!m) return [];
+    const now = Date.now();
+    return [...m.entries()].filter(([, until]) => until > now).map(([u]) => u);
+  }
+
+  _setTyping(chat, user, on) {
+    this._typing ||= new Map(); // чат → Map(юзернейм → до какого момента)
+    this._typingTimers ||= new Map(); // 'чат|юзернейм' → таймер
+    const key = chat + '|' + user;
+    clearTimeout(this._typingTimers.get(key));
+    this._typingTimers.delete(key);
+    let m = this._typing.get(chat);
+    if (on) {
+      if (!m) this._typing.set(chat, (m = new Map()));
+      m.set(user, Date.now() + TYPING_TTL);
+      const timer = setTimeout(() => this._setTyping(chat, user, false), TYPING_TTL + 50);
+      timer.unref?.();
+      this._typingTimers.set(key, timer);
+    } else {
+      if (!m?.has(user)) return;
+      m.delete(user);
+    }
+    this.emit('typing', { chat, users: this.typingIn(chat) });
+  }
+
   /** Записать звонок в историю (или уточнить запись того же звонка). false — нечего менять. */
   async _applyCallLog(username, m) {
     const content = cleanCallLog(m?.content);
@@ -3755,6 +3831,19 @@ export class MessengerClient extends Emitter {
       await this._clearChat(from, false);
       return ack(false);
     }
+    // «Печатает…»: сигнал не создаёт чат; только мгновенный и свежий
+    if (res.content?.t === 'typing') {
+      const age = Date.now() - Number(res.content.ts || 0);
+      if (!ephemeral || age > 15_000 || age < -60_000) return ack(false);
+      const g = res.content.g;
+      // В группе достаточно быть её участником; в личном чате — только от знакомых
+      if (g != null) {
+        const chat = typeof g === 'string' && GID_RE.test(g) ? groupKey(g) : null;
+        const grp = chat && all[chat]?.group;
+        if (grp && !grp.left && grp.members.includes(from)) this._setTyping(chat, from, true);
+      } else if (known) this._setTyping(from, from, true);
+      return ack(false);
+    }
     if (res.content?.t === 'call') {
       // Сигнализация звонка: в историю не пишется. Устаревшие (старше 2 минут) отбрасываются.
       const age = Date.now() - Number(res.content.ts || 0);
@@ -3788,6 +3877,7 @@ export class MessengerClient extends Emitter {
     delete c.hidden; // удалённый чат появляется снова, как в Telegram
     await this._saveContacts(all);
     await this._appendMsg(from, { id: res.id, dir: 'in', ts, content });
+    this._setTyping(from, from, false); // написал — уже не печатает
     ack();
   }
 }

@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **7 октября 2026**, версия **0.48.1** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **12 октября 2026**, версия **0.49.0** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -220,7 +220,7 @@ desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 133 теста (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 137 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -230,7 +230,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 133 теста, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 137 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -295,6 +295,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.49.0 | Переводчик (`client/translate.js`: Translator/LanguageDetector API браузера, иначе translate.googleapis.com только с согласием `tainik:translate-cloud`, защищённые сообщения — никогда; CSP `connect-src` + googleapis); ссылки `/@имя` (сервер 302 → `/app#u=имя`, `profileLinkOf` в linkify, `openByName`, ссылка в «Моём профиле»); «печатает…» (`sendTyping`/`typingIn`/событие `typing`, эфемерный `{t:'typing', g?}`, ≤10 участников группы, 1 раз в 4 с, ≤40/мин, гаснет через 6 с или с сообщением, не при скрытом «в сети») |
 | 0.48.1 | Запрет копирования своих сообщений в личном чате: `contact.protect` (свой) / `peerProtect` (собеседника) `{on, ts}`, `setProtect`, E2E `protect` собеседнику, `sync-protect` своим, `content.protect` на каждом сообщении (если настройка не дошла), `isProtected(chat, m)`; отметка `dir:'sys' t:'protect'`; `STATE_SCHEMA = 2` |
 | 0.48.0 | Стиль (палитра) «sdsds» как на sdsds.top: `:root[data-palette="sdsds"]` (+ `[data-theme="dark"]`) в `style.css`, `tainikTheme.setPalette/palette`, выбор карточками в «Оформлении» |
 | 0.47.8 | Записи о звонках на всех своих устройствах (`logCall` → id `call-<callId>`, `sync-call`, точная запись побеждает «elsewhere»/«missed»); `sync-state` — обмен папками/архивом/закреплениями/своими именами один раз после обновления (`STATE_SCHEMA`) |

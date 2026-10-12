@@ -28,6 +28,17 @@ export function hrefOf(raw) {
   }
 }
 
+/** Ссылка на пользователя или публичный канал Тайника вида https://сервер/@имя → { host, name } или null. */
+export function profileLinkOf(href) {
+  try {
+    const u = new URL(href);
+    const m = /^\/@([a-z0-9_]{3,32})\/?$/i.exec(u.pathname);
+    return m && !u.search && !u.hash ? { host: u.host.toLowerCase(), name: m[1].toLowerCase() } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** «текст со ссылками» → [{ text } | { text, href, ch }], ch — ссылка на канал Тайника. */
 export function linkify(text) {
   const src = String(text ?? '');
@@ -38,7 +49,8 @@ export function linkify(text) {
     const href = hrefOf(raw);
     if (!href || (m.index > 0 && /[\p{L}\p{N}_@]/u.test(src[m.index - 1]))) continue;
     if (m.index > last) out.push({ text: src.slice(last, m.index) });
-    out.push({ text: raw, href, ch: /#ch=/.test(href) });
+    const p = profileLinkOf(href);
+    out.push({ text: raw, href, ch: /#ch=/.test(href), ...(p ? { at: p } : {}) });
     last = m.index + raw.length;
   }
   if (last < src.length) out.push({ text: src.slice(last) });
