@@ -14,33 +14,12 @@ jobs:
       - run: |
           exec > probe.txt 2>&1
           set -x
-          npm view @huggingface/transformers versions --json | tail -15
-          npm view @huggingface/transformers dist-tags
-          V=$(npm view @huggingface/transformers dist-tags.latest)
-          mkdir -p /tmp/p && cd /tmp/p && npm pack @huggingface/transformers@$V && tar xzf *.tgz && ls -la package/dist && head -60 package/package.json
-          npm view @huggingface/transformers@$V dist.integrity dist.tarball
-          npm view onnxruntime-web dist-tags
-          cd package/dist
-          for f in *.js *.mjs; do echo "== $f"; grep -o 'ort-wasm[a-zA-Z0-9._-]*' $f | sort | uniq -c; grep -o 'https://cdn.jsdelivr[^"`]*' $f | sort | uniq -c; done
-          sha256sum *
+          mkdir -p /tmp/o && cd /tmp/o && npm pack onnxruntime-web@1.31.0-dev.20260914-8d85527a0 && tar xzf *.tgz && ls -la package/dist | grep -v '\.map$'
+          cd $GITHUB_WORKSPACE
+          node scripts/fetch-stt.mjs out --print-hashes || true
+          du -ah out | sort -h | tail -30
       - run: |
-          exec >> probe.txt 2>&1
-          set -x
-          for m in whisper-tiny whisper-base whisper-small; do curl -fsSL https://huggingface.co/api/models/onnx-community/$m/tree/main/onnx | python3 -c "import json,sys; [print(x['path'], x.get('size'), x.get('lfs',{}).get('oid')) for x in json.load(sys.stdin)]"; done
-          curl -fsSL https://huggingface.co/api/models/onnx-community/whisper-base/tree/main | python3 -c "import json,sys; [print(x['path'], x.get('size'), x.get('lfs',{}).get('oid')) for x in json.load(sys.stdin)]"
-          curl -fsSL https://huggingface.co/api/models/onnx-community/whisper-base | head -c 600
-      - run: |
-          exec >> probe.txt 2>&1
-          set -x
-          mkdir -p probe/dist probe/model/onnx
-          cp /tmp/p/package/dist/* probe/dist/ || true
-          cd probe/model
-          for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json; do curl -fsSL -o $f https://huggingface.co/onnx-community/whisper-base/resolve/main/$f || true; done
-          for f in encoder_model_quantized.onnx decoder_model_merged_quantized.onnx; do curl -fsSL -o onnx/$f https://huggingface.co/onnx-community/whisper-base/resolve/main/onnx/$f || true; done
-          cd ../..
-          du -ah probe | sort -h | tail -40
           git config user.name probe; git config user.email probe@example.com
-          git checkout -b out
-          git add -f probe.txt; git commit -qm "probe log"; git push --force origin out:stt-probe-log || true
-          git add -f probe; git commit -qm "probe files"; git push --force origin out:stt-probe-out || true
-          git add -f probe.txt; git commit -qm "probe log2"; git push --force origin out:stt-probe-log || true
+          git checkout -b o
+          git add -f probe.txt; git commit -qm "probe log"; git push --force origin o:stt-probe-log || true
+          git add -f out; git commit -qm "probe files"; git push --force origin o:stt-probe-out || true
