@@ -7,7 +7,7 @@ import path from 'node:path';
 import { startServer } from '../server/server.js';
 import { untar, STT_VERSION } from '../scripts/fetch-stt.mjs';
 import { resample } from '../client/stt.js';
-import { guessLang, pickVoice, splitText, speak, stopSpeaking } from '../client/tts.js';
+import { guessLang, pickVoice, splitText, speak, stopSpeaking, getVolume, setVolume } from '../client/tts.js';
 
 const read = (f) => fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
 
@@ -132,7 +132,7 @@ test('озвучка в приложении для Android — через мо�
   globalThis.window = {
     desktop: {
       speech: {
-        speak: async (text, lang) => (calls.push(['speak', text, lang]), true),
+        speak: async (text, lang, volume) => (calls.push(['speak', text, lang, volume]), true),
         stop: async () => calls.push(['stop']),
       },
     },
@@ -140,11 +140,44 @@ test('озвучка в приложении для Android — через мо�
   try {
     assert.equal(await speak('Привет', { lang: 'ru' }), true);
     stopSpeaking();
-    assert.deepEqual(calls, [['stop'], ['speak', 'Привет', 'ru'], ['stop']]);
+    assert.deepEqual(calls, [['stop'], ['speak', 'Привет', 'ru', 1], ['stop']]);
     window.desktop.speech.speak = async () => {
       throw new Error('tts_no_voice');
     };
     await assert.rejects(speak('x', { lang: 'ja' }), { code: 'tts_no_voice' });
+  } finally {
+    delete globalThis.window;
+  }
+});
+
+test('громкость озвучки: сохраняется, применяется сразу — текущая фраза звучит заново', async () => {
+  const said = [];
+  let finish = null; // завершить текущую фразу: true — дочитана, false — прервана
+  globalThis.window = {
+    desktop: {
+      speech: {
+        speak: (text, lang, volume) => (said.push([text, volume]), new Promise((ok) => (finish = ok))),
+        stop: async () => finish?.(false),
+      },
+    },
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  try {
+    assert.equal(getVolume(), 1);
+    const p = speak('Первая фраза. Вторая фраза.', { lang: 'ru' });
+    await tick();
+    assert.deepEqual(said, [['Первая фраза.', 1]]);
+    assert.equal(setVolume(0.4), 0.4);
+    await tick();
+    assert.deepEqual(said.at(-1), ['Первая фраза.', 0.4], 'прерванная фраза — заново, уже тише');
+    finish(true);
+    await tick();
+    assert.deepEqual(said.at(-1), ['Вторая фраза.', 0.4]);
+    finish(true);
+    assert.equal(await p, true);
+    assert.equal(setVolume(7), 1, 'не больше 100%');
+    assert.equal(setVolume(-1), 0);
+    setVolume(1);
   } finally {
     delete globalThis.window;
   }

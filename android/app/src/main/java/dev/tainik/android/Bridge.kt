@@ -108,7 +108,8 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
             // Озвучка сообщения (Speech.kt): ответ — когда дочитано или остановлено
             "tts.speak" -> {
                 val text = a.optString(0).take(20_000)
-                main.post { speech.speak(id, text, a.optString(1).take(16)) }
+                val volume = a.optDouble(2, 1.0).toFloat()
+                main.post { speech.speak(id, text, a.optString(1).take(16), volume) }
             }
             "tts.stop" -> main.post { speech.stop(); host.reply(id, true, null) }
             else -> host.reply(id, false, "Неизвестный вызов: $method")

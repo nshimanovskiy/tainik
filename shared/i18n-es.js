@@ -1054,4 +1054,7 @@ export default {
   "Остановить": "Detener",
   "Озвучить": "Leer en voz alta",
   "Скрыть расшифровку": "Ocultar transcripción",
+  "Озвучка": "Lectura en voz alta",
+  "Громкость озвучки сообщений": "Volumen de lectura en voz alta",
+  "Громкость озвучки": "Volumen de lectura",
 };

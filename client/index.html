@@ -190,6 +190,14 @@
           <span><i class="ic" data-icon="block"></i>Вы заблокировали этого пользователя</span>
           <button type="button" id="unblock-btn" class="ghost">Разблокировать</button>
         </div>
+        <!-- Озвучка сообщения: громкость и «стоп», пока читается -->
+        <div id="tts-bar" class="tts-bar" hidden>
+          <i class="ic" data-icon="speaker"></i>
+          <span class="tts-title">Озвучка</span>
+          <input type="range" id="tts-volume" class="vol-range" min="0" max="100" step="5" aria-label="Громкость озвучки">
+          <b class="vol-val" id="tts-volume-val"></b>
+          <button type="button" id="tts-stop" class="icon-btn" aria-label="Остановить" title="Остановить"><i class="ic" data-icon="close"></i></button>
+        </div>
         <form id="composer" class="composer">
           <button type="button" id="attach-btn" class="icon-btn attach" aria-label="Прикрепить файл" title="Прикрепить файл"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6.5v10.5a4.5 4.5 0 0 1-9 0V5.5a3 3 0 0 1 6 0V16a1.5 1.5 0 0 1-3 0V6.5H9V16a3 3 0 0 0 6 0V5.5a4.5 4.5 0 0 0-9 0V17a6 6 0 0 0 12 0V6.5z"/></svg></button>
           <input type="file" id="file-input" multiple hidden>
@@ -447,6 +455,7 @@
           <div class="mic-meter" aria-hidden="true"><i id="dev-mic-level"></i></div>
           <label class="set-field vol-field"><span>Громкость моего голоса <b class="vol-val" id="vol-mic-val"></b></span><input type="range" id="vol-mic" class="vol-range" min="0" max="200" step="5"></label>
           <label class="set-field vol-field"><span>Громкость собеседника <b class="vol-val" id="vol-peer-val"></b></span><input type="range" id="vol-peer" class="vol-range" min="0" max="200" step="5"></label>
+          <label class="set-field vol-field"><span>Громкость озвучки сообщений <b class="vol-val" id="vol-tts-val"></b></span><input type="range" id="vol-tts" class="vol-range" min="0" max="100" step="5"></label>
           <label class="set-field" id="dev-speaker-row"><span>Динамик или наушники</span><select id="dev-speaker" class="dev-select"></select></label>
           <button type="button" id="dev-speaker-test" class="ghost"><i class="ic" data-icon="speaker"></i>Проверить звук</button>
         </div>

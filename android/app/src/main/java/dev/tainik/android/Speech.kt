@@ -1,6 +1,7 @@
 package dev.tainik.android
 
 import android.content.Context
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
@@ -58,7 +59,8 @@ class Speech(private val ctx: Context, private val reply: (Int, Boolean, String?
         reply(old, true, "false")
     }
 
-    fun speak(id: Int, text: String, lang: String) = withTts { t ->
+    /** volume — 0…1, доля от громкости устройства. */
+    fun speak(id: Int, text: String, lang: String, volume: Float = 1f) = withTts { t ->
         if (t == null) return@withTts reply(id, false, "tts_unavailable")
         stopCurrent()
         if (lang.isNotBlank()) {
@@ -68,11 +70,12 @@ class Speech(private val ctx: Context, private val reply: (Int, Boolean, String?
         // Длинный текст — частями (у движка есть предел на одну фразу)
         val max = (TextToSpeech.getMaxSpeechInputLength() - 1).coerceAtLeast(100)
         val parts = text.chunked(max).ifEmpty { listOf(" ") }
+        val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume.coerceIn(0f, 1f)) }
         currentId = id
         parts.forEachIndexed { i, p ->
             val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
             val utt = if (i == parts.lastIndex) "u$id" else "p$id.$i"
-            if (t.speak(p, mode, null, utt) != TextToSpeech.SUCCESS) {
+            if (t.speak(p, mode, params, utt) != TextToSpeech.SUCCESS) {
                 currentId = 0
                 t.stop()
                 return@withTts reply(id, false, "tts_failed")

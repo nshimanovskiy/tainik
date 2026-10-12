@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **12 октября 2026**, версия **0.50.0** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **12 октября 2026**, версия **0.50.1** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -220,7 +220,7 @@ desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 143 теста (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 144 теста (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -230,7 +230,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 143 теста, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 144 теста, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -295,6 +295,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.50.1 | Громкость озвучки: `tts.js` `getVolume/setVolume` (localStorage `tainik:tts-volume`, 0…1), чтение по фразам, смена громкости перечитывает текущую фразу; Android `tts.speak(text, lang, volume)` → `KEY_PARAM_VOLUME`; панель `#tts-bar` над полем ввода и ползунок `#vol-tts` в «Звук и микрофон» |
 | 0.50.0 | Расшифровка голосовых на устройстве: `client/stt.js` (декодирование в 16 кГц, очередь) + `client/stt-worker.js` (transformers.js 4.3.1 + onnxruntime-web, whisper-base q8, свой выбор языка по языковому токену, wasm сверяется по sha256); файлы качает `scripts/fetch-stt.mjs` (закреплённые версии и sha256) — сервер в Docker-сборке (стадия `stt`, `/app/stt`, раздаёт `/stt/v1/…` с CORS), приложения — только JS движка (`--runtime-only`, в `copy-web.mjs` и шаге CI Android); CSP: `'wasm-unsafe-eval'`. Расшифровка хранится локально `stt:<id файла>`. Озвучка: `client/tts.js` (speechSynthesis, голоса на устройстве; сетевые — по согласию `tainik:translate-cloud`), Android — `Speech.kt` (TextToSpeech) через мост `desktop.speech` |
 | 0.49.0 | Переводчик (`client/translate.js`: Translator/LanguageDetector API браузера, иначе translate.googleapis.com только с согласием `tainik:translate-cloud`, защищённые сообщения — никогда; CSP `connect-src` + googleapis); ссылки `/@имя` (сервер 302 → `/app#u=имя`, `profileLinkOf` в linkify, `openByName`, ссылка в «Моём профиле»); «печатает…» (`sendTyping`/`typingIn`/событие `typing`, эфемерный `{t:'typing', g?}`, ≤10 участников группы, 1 раз в 4 с, ≤40/мин, гаснет через 6 с или с сообщением, не при скрытом «в сети») |
 | 0.48.1 | Запрет копирования своих сообщений в личном чате: `contact.protect` (свой) / `peerProtect` (собеседника) `{on, ts}`, `setProtect`, E2E `protect` собеседнику, `sync-protect` своим, `content.protect` на каждом сообщении (если настройка не дошла), `isProtected(chat, m)`; отметка `dir:'sys' t:'protect'`; `STATE_SCHEMA = 2` |

@@ -67,16 +67,44 @@ export function splitText(text, max = 180) {
 }
 
 let token = 0; // номер текущей озвучки: новая или «стоп» отменяет прежнюю
+let restart = null; // () => void — прервать текущую фразу, чтобы прочитать её заново (новая громкость)
+
+// Громкость озвучки 0…1 (доля от громкости устройства); хранится на этом устройстве
+const VOL_KEY = 'tainik:tts-volume';
+let volume = (() => {
+  try {
+    const v = Number(localStorage.getItem(VOL_KEY));
+    return localStorage.getItem(VOL_KEY) != null && v >= 0 && v <= 1 ? v : 1;
+  } catch {
+    return 1;
+  }
+})();
+export const getVolume = () => volume;
+/** Сменить громкость; если сейчас что-то читается — текущая фраза звучит заново, уже с новой. */
+export function setVolume(v) {
+  v = Math.min(1, Math.max(0, Number(v) || 0));
+  if (v === volume) return volume;
+  volume = v;
+  try {
+    localStorage.setItem(VOL_KEY, String(v));
+  } catch {}
+  restart?.();
+  return volume;
+}
 
 /** Остановить озвучку. */
 export function stopSpeaking() {
   token++;
+  restart = null;
   native()?.stop().catch(() => {});
   synth()?.cancel();
 }
 
+const ttsError = (code) => Object.assign(new Error(code), { code });
+
 /**
  * Озвучить text. lang — 'ru' и т. п. allowRemote — можно ли сетевой голос.
+ * Читает по фразам с текущей громкостью (getVolume / setVolume).
  * Резолвится, когда дочитано (true) или остановлено (false). Ошибки: code tts_no_voice,
  * tts_cloud_needed (есть только сетевой голос), tts_unavailable.
  */
@@ -84,30 +112,48 @@ export async function speak(text, { lang, allowRemote = false } = {}) {
   stopSpeaking();
   const my = ++token;
   const n = native();
+  let say; // (фраза) => Promise<true — дочитана | false — прервана>
+  let cancel;
   if (n) {
-    try {
-      return await n.speak(text, lang);
-    } catch (e) {
-      const code = /tts_[a-z_]+/.exec(String(e?.message))?.[0] || 'tts_unavailable';
-      throw Object.assign(new Error(code), { code });
+    say = async (part) => {
+      try {
+        return await n.speak(part, lang, volume);
+      } catch (e) {
+        throw ttsError(/tts_[a-z_]+/.exec(String(e?.message))?.[0] || 'tts_unavailable');
+      }
+    };
+    cancel = () => n.stop().catch(() => {});
+  } else {
+    const sy = synth();
+    if (!sy) throw ttsError('tts_unavailable');
+    const pick = pickVoice(await voices(), lang, allowRemote);
+    if (!pick) throw ttsError('tts_no_voice');
+    if (pick.remote) throw ttsError('tts_cloud_needed');
+    say = (part) =>
+      new Promise((resolve) => {
+        const u = new SpeechSynthesisUtterance(part);
+        u.voice = pick.voice;
+        u.lang = pick.voice.lang;
+        u.volume = volume;
+        u.onend = () => resolve(true);
+        u.onerror = () => resolve(false);
+        sy.speak(u);
+      });
+    cancel = () => sy.cancel();
+  }
+  const parts = splitText(text);
+  for (let i = 0; i < parts.length; i++) {
+    if (my !== token) return false;
+    let again = false;
+    restart = () => ((again = true), cancel());
+    const done = await say(parts[i]);
+    if (my !== token) return false;
+    if (again) {
+      i--; // громкость сменили посреди фразы — читаем её заново
+      continue;
     }
+    if (!done) return false;
   }
-  const sy = synth();
-  if (!sy) throw Object.assign(new Error('tts_unavailable'), { code: 'tts_unavailable' });
-  const pick = pickVoice(await voices(), lang, allowRemote);
-  if (!pick) throw Object.assign(new Error('tts_no_voice'), { code: 'tts_no_voice' });
-  if (pick.remote) throw Object.assign(new Error('tts_cloud_needed'), { code: 'tts_cloud_needed' });
-  if (my !== token) return false;
-  for (const part of splitText(text)) {
-    const ok = await new Promise((resolve) => {
-      const u = new SpeechSynthesisUtterance(part);
-      u.voice = pick.voice;
-      u.lang = pick.voice.lang;
-      u.onend = () => resolve(true);
-      u.onerror = () => resolve(false);
-      sy.speak(u);
-    });
-    if (!ok || my !== token) return false;
-  }
+  if (my === token) restart = null;
   return true;
 }

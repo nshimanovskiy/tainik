@@ -121,9 +121,9 @@
         updHandler = handler;
       },
     }),
-    // Озвучка голосом системы (в WebView нет speechSynthesis): speak → true (дочитано) / false (остановлено)
+    // Озвучка голосом системы (в WebView нет speechSynthesis): speak(текст, язык, громкость 0…1) → true (дочитано) / false (остановлено)
     speech: Object.freeze({
-      speak: (text, lang) => call('tts.speak', String(text ?? ''), String(lang ?? '')).then(parsed(false)),
+      speak: (text, lang, volume = 1) => call('tts.speak', String(text ?? ''), String(lang ?? ''), Math.min(1, Math.max(0, Number(volume) || 0))).then(parsed(false)),
       stop: () => call('tts.stop').then(() => undefined),
     }),
     // Сохранить вложение (Uint8Array) через системное окно «Сохранить как».

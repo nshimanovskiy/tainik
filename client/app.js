@@ -9,7 +9,7 @@ import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
 import { linkify, profileLinkOf } from '/shared/linkify.js';
 import { translateText, hasLocal as hasLocalTranslator } from './translate.js';
 import { transcribe, sttOnServer } from './stt.js';
-import { speak, stopSpeaking, ttsSupported, guessLang } from './tts.js';
+import { speak, stopSpeaking, ttsSupported, guessLang, getVolume as ttsVolume, setVolume as setTtsVolume } from './tts.js';
 import { loadIcons, icon } from './icons.js';
 import { VERSION } from '/shared/version.js';
 
@@ -1373,10 +1373,32 @@ async function translateMsg(id) {
 // ---------- Озвучка сообщений ----------
 // Голосом системы на устройстве; сетевые голоса браузера — с тем же согласием, что и перевод через Google.
 let speakingId = null; // какое сообщение сейчас читается
+/** Громкость озвучки — на панели во время чтения и в «Звук и микрофон». */
+function paintTtsVolume() {
+  const v = Math.round(ttsVolume() * 100);
+  for (const id of ['tts-volume', 'vol-tts']) $(id).value = String(v);
+  for (const id of ['tts-volume-val', 'vol-tts-val']) $(id).textContent = v + '%';
+}
+for (const id of ['tts-volume', 'vol-tts']) {
+  $(id).addEventListener('input', (e) => {
+    setTtsVolume(Number(e.target.value) / 100);
+    paintTtsVolume();
+  });
+}
+$('tts-stop').addEventListener('click', () => {
+  stopSpeaking();
+  setSpeaking(null);
+});
+paintTtsVolume();
+function setSpeaking(id) {
+  speakingId = id;
+  $('tts-bar').hidden = id == null;
+  if (id != null) paintTtsVolume();
+}
 async function speakMsg(id) {
   if (speakingId === id) {
     stopSpeaking();
-    speakingId = null;
+    setSpeaking(null);
     return;
   }
   const m = await findMsg(id);
@@ -1384,7 +1406,7 @@ async function speakMsg(id) {
   if (!text) return;
   const locked = client.isProtected(current, m);
   const lang = guessLang(text, LANG);
-  speakingId = id;
+  setSpeaking(id);
   try {
     let r;
     try {
@@ -1401,7 +1423,7 @@ async function speakMsg(id) {
   } catch (e) {
     if (e) toast(e.code === 'tts_cloud_needed' ? t('Это сообщение можно озвучить только голосом на устройстве, а для этого языка его нет') : e.code === 'tts_no_voice' ? t('На этом устройстве нет голоса для этого языка') : t('Не удалось озвучить сообщение'));
   } finally {
-    if (speakingId === id) speakingId = null;
+    if (speakingId === id) setSpeaking(null);
   }
 }
 

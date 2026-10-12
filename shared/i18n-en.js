@@ -1127,4 +1127,7 @@ export default {
   "Остановить": "Stop",
   "Озвучить": "Read aloud",
   "Скрыть расшифровку": "Hide transcript",
+  "Озвучка": "Read aloud",
+  "Громкость озвучки сообщений": "Read-aloud volume",
+  "Громкость озвучки": "Read-aloud volume",
 };
