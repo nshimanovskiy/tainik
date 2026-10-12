@@ -1,0 +1,718 @@
++ mkdir -p /tmp/o
++ cd /tmp/o
++ npm pack onnxruntime-web@1.31.0-dev.20260914-8d85527a0
+npm notice
+npm notice 📦  onnxruntime-web@1.31.0-dev.20260914-8d85527a0
+npm notice Tarball Contents
+npm notice 40B __commit.txt
+npm notice 5.3kB README.md
+npm notice 53.1kB dist/ort-wasm-simd-threaded.asyncify.mjs
+npm notice 26.9MB dist/ort-wasm-simd-threaded.asyncify.wasm
+npm notice 46.9kB dist/ort-wasm-simd-threaded.jsep.mjs
+npm notice 28.4MB dist/ort-wasm-simd-threaded.jsep.wasm
+npm notice 50.9kB dist/ort-wasm-simd-threaded.jspi.mjs
+npm notice 16.8MB dist/ort-wasm-simd-threaded.jspi.wasm
+npm notice 24.4kB dist/ort-wasm-simd-threaded.mjs
+npm notice 14.3MB dist/ort-wasm-simd-threaded.wasm
+npm notice 865.4kB dist/ort.all.bundle.min.mjs
+npm notice 3.3MB dist/ort.all.bundle.min.mjs.map
+npm notice 6.0MB dist/ort.all.js
+npm notice 819.7kB dist/ort.all.min.js
+npm notice 3.1MB dist/ort.all.min.js.map
+npm notice 819.6kB dist/ort.all.min.mjs
+npm notice 3.1MB dist/ort.all.min.mjs.map
+npm notice 5.9MB dist/ort.all.mjs
+npm notice 413.6kB dist/ort.bundle.min.mjs
+npm notice 1.5MB dist/ort.bundle.min.mjs.map
+npm notice 2.7MB dist/ort.js
+npm notice 116.1kB dist/ort.jspi.bundle.min.mjs
+npm notice 500.7kB dist/ort.jspi.bundle.min.mjs.map
+npm notice 690.3kB dist/ort.jspi.js
+npm notice 66.8kB dist/ort.jspi.min.js
+npm notice 380.5kB dist/ort.jspi.min.js.map
+npm notice 66.7kB dist/ort.jspi.min.mjs
+npm notice 380.5kB dist/ort.jspi.min.mjs.map
+npm notice 680.6kB dist/ort.jspi.mjs
+npm notice 368.1kB dist/ort.min.js
+npm notice 1.4MB dist/ort.min.js.map
+npm notice 368.0kB dist/ort.min.mjs
+npm notice 1.4MB dist/ort.min.mjs.map
+npm notice 2.6MB dist/ort.mjs
+npm notice 27.2kB dist/ort.node.min.js
+npm notice 154.8kB dist/ort.node.min.js.map
+npm notice 27.1kB dist/ort.node.min.mjs
+npm notice 155.0kB dist/ort.node.min.mjs.map
+npm notice 73.1kB dist/ort.wasm.bundle.min.mjs
+npm notice 389.3kB dist/ort.wasm.bundle.min.mjs.map
+npm notice 589.8kB dist/ort.wasm.js
+npm notice 50.3kB dist/ort.wasm.min.js
+npm notice 324.8kB dist/ort.wasm.min.js.map
+npm notice 50.2kB dist/ort.wasm.min.mjs
+npm notice 324.8kB dist/ort.wasm.min.mjs.map
+npm notice 581.7kB dist/ort.wasm.mjs
+npm notice 3.6MB dist/ort.webgl.js
+npm notice 472.4kB dist/ort.webgl.min.js
+npm notice 1.9MB dist/ort.webgl.min.js.map
+npm notice 472.2kB dist/ort.webgl.min.mjs
+npm notice 1.9MB dist/ort.webgl.min.mjs.map
+npm notice 3.5MB dist/ort.webgl.mjs
+npm notice 117.9kB dist/ort.webgpu.bundle.min.mjs
+npm notice 516.7kB dist/ort.webgpu.bundle.min.mjs.map
+npm notice 690.3kB dist/ort.webgpu.js
+npm notice 66.6kB dist/ort.webgpu.min.js
+npm notice 380.4kB dist/ort.webgpu.min.js.map
+npm notice 66.5kB dist/ort.webgpu.min.mjs
+npm notice 380.4kB dist/ort.webgpu.min.mjs.map
+npm notice 680.6kB dist/ort.webgpu.mjs
+npm notice 36.7kB docs/webgl-operators.md
+npm notice 5.7kB docs/webgpu-operators.md
+npm notice 10.2kB docs/webnn-operators.md
+npm notice 1.4kB lib/backend-onnxjs.ts
+npm notice 3.9kB lib/backend-wasm.ts
+npm notice 3.4kB lib/build-def.d.ts
+npm notice 1.9kB lib/index.ts
+npm notice 732B lib/onnxjs/attribute-with-cache-key.js
+npm notice 658B lib/onnxjs/attribute-with-cache-key.js.map
+npm notice 774B lib/onnxjs/attribute-with-cache-key.ts
+npm notice 10.2kB lib/onnxjs/attribute.js
+npm notice 8.2kB lib/onnxjs/attribute.js.map
+npm notice 9.7kB lib/onnxjs/attribute.ts
+npm notice 2.0kB lib/onnxjs/backend.js
+npm notice 1.7kB lib/onnxjs/backend.js.map
+npm notice 4.1kB lib/onnxjs/backend.ts
+npm notice 2.9kB lib/onnxjs/backends/backend-webgl.js
+npm notice 2.2kB lib/onnxjs/backends/backend-webgl.js.map
+npm notice 2.8kB lib/onnxjs/backends/backend-webgl.ts
+npm notice 1.9kB lib/onnxjs/backends/webgl/glsl-array-lib.ts
+npm notice 47.5kB lib/onnxjs/backends/webgl/glsl-coordinate-lib.js
+npm notice 34.0kB lib/onnxjs/backends/webgl/glsl-coordinate-lib.js.map
+npm notice 49.4kB lib/onnxjs/backends/webgl/glsl-coordinate-lib.ts
+npm notice 3.7kB lib/onnxjs/backends/webgl/glsl-definitions.js
+npm notice 2.8kB lib/onnxjs/backends/webgl/glsl-definitions.js.map
+npm notice 3.9kB lib/onnxjs/backends/webgl/glsl-definitions.ts
+npm notice 3.5kB lib/onnxjs/backends/webgl/glsl-encoding-lib.js
+npm notice 1.4kB lib/onnxjs/backends/webgl/glsl-encoding-lib.js.map
+npm notice 3.5kB lib/onnxjs/backends/webgl/glsl-encoding-lib.ts
+npm notice 1.5kB lib/onnxjs/backends/webgl/glsl-fragcolor-lib.js
+npm notice 754B lib/onnxjs/backends/webgl/glsl-fragcolor-lib.js.map
+npm notice 1.4kB lib/onnxjs/backends/webgl/glsl-fragcolor-lib.ts
+npm notice 2.0kB lib/onnxjs/backends/webgl/glsl-function-inliner.js
+npm notice 2.1kB lib/onnxjs/backends/webgl/glsl-function-inliner.js.map
+npm notice 1.9kB lib/onnxjs/backends/webgl/glsl-function-inliner.ts
+npm notice 4.5kB lib/onnxjs/backends/webgl/glsl-preprocessor.js
+npm notice 4.0kB lib/onnxjs/backends/webgl/glsl-preprocessor.js.map
+npm notice 4.6kB lib/onnxjs/backends/webgl/glsl-preprocessor.ts
+npm notice 856B lib/onnxjs/backends/webgl/glsl-registered-libs.js
+npm notice 374B lib/onnxjs/backends/webgl/glsl-registered-libs.js.map
+npm notice 693B lib/onnxjs/backends/webgl/glsl-registered-libs.ts
+npm notice 5.9kB lib/onnxjs/backends/webgl/glsl-shape-utils-lib.js
+npm notice 5.3kB lib/onnxjs/backends/webgl/glsl-shape-utils-lib.js.map
+npm notice 6.1kB lib/onnxjs/backends/webgl/glsl-shape-utils-lib.ts
+npm notice 2.2kB lib/onnxjs/backends/webgl/glsl-source.js
+npm notice 1.2kB lib/onnxjs/backends/webgl/glsl-source.js.map
+npm notice 2.3kB lib/onnxjs/backends/webgl/glsl-source.ts
+npm notice 3.3kB lib/onnxjs/backends/webgl/glsl-vec-lib.js
+npm notice 2.5kB lib/onnxjs/backends/webgl/glsl-vec-lib.js.map
+npm notice 3.3kB lib/onnxjs/backends/webgl/glsl-vec-lib.ts
+npm notice 13.2kB lib/onnxjs/backends/webgl/inference-handler.js
+npm notice 11.3kB lib/onnxjs/backends/webgl/inference-handler.js.map
+npm notice 14.2kB lib/onnxjs/backends/webgl/inference-handler.ts
+npm notice 8.7kB lib/onnxjs/backends/webgl/op-resolve-rules.js
+npm notice 5.7kB lib/onnxjs/backends/webgl/op-resolve-rules.js.map
+npm notice 7.1kB lib/onnxjs/backends/webgl/op-resolve-rules.ts
+npm notice 3.8kB lib/onnxjs/backends/webgl/ops/batch-normalization.js
+npm notice 3.4kB lib/onnxjs/backends/webgl/ops/batch-normalization.js.map
+npm notice 4.2kB lib/onnxjs/backends/webgl/ops/batch-normalization.ts
+npm notice 9.7kB lib/onnxjs/backends/webgl/ops/binary-op.js
+npm notice 7.7kB lib/onnxjs/backends/webgl/ops/binary-op.js.map
+npm notice 9.8kB lib/onnxjs/backends/webgl/ops/binary-op.ts
+npm notice 807B lib/onnxjs/backends/webgl/ops/cast.js
+npm notice 783B lib/onnxjs/backends/webgl/ops/cast.js.map
+npm notice 1.0kB lib/onnxjs/backends/webgl/ops/cast.ts
+npm notice 5.3kB lib/onnxjs/backends/webgl/ops/concat-packed.js
+npm notice 4.9kB lib/onnxjs/backends/webgl/ops/concat-packed.js.map
+npm notice 5.4kB lib/onnxjs/backends/webgl/ops/concat-packed.ts
+npm notice 6.7kB lib/onnxjs/backends/webgl/ops/concat.js
+npm notice 5.8kB lib/onnxjs/backends/webgl/ops/concat.js.map
+npm notice 7.3kB lib/onnxjs/backends/webgl/ops/concat.ts
+npm notice 3.8kB lib/onnxjs/backends/webgl/ops/conv-grouped.js
+npm notice 2.5kB lib/onnxjs/backends/webgl/ops/conv-grouped.js.map
+npm notice 3.8kB lib/onnxjs/backends/webgl/ops/conv-grouped.ts
+npm notice 2.4kB lib/onnxjs/backends/webgl/ops/conv-pack.js
+npm notice 2.3kB lib/onnxjs/backends/webgl/ops/conv-pack.js.map
+npm notice 2.3kB lib/onnxjs/backends/webgl/ops/conv-pack.ts
+npm notice 10.3kB lib/onnxjs/backends/webgl/ops/conv-transpose.js
+npm notice 9.0kB lib/onnxjs/backends/webgl/ops/conv-transpose.js.map
+npm notice 11.4kB lib/onnxjs/backends/webgl/ops/conv-transpose.ts
+npm notice 8.0kB lib/onnxjs/backends/webgl/ops/conv.js
+npm notice 7.8kB lib/onnxjs/backends/webgl/ops/conv.js.map
+npm notice 8.9kB lib/onnxjs/backends/webgl/ops/conv.ts
+npm notice 2.8kB lib/onnxjs/backends/webgl/ops/depth-to-space.js
+npm notice 2.7kB lib/onnxjs/backends/webgl/ops/depth-to-space.js.map
+npm notice 3.1kB lib/onnxjs/backends/webgl/ops/depth-to-space.ts
+npm notice 3.3kB lib/onnxjs/backends/webgl/ops/dot-product.js
+npm notice 2.6kB lib/onnxjs/backends/webgl/ops/dot-product.js.map
+npm notice 3.5kB lib/onnxjs/backends/webgl/ops/dot-product.ts
+npm notice 1.2kB lib/onnxjs/backends/webgl/ops/flatten.js
+npm notice 1.2kB lib/onnxjs/backends/webgl/ops/flatten.js.map
+npm notice 1.3kB lib/onnxjs/backends/webgl/ops/flatten.ts
+npm notice 1.6kB lib/onnxjs/backends/webgl/ops/fuse-utils.js
+npm notice 1.2kB lib/onnxjs/backends/webgl/ops/fuse-utils.js.map
+npm notice 1.6kB lib/onnxjs/backends/webgl/ops/fuse-utils.ts
+npm notice 3.8kB lib/onnxjs/backends/webgl/ops/gather.js
+npm notice 3.5kB lib/onnxjs/backends/webgl/ops/gather.js.map
+npm notice 4.2kB lib/onnxjs/backends/webgl/ops/gather.ts
+npm notice 4.9kB lib/onnxjs/backends/webgl/ops/gemm.js
+npm notice 5.1kB lib/onnxjs/backends/webgl/ops/gemm.js.map
+npm notice 5.4kB lib/onnxjs/backends/webgl/ops/gemm.ts
+npm notice 3.2kB lib/onnxjs/backends/webgl/ops/im2col-pack.js
+npm notice 2.4kB lib/onnxjs/backends/webgl/ops/im2col-pack.js.map
+npm notice 3.3kB lib/onnxjs/backends/webgl/ops/im2col-pack.ts
+npm notice 3.2kB lib/onnxjs/backends/webgl/ops/im2col.js
+npm notice 1.9kB lib/onnxjs/backends/webgl/ops/im2col.js.map
+npm notice 3.4kB lib/onnxjs/backends/webgl/ops/im2col.ts
+npm notice 3.0kB lib/onnxjs/backends/webgl/ops/image-scaler.js
+npm notice 2.9kB lib/onnxjs/backends/webgl/ops/image-scaler.js.map
+npm notice 3.5kB lib/onnxjs/backends/webgl/ops/image-scaler.ts
+npm notice 5.6kB lib/onnxjs/backends/webgl/ops/instance-normalization.js
+npm notice 4.1kB lib/onnxjs/backends/webgl/ops/instance-normalization.js.map
+npm notice 5.8kB lib/onnxjs/backends/webgl/ops/instance-normalization.ts
+npm notice 2.9kB lib/onnxjs/backends/webgl/ops/lrn.js
+npm notice 2.5kB lib/onnxjs/backends/webgl/ops/lrn.js.map
+npm notice 3.3kB lib/onnxjs/backends/webgl/ops/lrn.ts
+npm notice 6.3kB lib/onnxjs/backends/webgl/ops/matmul-pack.js
+npm notice 5.5kB lib/onnxjs/backends/webgl/ops/matmul-pack.js.map
+npm notice 6.5kB lib/onnxjs/backends/webgl/ops/matmul-pack.ts
+npm notice 5.2kB lib/onnxjs/backends/webgl/ops/matmul.js
+npm notice 4.6kB lib/onnxjs/backends/webgl/ops/matmul.js.map
+npm notice 5.6kB lib/onnxjs/backends/webgl/ops/matmul.ts
+npm notice 3.8kB lib/onnxjs/backends/webgl/ops/pack.js
+npm notice 3.5kB lib/onnxjs/backends/webgl/ops/pack.js.map
+npm notice 3.9kB lib/onnxjs/backends/webgl/ops/pack.ts
+npm notice 1.0kB lib/onnxjs/backends/webgl/ops/packing-utils.js
+npm notice 573B lib/onnxjs/backends/webgl/ops/packing-utils.js.map
+npm notice 840B lib/onnxjs/backends/webgl/ops/packing-utils.ts
+npm notice 6.3kB lib/onnxjs/backends/webgl/ops/pad.js
+npm notice 5.9kB lib/onnxjs/backends/webgl/ops/pad.js.map
+npm notice 7.1kB lib/onnxjs/backends/webgl/ops/pad.ts
+npm notice 12.5kB lib/onnxjs/backends/webgl/ops/pool.js
+npm notice 10.7kB lib/onnxjs/backends/webgl/ops/pool.js.map
+npm notice 13.5kB lib/onnxjs/backends/webgl/ops/pool.ts
+npm notice 6.0kB lib/onnxjs/backends/webgl/ops/reduce.js
+npm notice 5.9kB lib/onnxjs/backends/webgl/ops/reduce.js.map
+npm notice 7.1kB lib/onnxjs/backends/webgl/ops/reduce.ts
+npm notice 5.5kB lib/onnxjs/backends/webgl/ops/reshape-packed.js
+npm notice 4.1kB lib/onnxjs/backends/webgl/ops/reshape-packed.js.map
+npm notice 5.6kB lib/onnxjs/backends/webgl/ops/reshape-packed.ts
+npm notice 616B lib/onnxjs/backends/webgl/ops/reshape.js
+npm notice 586B lib/onnxjs/backends/webgl/ops/reshape.js.map
+npm notice 601B lib/onnxjs/backends/webgl/ops/reshape.ts
+npm notice 11.3kB lib/onnxjs/backends/webgl/ops/resize-packed.js
+npm notice 5.8kB lib/onnxjs/backends/webgl/ops/resize-packed.js.map
+npm notice 11.8kB lib/onnxjs/backends/webgl/ops/resize-packed.ts
+npm notice 627B lib/onnxjs/backends/webgl/ops/shape.js
+npm notice 609B lib/onnxjs/backends/webgl/ops/shape.js.map
+npm notice 588B lib/onnxjs/backends/webgl/ops/shape.ts
+npm notice 5.0kB lib/onnxjs/backends/webgl/ops/slice.js
+npm notice 5.7kB lib/onnxjs/backends/webgl/ops/slice.js.map
+npm notice 5.4kB lib/onnxjs/backends/webgl/ops/slice.ts
+npm notice 10.8kB lib/onnxjs/backends/webgl/ops/softmax.js
+npm notice 7.9kB lib/onnxjs/backends/webgl/ops/softmax.js.map
+npm notice 11.3kB lib/onnxjs/backends/webgl/ops/softmax.ts
+npm notice 2.9kB lib/onnxjs/backends/webgl/ops/split.js
+npm notice 2.9kB lib/onnxjs/backends/webgl/ops/split.js.map
+npm notice 3.4kB lib/onnxjs/backends/webgl/ops/split.ts
+npm notice 1.4kB lib/onnxjs/backends/webgl/ops/squeeze.js
+npm notice 1.4kB lib/onnxjs/backends/webgl/ops/squeeze.js.map
+npm notice 1.6kB lib/onnxjs/backends/webgl/ops/squeeze.ts
+npm notice 2.1kB lib/onnxjs/backends/webgl/ops/sum.js
+npm notice 2.4kB lib/onnxjs/backends/webgl/ops/sum.js.map
+npm notice 2.2kB lib/onnxjs/backends/webgl/ops/sum.ts
+npm notice 2.1kB lib/onnxjs/backends/webgl/ops/tile.js
+npm notice 2.2kB lib/onnxjs/backends/webgl/ops/tile.js.map
+npm notice 2.2kB lib/onnxjs/backends/webgl/ops/tile.ts
+npm notice 2.8kB lib/onnxjs/backends/webgl/ops/transpose.js
+npm notice 2.6kB lib/onnxjs/backends/webgl/ops/transpose.js.map
+npm notice 3.3kB lib/onnxjs/backends/webgl/ops/transpose.ts
+npm notice 2.2kB lib/onnxjs/backends/webgl/ops/uint8-encode.js
+npm notice 866B lib/onnxjs/backends/webgl/ops/uint8-encode.js.map
+npm notice 2.1kB lib/onnxjs/backends/webgl/ops/uint8-encode.ts
+npm notice 11.3kB lib/onnxjs/backends/webgl/ops/unary-op.js
+npm notice 10.0kB lib/onnxjs/backends/webgl/ops/unary-op.js.map
+npm notice 11.7kB lib/onnxjs/backends/webgl/ops/unary-op.ts
+npm notice 2.2kB lib/onnxjs/backends/webgl/ops/unpack.js
+npm notice 1.9kB lib/onnxjs/backends/webgl/ops/unpack.js.map
+npm notice 2.1kB lib/onnxjs/backends/webgl/ops/unpack.ts
+npm notice 1.4kB lib/onnxjs/backends/webgl/ops/unsqueeze.js
+npm notice 1.4kB lib/onnxjs/backends/webgl/ops/unsqueeze.js.map
+npm notice 1.6kB lib/onnxjs/backends/webgl/ops/unsqueeze.ts
+npm notice 11.7kB lib/onnxjs/backends/webgl/ops/upsample.js
+npm notice 7.2kB lib/onnxjs/backends/webgl/ops/upsample.js.map
+npm notice 12.3kB lib/onnxjs/backends/webgl/ops/upsample.ts
+npm notice 6.8kB lib/onnxjs/backends/webgl/program-manager.js
+npm notice 6.0kB lib/onnxjs/backends/webgl/program-manager.js.map
+npm notice 7.5kB lib/onnxjs/backends/webgl/program-manager.ts
+npm notice 3.1kB lib/onnxjs/backends/webgl/session-handler.js
+npm notice 2.8kB lib/onnxjs/backends/webgl/session-handler.js.map
+npm notice 3.6kB lib/onnxjs/backends/webgl/session-handler.ts
+npm notice 3.9kB lib/onnxjs/backends/webgl/texture-data-encoder.js
+npm notice 4.1kB lib/onnxjs/backends/webgl/texture-data-encoder.js.map
+npm notice 5.4kB lib/onnxjs/backends/webgl/texture-data-encoder.ts
+npm notice 8.2kB lib/onnxjs/backends/webgl/texture-layout-strategy.js
+npm notice 8.8kB lib/onnxjs/backends/webgl/texture-layout-strategy.js.map
+npm notice 8.5kB lib/onnxjs/backends/webgl/texture-layout-strategy.ts
+npm notice 3.0kB lib/onnxjs/backends/webgl/texture-layout.js
+npm notice 2.6kB lib/onnxjs/backends/webgl/texture-layout.js.map
+npm notice 2.8kB lib/onnxjs/backends/webgl/texture-layout.ts
+npm notice 8.0kB lib/onnxjs/backends/webgl/texture-manager.js
+npm notice 7.1kB lib/onnxjs/backends/webgl/texture-manager.js.map
+npm notice 8.8kB lib/onnxjs/backends/webgl/texture-manager.ts
+npm notice 694B lib/onnxjs/backends/webgl/types.js
+npm notice 278B lib/onnxjs/backends/webgl/types.js.map
+npm notice 3.7kB lib/onnxjs/backends/webgl/types.ts
+npm notice 3.4kB lib/onnxjs/backends/webgl/utils.js
+npm notice 2.6kB lib/onnxjs/backends/webgl/utils.js.map
+npm notice 3.1kB lib/onnxjs/backends/webgl/utils.ts
+npm notice 3.4kB lib/onnxjs/backends/webgl/webgl-context-factory.js
+npm notice 3.1kB lib/onnxjs/backends/webgl/webgl-context-factory.js.map
+npm notice 3.6kB lib/onnxjs/backends/webgl/webgl-context-factory.ts
+npm notice 19.8kB lib/onnxjs/backends/webgl/webgl-context.js
+npm notice 18.1kB lib/onnxjs/backends/webgl/webgl-context.js.map
+npm notice 21.0kB lib/onnxjs/backends/webgl/webgl-context.ts
+npm notice 5.2kB lib/onnxjs/execution-plan.js
+npm notice 5.3kB lib/onnxjs/execution-plan.js.map
+npm notice 5.4kB lib/onnxjs/execution-plan.ts
+npm notice 26.8kB lib/onnxjs/graph.js
+npm notice 25.0kB lib/onnxjs/graph.js.map
+npm notice 28.0kB lib/onnxjs/graph.ts
+npm notice 9.9kB lib/onnxjs/instrument.js
+npm notice 10.0kB lib/onnxjs/instrument.js.map
+npm notice 14.9kB lib/onnxjs/instrument.ts
+npm notice 4.0kB lib/onnxjs/model.js
+npm notice 2.3kB lib/onnxjs/model.js.map
+npm notice 2.6kB lib/onnxjs/model.ts
+npm notice 509B lib/onnxjs/operators.js
+npm notice 386B lib/onnxjs/operators.js.map
+npm notice 878B lib/onnxjs/operators.ts
+npm notice 1.8kB lib/onnxjs/opset.js
+npm notice 1.9kB lib/onnxjs/opset.js.map
+npm notice 2.5kB lib/onnxjs/opset.ts
+npm notice 9.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs.js
+npm notice 1.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs.js.map
+npm notice 2.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs.ts
+npm notice 3.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/arg-type-and-index.js
+npm notice 2.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/arg-type-and-index.js.map
+npm notice 2.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/arg-type-and-index.ts
+npm notice 519B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/arg-type.js
+npm notice 229B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/arg-type.js.map
+npm notice 256B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/arg-type.ts
+npm notice 1.3kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/attribute-type.js
+npm notice 421B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/attribute-type.js.map
+npm notice 433B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/attribute-type.ts
+npm notice 9.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/attribute.js
+npm notice 10.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/attribute.js.map
+npm notice 9.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/attribute.ts
+npm notice 5.2kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-kernel-create-infos.js
+npm notice 4.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-kernel-create-infos.js.map
+npm notice 4.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-kernel-create-infos.ts
+npm notice 3.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-node-index-and-kernel-def-hash.js
+npm notice 2.2kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-node-index-and-kernel-def-hash.js.map
+npm notice 2.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-node-index-and-kernel-def-hash.ts
+npm notice 4.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-session-state.js
+npm notice 3.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-session-state.js.map
+npm notice 3.7kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-session-state.ts
+npm notice 3.7kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-sub-graph-session-state.js
+npm notice 2.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-sub-graph-session-state.js.map
+npm notice 2.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/deprecated-sub-graph-session-state.ts
+npm notice 710B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension-value-type.js
+npm notice 277B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension-value-type.js.map
+npm notice 281B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension-value-type.ts
+npm notice 4.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension-value.js
+npm notice 2.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension-value.js.map
+npm notice 2.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension-value.ts
+npm notice 3.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension.js
+npm notice 2.2kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension.js.map
+npm notice 2.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/dimension.ts
+npm notice 885B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/edge-end.js
+npm notice 969B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/edge-end.js.map
+npm notice 1.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/edge-end.ts
+npm notice 9.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/graph.js
+npm notice 9.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/graph.js.map
+npm notice 9.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/graph.ts
+npm notice 4.2kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/inference-session.js
+npm notice 2.7kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/inference-session.js.map
+npm notice 3.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/inference-session.ts
+npm notice 4.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/kernel-type-str-args-entry.js
+npm notice 3.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/kernel-type-str-args-entry.js.map
+npm notice 3.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/kernel-type-str-args-entry.ts
+npm notice 4.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/kernel-type-str-resolver.js
+npm notice 2.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/kernel-type-str-resolver.js.map
+npm notice 2.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/kernel-type-str-resolver.ts
+npm notice 3.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/map-type.js
+npm notice 1.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/map-type.js.map
+npm notice 1.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/map-type.ts
+npm notice 6.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/model.js
+npm notice 6.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/model.js.map
+npm notice 6.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/model.ts
+npm notice 4.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node-edge.js
+npm notice 3.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node-edge.js.map
+npm notice 3.3kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node-edge.ts
+npm notice 536B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node-type.js
+npm notice 231B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node-type.js.map
+npm notice 260B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node-type.ts
+npm notice 10.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node.js
+npm notice 10.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node.js.map
+npm notice 11.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/node.ts
+npm notice 6.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/nodes-to-optimize-indices.js
+npm notice 5.3kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/nodes-to-optimize-indices.js.map
+npm notice 5.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/nodes-to-optimize-indices.ts
+npm notice 4.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/op-id-kernel-type-str-args-entry.js
+npm notice 3.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/op-id-kernel-type-str-args-entry.js.map
+npm notice 3.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/op-id-kernel-type-str-args-entry.ts
+npm notice 3.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/operator-set-id.js
+npm notice 2.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/operator-set-id.js.map
+npm notice 2.3kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/operator-set-id.ts
+npm notice 5.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimization-record-container-entry.js
+npm notice 3.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimization-record-container-entry.js.map
+npm notice 4.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimization-record-container-entry.ts
+npm notice 4.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimization-record.js
+npm notice 3.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimization-record.js.map
+npm notice 3.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimization-record.ts
+npm notice 4.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimizations.js
+npm notice 2.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimizations.js.map
+npm notice 2.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/runtime-optimizations.ts
+npm notice 3.3kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/sequence-type.js
+npm notice 1.7kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/sequence-type.js.map
+npm notice 1.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/sequence-type.ts
+npm notice 3.6kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/shape.js
+npm notice 2.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/shape.js.map
+npm notice 2.3kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/shape.ts
+npm notice 4.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/sparse-tensor.js
+npm notice 3.0kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/sparse-tensor.js.map
+npm notice 2.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/sparse-tensor.ts
+npm notice 3.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/string-string-entry.js
+npm notice 2.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/string-string-entry.js.map
+npm notice 2.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/string-string-entry.ts
+npm notice 1.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor-data-type.js
+npm notice 559B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor-data-type.js.map
+npm notice 571B lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor-data-type.ts
+npm notice 3.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor-type-and-shape.js
+npm notice 1.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor-type-and-shape.js.map
+npm notice 2.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor-type-and-shape.ts
+npm notice 6.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor.js
+npm notice 6.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor.js.map
+npm notice 6.7kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/tensor.ts
+npm notice 1.9kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/type-info-value.js
+npm notice 1.1kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/type-info-value.js.map
+npm notice 1.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/type-info-value.ts
+npm notice 3.8kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/type-info.js
+npm notice 2.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/type-info.js.map
+npm notice 2.7kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/type-info.ts
+npm notice 3.5kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/value-info.js
+npm notice 2.3kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/value-info.js.map
+npm notice 2.4kB lib/onnxjs/ort-schema/flatbuffers/onnxruntime/fbs/value-info.ts
+npm notice 981B lib/onnxjs/ort-schema/flatbuffers/ort-generated.js
+npm notice 138B lib/onnxjs/ort-schema/flatbuffers/ort-generated.js.map
+npm notice 35B lib/onnxjs/ort-schema/flatbuffers/ort-generated.ts
+npm notice 1.2kB lib/onnxjs/ort-schema/flatbuffers/README.md
+npm notice 92.7kB lib/onnxjs/ort-schema/protobuf/onnx.d.ts
+npm notice 303.4kB lib/onnxjs/ort-schema/protobuf/onnx.js
+npm notice 749B lib/onnxjs/ort-schema/protobuf/README.md
+npm notice 1.9kB lib/onnxjs/session-handler-inference.ts
+npm notice 7.8kB lib/onnxjs/session.js
+npm notice 7.5kB lib/onnxjs/session.js.map
+npm notice 9.1kB lib/onnxjs/session.ts
+npm notice 15.5kB lib/onnxjs/tensor.js
+npm notice 12.3kB lib/onnxjs/tensor.js.map
+npm notice 15.2kB lib/onnxjs/tensor.ts
+npm notice 45.0kB lib/onnxjs/util.js
+npm notice 36.4kB lib/onnxjs/util.js.map
+npm notice 48.3kB lib/onnxjs/util.ts
+npm notice 253B lib/version.ts
+npm notice 35.4kB lib/wasm/jsep/backend-webgpu.ts
+npm notice 12.1kB lib/wasm/jsep/backend-webnn.ts
+npm notice 11.3kB lib/wasm/jsep/init.ts
+npm notice 1.4kB lib/wasm/jsep/log.ts
+npm notice 788B lib/wasm/jsep/README.md
+npm notice 1.5kB lib/wasm/jsep/tensor-view.ts
+npm notice 19.5kB lib/wasm/jsep/util.ts
+npm notice 865B lib/wasm/jsep/webgpu/attribute-with-cache-key.ts
+npm notice 15.9kB lib/wasm/jsep/webgpu/gpu-data-manager.ts
+npm notice 7.3kB lib/wasm/jsep/webgpu/op-resolve-rules.ts
+npm notice 1.3kB lib/wasm/jsep/webgpu/ops/3rd-party/activation_util.ts
+npm notice 12.2kB lib/wasm/jsep/webgpu/ops/3rd-party/conv_backprop_mm_webgpu.ts
+npm notice 13.4kB lib/wasm/jsep/webgpu/ops/3rd-party/conv_backprop_webgpu.ts
+npm notice 1.2kB lib/wasm/jsep/webgpu/ops/3rd-party/conv_util.ts
+npm notice 13.1kB lib/wasm/jsep/webgpu/ops/3rd-party/conv2d_mm_webgpu.ts
+npm notice 19.4kB lib/wasm/jsep/webgpu/ops/3rd-party/conv3d_naive_webgpu.ts
+npm notice 22.0kB lib/wasm/jsep/webgpu/ops/3rd-party/matmul_packed_webgpu.ts
+npm notice 3.4kB lib/wasm/jsep/webgpu/ops/argminmax.ts
+npm notice 40.2kB lib/wasm/jsep/webgpu/ops/attention.ts
+npm notice 6.7kB lib/wasm/jsep/webgpu/ops/batch-norm.ts
+npm notice 2.3kB lib/wasm/jsep/webgpu/ops/bias-add.ts
+npm notice 2.6kB lib/wasm/jsep/webgpu/ops/bias-split-gelu.ts
+npm notice 11.4kB lib/wasm/jsep/webgpu/ops/binary-op.ts
+npm notice 35.2kB lib/wasm/jsep/webgpu/ops/common.ts
+npm notice 6.2kB lib/wasm/jsep/webgpu/ops/concat.ts
+npm notice 11.5kB lib/wasm/jsep/webgpu/ops/conv-grouped.ts
+npm notice 12.0kB lib/wasm/jsep/webgpu/ops/conv-transpose.ts
+npm notice 15.8kB lib/wasm/jsep/webgpu/ops/conv.ts
+npm notice 3.7kB lib/wasm/jsep/webgpu/ops/cumsum.ts
+npm notice 4.7kB lib/wasm/jsep/webgpu/ops/depth-to-space.ts
+npm notice 17.2kB lib/wasm/jsep/webgpu/ops/dft.ts
+npm notice 13.2kB lib/wasm/jsep/webgpu/ops/einsum.ts
+npm notice 4.9kB lib/wasm/jsep/webgpu/ops/expand.ts
+npm notice 3.0kB lib/wasm/jsep/webgpu/ops/fast-gelu.ts
+npm notice 3.5kB lib/wasm/jsep/webgpu/ops/fuse-utils.ts
+npm notice 9.0kB lib/wasm/jsep/webgpu/ops/gather-block-quantized.ts
+npm notice 4.1kB lib/wasm/jsep/webgpu/ops/gather-elements.ts
+npm notice 7.1kB lib/wasm/jsep/webgpu/ops/gather-nd.ts
+npm notice 5.4kB lib/wasm/jsep/webgpu/ops/gather.ts
+npm notice 11.3kB lib/wasm/jsep/webgpu/ops/gemm.ts
+npm notice 10.2kB lib/wasm/jsep/webgpu/ops/grid-sample.ts
+npm notice 17.4kB lib/wasm/jsep/webgpu/ops/group-query-attention.ts
+npm notice 10.3kB lib/wasm/jsep/webgpu/ops/instance-norm.ts
+npm notice 5.7kB lib/wasm/jsep/webgpu/ops/layer-norm.ts
+npm notice 7.4kB lib/wasm/jsep/webgpu/ops/matmul-shaders.ts
+npm notice 2.0kB lib/wasm/jsep/webgpu/ops/matmul.ts
+npm notice 23.4kB lib/wasm/jsep/webgpu/ops/matmulnbits.ts
+npm notice 15.9kB lib/wasm/jsep/webgpu/ops/multihead-attention.ts
+npm notice 8.8kB lib/wasm/jsep/webgpu/ops/pad.ts
+npm notice 20.1kB lib/wasm/jsep/webgpu/ops/pool.ts
+npm notice 11.1kB lib/wasm/jsep/webgpu/ops/quantize-linear.ts
+npm notice 3.1kB lib/wasm/jsep/webgpu/ops/range.ts
+npm notice 9.6kB lib/wasm/jsep/webgpu/ops/reduce-shared.ts
+npm notice 13.9kB lib/wasm/jsep/webgpu/ops/reduce.ts
+npm notice 34.4kB lib/wasm/jsep/webgpu/ops/resize.ts
+npm notice 8.4kB lib/wasm/jsep/webgpu/ops/rotary-embedding.ts
+npm notice 6.5kB lib/wasm/jsep/webgpu/ops/scatter-nd.ts
+npm notice 9.0kB lib/wasm/jsep/webgpu/ops/skip-layer-norm.ts
+npm notice 8.6kB lib/wasm/jsep/webgpu/ops/slice.ts
+npm notice 6.9kB lib/wasm/jsep/webgpu/ops/softmax.ts
+npm notice 5.8kB lib/wasm/jsep/webgpu/ops/split.ts
+npm notice 3.7kB lib/wasm/jsep/webgpu/ops/tile.ts
+npm notice 8.3kB lib/wasm/jsep/webgpu/ops/transpose.ts
+npm notice 15.5kB lib/wasm/jsep/webgpu/ops/unary-op.ts
+npm notice 4.9kB lib/wasm/jsep/webgpu/ops/where.ts
+npm notice 5.8kB lib/wasm/jsep/webgpu/program-manager.ts
+npm notice 6.1kB lib/wasm/jsep/webgpu/types.ts
+npm notice 20.3kB lib/wasm/jsep/webnn/tensor-manager.ts
+npm notice 13.7kB lib/wasm/jsep/webnn/webnn.d.ts
+npm notice 3.3kB lib/wasm/proxy-messages.ts
+npm notice 7.3kB lib/wasm/proxy-worker/main.ts
+npm notice 9.6kB lib/wasm/proxy-wrapper.ts
+npm notice 2.4kB lib/wasm/run-options.ts
+npm notice 5.2kB lib/wasm/session-handler-inference.ts
+npm notice 12.3kB lib/wasm/session-options.ts
+npm notice 6.9kB lib/wasm/wasm-common.ts
+npm notice 43.9kB lib/wasm/wasm-core-impl.ts
+npm notice 9.1kB lib/wasm/wasm-factory.ts
+npm notice 18.4kB lib/wasm/wasm-types.ts
+npm notice 200B lib/wasm/wasm-utils-env.ts
+npm notice 12.1kB lib/wasm/wasm-utils-import.ts
+npm notice 3.1kB lib/wasm/wasm-utils-load-file.ts
+npm notice 2.3kB lib/wasm/wasm-utils.ts
+npm notice 4.6kB package.json
+npm notice 564B types.d.ts
+npm notice Tarball Details
+npm notice name: onnxruntime-web
+npm notice version: 1.31.0-dev.20260914-8d85527a0
+npm notice filename: onnxruntime-web-1.31.0-dev.20260914-8d85527a0.tgz
+npm notice package size: 33.2 MB
+npm notice unpacked size: 144.9 MB
+npm notice shasum: b8b660a1ee7d75e6e65d5e8764c1d9d227f79847
+npm notice integrity: sha512-Iy7rtadoBgxS/[...]PL8XIuqtDeF6g==
+npm notice total files: 510
+npm notice
+onnxruntime-web-1.31.0-dev.20260914-8d85527a0.tgz
++ tar xzf onnxruntime-web-1.31.0-dev.20260914-8d85527a0.tgz
++ ls package
+README.md
+__commit.txt
+dist
+docs
+lib
+package.json
+types.d.ts
++ ls -la package/dist
++ grep -v '\.map$'
+total 138516
+drwxr-xr-x 2 runner runner     4096 Oct 12 13:18 .
+drwxr-xr-x 5 runner runner     4096 Oct 12 13:18 ..
+-rw-r--r-- 1 runner runner    53057 Oct 26  1985 ort-wasm-simd-threaded.asyncify.mjs
+-rw-r--r-- 1 runner runner 26861777 Oct 26  1985 ort-wasm-simd-threaded.asyncify.wasm
+-rw-r--r-- 1 runner runner    46851 Oct 26  1985 ort-wasm-simd-threaded.jsep.mjs
+-rw-r--r-- 1 runner runner 28352885 Oct 26  1985 ort-wasm-simd-threaded.jsep.wasm
+-rw-r--r-- 1 runner runner    50918 Oct 26  1985 ort-wasm-simd-threaded.jspi.mjs
+-rw-r--r-- 1 runner runner 16811691 Oct 26  1985 ort-wasm-simd-threaded.jspi.wasm
+-rw-r--r-- 1 runner runner    24381 Oct 26  1985 ort-wasm-simd-threaded.mjs
+-rw-r--r-- 1 runner runner 14264838 Oct 26  1985 ort-wasm-simd-threaded.wasm
+-rw-r--r-- 1 runner runner   865411 Oct 26  1985 ort.all.bundle.min.mjs
+-rw-r--r-- 1 runner runner  6016338 Oct 26  1985 ort.all.js
+-rw-r--r-- 1 runner runner   819677 Oct 26  1985 ort.all.min.js
+-rw-r--r-- 1 runner runner   819606 Oct 26  1985 ort.all.min.mjs
+-rw-r--r-- 1 runner runner  5933900 Oct 26  1985 ort.all.mjs
+-rw-r--r-- 1 runner runner   413592 Oct 26  1985 ort.bundle.min.mjs
+-rw-r--r-- 1 runner runner  2676835 Oct 26  1985 ort.js
+-rw-r--r-- 1 runner runner   116069 Oct 26  1985 ort.jspi.bundle.min.mjs
+-rw-r--r-- 1 runner runner   690335 Oct 26  1985 ort.jspi.js
+-rw-r--r-- 1 runner runner    66775 Oct 26  1985 ort.jspi.min.js
+-rw-r--r-- 1 runner runner    66705 Oct 26  1985 ort.jspi.min.mjs
+-rw-r--r-- 1 runner runner   680603 Oct 26  1985 ort.jspi.mjs
+-rw-r--r-- 1 runner runner   368094 Oct 26  1985 ort.min.js
+-rw-r--r-- 1 runner runner   368019 Oct 26  1985 ort.min.mjs
+-rw-r--r-- 1 runner runner  2644133 Oct 26  1985 ort.mjs
+-rw-r--r-- 1 runner runner    27206 Oct 26  1985 ort.node.min.js
+-rw-r--r-- 1 runner runner    27107 Oct 26  1985 ort.node.min.mjs
+-rw-r--r-- 1 runner runner    73123 Oct 26  1985 ort.wasm.bundle.min.mjs
+-rw-r--r-- 1 runner runner   589760 Oct 26  1985 ort.wasm.js
+-rw-r--r-- 1 runner runner    50265 Oct 26  1985 ort.wasm.min.js
+-rw-r--r-- 1 runner runner    50195 Oct 26  1985 ort.wasm.min.mjs
+-rw-r--r-- 1 runner runner   581658 Oct 26  1985 ort.wasm.mjs
+-rw-r--r-- 1 runner runner  3590362 Oct 26  1985 ort.webgl.js
+-rw-r--r-- 1 runner runner   472375 Oct 26  1985 ort.webgl.min.js
+-rw-r--r-- 1 runner runner   472236 Oct 26  1985 ort.webgl.min.mjs
+-rw-r--r-- 1 runner runner  3537266 Oct 26  1985 ort.webgl.mjs
+-rw-r--r-- 1 runner runner   117929 Oct 26  1985 ort.webgpu.bundle.min.mjs
+-rw-r--r-- 1 runner runner   690318 Oct 26  1985 ort.webgpu.js
+-rw-r--r-- 1 runner runner    66611 Oct 26  1985 ort.webgpu.min.js
+-rw-r--r-- 1 runner runner    66543 Oct 26  1985 ort.webgpu.min.mjs
+-rw-r--r-- 1 runner runner   680586 Oct 26  1985 ort.webgpu.mjs
++ cd /home/runner/work/tainik/tainik
++ node scripts/fetch-stt.mjs out --print-hashes
+  'runtime/transformers.min.js': '8d6716d9086f57c30a4bf367dba61b887593573c770c454465e8019b2703e743',
+  'runtime/LICENSE-transformers': 'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30',
+  'runtime/ort-wasm-simd-threaded.mjs': 'c57ca56328877353a575e51bbca6f18450027d6c9bf2307a2cb2c41363b4de9f',
+  'runtime/ort-wasm-simd-threaded.wasm': '06ba057753da3847e4c24f02d91ab133455b0817c69a44993a9a53a2146df9e3',
+  'runtime/ort-wasm-simd-threaded.asyncify.mjs': '0966b6105cd936744498aa60df7a22cbd47af3374dbc64a9ab561c08a71e3611',
+  'runtime/ort-wasm-simd-threaded.asyncify.wasm': '49871f5a4409519797e127440868a6d1923339d9185907f301a5b2a1d90af082',
+  'models/whisper-base/config.json': 'f4d0608f7d918166da7edb3e188de5ef1bfe70d9802e785d271fd88111e9cf4b',
+  'models/whisper-base/generation_config.json': '61070cf8de25b1e9256e8e102ded49d8d24a8369ed36ef84fdf21549e68125a0',
+  'models/whisper-base/preprocessor_config.json': 'a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d',
+  'models/whisper-base/tokenizer.json': '27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566',
+  'models/whisper-base/tokenizer_config.json': '2e036e4dbacfdeb7242c7d4ec4149f4a16e86026048f94d1637e3a8ee9c6a573',
+  'models/whisper-base/onnx/encoder_model_quantized.onnx': '5862993336bf33acd23736071aae2b32261d3b1b2f37780194460d4ef974dd46',
+  'models/whisper-base/onnx/decoder_model_merged_quantized.onnx': 'fa3ef9902734ce5ae6f9ef2bdb2ba9a6c4b5785b09f4f420ce036573dc9d090b',
+STT v1: 13 файлов → out/v1
++ du -ah out
++ sort -h
++ tail -30
+4.0K	out/v1/models/whisper-base/config.json
+4.0K	out/v1/models/whisper-base/generation_config.json
+4.0K	out/v1/models/whisper-base/preprocessor_config.json
+12K	out/v1/runtime/LICENSE-transformers
+24K	out/v1/runtime/ort-wasm-simd-threaded.mjs
+52K	out/v1/runtime/ort-wasm-simd-threaded.asyncify.mjs
+280K	out/v1/models/whisper-base/tokenizer_config.json
+576K	out/v1/runtime/transformers.min.js
+2.4M	out/v1/models/whisper-base/tokenizer.json
+14M	out/v1/runtime/ort-wasm-simd-threaded.wasm
+23M	out/v1/models/whisper-base/onnx/encoder_model_quantized.onnx
+26M	out/v1/runtime/ort-wasm-simd-threaded.asyncify.wasm
+40M	out/v1/runtime
+52M	out/v1/models/whisper-base/onnx/decoder_model_merged_quantized.onnx
+74M	out/v1/models/whisper-base/onnx
+76M	out/v1/models
+76M	out/v1/models/whisper-base
+116M	out
+116M	out/v1
++ git config user.name probe
++ git config user.email probe@example.com
++ git config http.postBuffer 524288000
++ git checkout -b o
+Switched to a new branch 'o'
++ git add -f out/v1/runtime out/v1/models/whisper-base/config.json out/v1/models/whisper-base/generation_config.json out/v1/models/whisper-base/preprocessor_config.json out/v1/models/whisper-base/tokenizer.json out/v1/models/whisper-base/tokenizer_config.json
++ git commit -qm p1
++ git push --force origin o:stt-probe-out
+remote: error: GH013: Repository rule violations found for refs/heads/stt-probe-out.        
+remote: 
+remote: - GITHUB PUSH PROTECTION        
+remote:   —————————————————————————————————————————        
+remote:     Resolve the following violations before pushing again        
+remote: 
+remote:     - Push cannot contain secrets        
+remote: 
+remote:             
+remote:      (?) Learn how to resolve a blocked push        
+remote:      https://docs.github.com/code-security/secret-scanning/working-with-secret-scanning-and-push-protection/working-with-push-protection-from-the-command-line#resolving-a-blocked-push        
+remote:             
+remote:             
+remote:       —— Mistral AI API Key ————————————————————————————————        
+remote:        locations:        
+remote:          - commit: 13364e9a993be1266159cd080a18ab036e0c3763        
+remote:            path: out/v1/runtime/transformers.min.js:40        
+remote:             
+remote:        (?) To push, remove secret from commit(s) or follow this URL to allow the secret.        
+remote:        https://github.com/nshimanovskiy/tainik/security/secret-scanning/unblock-secret/3KazYfERPfu6qlpU0Etpd6eTe64        
+remote:             
+remote: 
+remote: 
+To https://github.com/nshimanovskiy/tainik
+ ! [remote rejected] o -> stt-probe-out (push declined due to repository rule violations)
+error: failed to push some refs to 'https://github.com/nshimanovskiy/tainik'
++ true
++ git add -f out/v1/models/whisper-base/onnx/encoder_model_quantized.onnx
++ git commit -qm p2
++ git push origin o:stt-probe-out
+remote: error: GH013: Repository rule violations found for refs/heads/stt-probe-out.        
+remote: 
+remote: - GITHUB PUSH PROTECTION        
+remote:   —————————————————————————————————————————        
+remote:     Resolve the following violations before pushing again        
+remote: 
+remote:     - Push cannot contain secrets        
+remote: 
+remote:             
+remote:      (?) Learn how to resolve a blocked push        
+remote:      https://docs.github.com/code-security/secret-scanning/working-with-secret-scanning-and-push-protection/working-with-push-protection-from-the-command-line#resolving-a-blocked-push        
+remote:             
+remote:             
+remote:       —— Mistral AI API Key ————————————————————————————————        
+remote:        locations:        
+remote:          - commit: 13364e9a993be1266159cd080a18ab036e0c3763        
+remote:            path: out/v1/runtime/transformers.min.js:40        
+remote:             
+remote:        (?) To push, remove secret from commit(s) or follow this URL to allow the secret.        
+remote:        https://github.com/nshimanovskiy/tainik/security/secret-scanning/unblock-secret/3KazYfERPfu6qlpU0Etpd6eTe64        
+remote:             
+remote: 
+remote: 
+To https://github.com/nshimanovskiy/tainik
+ ! [remote rejected] o -> stt-probe-out (push declined due to repository rule violations)
+error: failed to push some refs to 'https://github.com/nshimanovskiy/tainik'
++ true
++ git add -f out/v1/models/whisper-base/onnx/decoder_model_merged_quantized.onnx
++ git commit -qm p3
++ git push origin o:stt-probe-out
+remote: warning: See https://gh.io/lfs for more information.        
+remote: warning: File out/v1/models/whisper-base/onnx/decoder_model_merged_quantized.onnx is 51.21 MB; this is larger than GitHub's recommended maximum file size of 50.00 MB        
+remote: warning: GH001: Large files detected. You may want to try Git Large File Storage - https://git-lfs.github.com.        
+remote: error: GH013: Repository rule violations found for refs/heads/stt-probe-out.        
+remote: 
+remote: - GITHUB PUSH PROTECTION        
+remote:   —————————————————————————————————————————        
+remote:     Resolve the following violations before pushing again        
+remote: 
+remote:     - Push cannot contain secrets        
+remote: 
+remote:             
+remote:      (?) Learn how to resolve a blocked push        
+remote:      https://docs.github.com/code-security/secret-scanning/working-with-secret-scanning-and-push-protection/working-with-push-protection-from-the-command-line#resolving-a-blocked-push        
+remote:             
+remote:             
+remote:       —— Mistral AI API Key ————————————————————————————————        
+remote:        locations:        
+remote:          - commit: 13364e9a993be1266159cd080a18ab036e0c3763        
+remote:            path: out/v1/runtime/transformers.min.js:40        
+remote:             
+remote:        (?) To push, remove secret from commit(s) or follow this URL to allow the secret.        
+remote:        https://github.com/nshimanovskiy/tainik/security/secret-scanning/unblock-secret/3KazYfERPfu6qlpU0Etpd6eTe64        
+remote:             
+remote: 
+remote: 
+To https://github.com/nshimanovskiy/tainik
+ ! [remote rejected] o -> stt-probe-out (push declined due to repository rule violations)
+error: failed to push some refs to 'https://github.com/nshimanovskiy/tainik'
++ true
++ git checkout -b l HEAD~3 -q
++ git add -f probe.txt
