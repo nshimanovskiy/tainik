@@ -81,7 +81,7 @@ export const PROFILE_SCHEMA = 3;
 // Формат своих настроек (папки, архив, закрепления, свои имена). Поднимается, когда синхронизируется
 // новое: после обновления устройство один раз обменивается полным состоянием со своими устройствами
 // (sync-state) — то, что старая версия отбросила, приходит снова.
-export const STATE_SCHEMA = 1;
+export const STATE_SCHEMA = 2; // 2 — запрет копирования (0.48.1)
 const STATE_ALIAS_ROOM = 120_000; // символов под фото своих имён в одном sync-state
 export const PROFILE_VIDEO_SEC = 15;
 /** Свой фон профиля — видео, GIF (0.47.2) или фото JPEG, PNG, WebP (0.47.5). */
@@ -397,6 +397,8 @@ function cleanText(c, tsFallback = Date.now()) {
     if (KINDS.includes(r.kind)) out.reply.kind = r.kind;
     if ((r.as === 'voice' && r.kind === 'audio') || (r.as === 'note' && r.kind === 'video')) out.reply.as = r.as;
   }
+  // Отправитель запретил копирование, пересылку и сохранение (см. setProtect)
+  if (c?.protect === true) out.protect = true;
   // Пересланное: от кого (имя для показа)
   if (typeof c?.fwd === 'string') {
     const fwd = cleanProfileText(c.fwd, NAME_MAX).replace(/\n/g, ' ');
@@ -458,6 +460,7 @@ export const ERROR_TEXT = {
   premium_shop: t('Этот товар бесплатен с подпиской Премиум'),
   premium_video: t('Свой фон профиля — с подпиской Премиум'),
   shop_unknown: t('Этого товара больше нет в магазине'),
+  protected: t('Собеседник запретил пересылать и сохранять свои сообщения в этом чате'),
   shop_owned: t('Этот товар уже ваш'),
   shop_free: t('Этот товар бесплатный — его можно просто надеть'),
   shop_not_owned: t('Сначала купите этот товар'),
@@ -754,6 +757,7 @@ export class MessengerClient extends Emitter {
       if (c.shareProfile) contacts[c.username].shareProfile = true;
       const alias = cleanAlias(c.alias);
       if (alias) Object.assign(contacts[c.username], { alias, aliasTs: 1 });
+      for (const f of ['protect', 'peerProtect']) if (Number.isFinite(c[f]?.ts)) contacts[c.username][f] = { on: c[f].on === true, ts: c[f].ts };
     }
     // Группы: состав и название (переписка, как и в личных чатах, не переносится)
     for (const raw of Array.isArray(p.groups) ? p.groups : []) {
@@ -813,7 +817,7 @@ export class MessengerClient extends Emitter {
           if (profile.avatar.length <= room) room -= profile.avatar.length;
           else profile = { ...profile, avatar: undefined };
         }
-        return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile, alias: aliases.get(c.username) };
+        return { username: c.username, keys: c.keys, verified: !!c.verified, profile, shareProfile: !!c.shareProfile, alias: aliases.get(c.username), protect: c.protect, peerProtect: c.peerProtect };
       })
       .filter((c) => !isGroupChat(c.username) && !isChannelChat(c.username) && !isSystemChat(c.username) && !isSupportChat(c.username));
     const groups = Object.values(await this.contacts())
@@ -1751,11 +1755,17 @@ export class MessengerClient extends Emitter {
     this._aliases.clear();
     (this._verifiedChats ||= new Set()).clear();
     (this._archived ||= new Set()).clear();
+    (this._protectMine ||= new Set()).clear();
+    (this._protectPeer ||= new Set()).clear();
+    (this._protectPeerKnown ||= new Set()).clear();
     (this._top ||= new Set()).clear();
     (this._official ||= new Set()).clear();
     for (const c of Object.values(all || {})) {
       if ((c.group && c.verifiedMark) || c.channel?.verified) this._verifiedChats.add(c.username);
       if (c.archived) this._archived.add(c.username);
+      if (c.protect?.on) this._protectMine.add(c.username);
+      if (c.peerProtect?.on) this._protectPeer.add(c.username);
+      if (Number.isFinite(c.peerProtect?.ts)) this._protectPeerKnown.add(c.username);
       if (c.top) this._top.add(c.username);
       if (c.channel?.owner === NEWS_OWNER) this._official.add(c.username);
       if (c.group) this._names.set(c.username, c.group.name);
@@ -1880,13 +1890,14 @@ export class MessengerClient extends Emitter {
    */
   async _ownState() {
     const f = await this.storage.get('folders');
-    const st = { t: 'sync-state', archive: [], top: [], alias: [] };
+    const st = { t: 'sync-state', archive: [], top: [], alias: [], protect: [] };
     if (f?.v) st.folders = { v: f.v, list: f.list || [] };
     let room = STATE_ALIAS_ROOM;
     const all = Object.values(await this.contacts()).sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
     for (const c of all) {
       if (c.archivedTs) st.archive.push([c.username, !!c.archived, c.archivedTs]);
       if (c.topTs) st.top.push([c.username, !!c.top, c.topTs]);
+      if (c.protect?.ts) st.protect.push([c.username, !!c.protect.on, c.protect.ts]);
       if (c.aliasTs && aliasable(c.username)) {
         let a = c.alias || null;
         if (a?.avatar) {
@@ -1919,6 +1930,12 @@ export class MessengerClient extends Emitter {
       c.topTs = ts;
       if (on === true) c.top = ts;
       else delete c.top;
+      changed = true;
+    }
+    for (const [chat, on, ts] of rows(st.protect)) {
+      const c = aliasable(chat) && all[chat];
+      if (!c || !Number.isFinite(ts) || (c.protect?.ts && c.protect.ts >= ts)) continue;
+      c.protect = { on: on === true, ts };
       changed = true;
     }
     for (const [chat, alias, ts] of rows(st.alias)) {
@@ -2091,6 +2108,8 @@ export class MessengerClient extends Emitter {
    * с пометкой «Переслано от …»; файлы заново не загружаются — пересылается ключ к тому же вложению.
    */
   async forwardMessages(chat, msgs, source = '') {
+    const all = await this.contacts();
+    if (msgs.some((m) => this.isProtected(source, m, all))) throw errorOf('protected');
     for (const m of msgs) {
       const c = m?.content;
       if (!c || m.dir === 'sys' || (c.t !== 'text' && c.t !== 'file')) continue;
@@ -2098,6 +2117,57 @@ export class MessengerClient extends Emitter {
       const base = c.t === 'file' ? { t: 'file', body: c.body || '', file: c.file, fwd } : { t: 'text', body: c.body, fwd };
       await this._sendContent(chat, base, null);
     }
+  }
+
+  // ---------- Запрет копирования, пересылки и сохранения ----------
+  // В личном чате каждый решает за свои сообщения: включили — у собеседника ваши сообщения в этом
+  // чате нельзя скопировать, переслать или сохранить (и старые, и новые). Это уважаемая приложением
+  // договорённость, а не защита: снимок экрана или изменённое приложение её не соблюдают.
+
+  /** Ваш запрет в чате (для ваших сообщений) и запрет собеседника (для его): { mine, peer }. */
+  protectOf(chat, all = null) {
+    if (all) return { mine: !!all[chat]?.protect?.on, peer: !!all[chat]?.peerProtect?.on };
+    return { mine: !!this._protectMine?.has(chat), peer: !!this._protectPeer?.has(chat) };
+  }
+
+  /** Нельзя ли копировать, пересылать и сохранять это сообщение (сообщение собеседника под запретом). */
+  isProtected(chat, m, all = null) {
+    if (!m || m.dir !== 'in') return false;
+    // Настройка собеседника известна — решает она (снял запрет — можно и то, что было под ним);
+    // не дошла (например, старая версия) — пометка на самом сообщении
+    const known = aliasable(chat) && (all ? Number.isFinite(all[chat]?.peerProtect?.ts) : !!this._protectPeerKnown?.has(chat));
+    if (known) return this.protectOf(chat, all).peer;
+    return m.content?.protect === true;
+  }
+
+  /** Включить или выключить запрет для своих сообщений в личном чате. */
+  async setProtect(chat, on) {
+    if (!aliasable(chat) || chat === this.account?.username) throw new Error(t('Запрет можно включить только в личном чате'));
+    const ts = Date.now();
+    await this._serial(async () => {
+      const all = await this.contacts();
+      const c = all[chat];
+      if (!c) throw new Error(t('Нет такого контакта'));
+      if (!(await this._applyProtect(all, chat, 'protect', !!on, ts))) return;
+      const outbox = (await this.storage.get('outbox')) || [];
+      if (!c.keyChanged && !this.isBlocked(chat)) outbox.push({ id: randomId(), to: chat, kind: 'ctl', content: { t: 'protect', on: !!on, ts }, attempts: 0 });
+      outbox.push({ id: randomId(), to: this.account.username, kind: 'ctl', content: { t: 'sync-protect', chat, on: !!on, ts }, attempts: 0 });
+      await this.storage.set('outbox', outbox);
+    });
+    this._pumpOutbox();
+  }
+
+  /** field: 'protect' — свой запрет, 'peerProtect' — запрет собеседника. Побеждает последнее изменение. */
+  async _applyProtect(all, chat, field, on, ts) {
+    const c = all[chat];
+    if (!c || !aliasable(chat) || !Number.isFinite(ts) || (c[field]?.ts && c[field].ts >= ts)) return false;
+    const was = !!c[field]?.on;
+    c[field] = { on: !!on, ts };
+    await this._saveContacts(all);
+    // Отметка в чате — когда запрет действительно включили или сняли (одна на изменение, на всех устройствах та же)
+    if (was !== !!on) await this._appendMsg(chat, { id: `protect-${field === 'protect' ? 'me' : 'peer'}-${ts}`, dir: 'sys', ts, content: { t: 'protect', who: field === 'protect' ? 'me' : 'peer', on: !!on } });
+    this.emit('protect', { chat, ...this.protectOf(chat, all) });
+    return true;
   }
 
   // ---------- Закреплённое сообщение ----------
@@ -2255,6 +2325,7 @@ export class MessengerClient extends Emitter {
       const id = randomId();
       const ts = Date.now();
       const content = { ...base, ts };
+      if (c.protect?.on) content.protect = true; // запрет копирования — пометка на каждом сообщении
       if (replyTo) {
         const orig = (await this.messages(username)).find((m) => m.id === replyTo && m.dir !== 'sys');
         if (orig) content.reply = makeReply(orig, this.account.username, username);
@@ -2262,7 +2333,7 @@ export class MessengerClient extends Emitter {
       const outbox = (await this.storage.get('outbox')) || [];
       this._shareProfileTo(c, outbox); // профиль — перед первым сообщением
       outbox.push({ id, to: username, kind: 'msg', content, attempts: 0 });
-      const sync = { t: 'sync-sent', to: username, body: content.body, ts, reply: content.reply, fwd: content.fwd };
+      const sync = { t: 'sync-sent', to: username, body: content.body, ts, reply: content.reply, fwd: content.fwd, protect: content.protect };
       if (content.file) sync.file = content.file;
       outbox.push({ id, to: this.account.username, kind: 'sync', content: sync, attempts: 0 });
       await this.storage.set('outbox', outbox);
@@ -3527,6 +3598,10 @@ export class MessengerClient extends Emitter {
         }
         return ack(false);
       }
+      if (c?.t === 'sync-protect' && typeof c.chat === 'string') {
+        await this._applyProtect(await this.contacts(), c.chat, 'protect', c.on === true, c.ts);
+        return ack(false);
+      }
       if (c?.t === 'sync-call' && typeof c.chat === 'string' && aliasable(c.chat) && c.msg) {
         await this._applyCallLog(c.chat, c.msg);
         return ack(false);
@@ -3691,6 +3766,10 @@ export class MessengerClient extends Emitter {
     }
     if (res.content?.t === 'pin') {
       await this._applyPin(all, from, res.content.pin ?? null, res.content.ts);
+      return ack(false);
+    }
+    if (res.content?.t === 'protect') {
+      await this._applyProtect(all, from, 'peerProtect', res.content.on === true, res.content.ts);
       return ack(false);
     }
     if (res.content?.t === 'delete' && Array.isArray(res.content.ids)) {

@@ -640,6 +640,8 @@
     <button type="button" data-act="top" role="menuitem"><i class="ic" data-icon="pin"></i>Закрепить</button>
     <button type="button" data-act="untop" role="menuitem"><i class="ic" data-icon="pin"></i>Открепить</button>
     <button type="button" data-act="folders" role="menuitem"><i class="ic" data-icon="folder"></i>Папки…</button>
+    <button type="button" data-act="protect" role="menuitem"><i class="ic" data-icon="lock"></i>Запретить копирование</button>
+    <button type="button" data-act="unprotect" role="menuitem"><i class="ic" data-icon="lock"></i>Разрешить копирование</button>
     <button type="button" data-act="archive" role="menuitem"><i class="ic" data-icon="archive"></i>В архив</button>
     <button type="button" data-act="unarchive" role="menuitem"><i class="ic" data-icon="unarchive"></i>Из архива</button>
     <button type="button" data-act="leave" role="menuitem" class="danger"><i class="ic" data-icon="logout"></i>Покинуть группу</button>
@@ -670,6 +672,8 @@
         </div>
         <div class="set-group">
           <button type="button" class="set-row pf-info" id="pf-username-row" title="Скопировать"><span class="set-ico" aria-hidden="true">@</span><span class="pf-info-text"><b id="pf-username"></b><span class="small muted">Юзернейм</span></span></button>
+          <label class="set-row set-toggle" id="pf-protect-row"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="lock"></i></span><span class="set-label">Запретить копирование и пересылку<span class="small muted set-sublabel">Ваши сообщения и файлы в этом чате нельзя будет скопировать, переслать и сохранить</span></span><input type="checkbox" id="pf-protect"></label>
+          <div class="set-row set-static" id="pf-peer-protect" hidden><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="shield"></i></span><span class="set-label small">Собеседник запретил копировать, пересылать и сохранять его сообщения</span></div>
           <button type="button" class="set-row" id="pf-alias"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="user"></i></span><span class="set-label">Своё имя и фото</span><span class="set-value" id="pf-alias-value"></span><span class="set-chev" aria-hidden="true">›</span></button>
           <div class="set-row set-static pf-info" id="pf-bio-row" hidden><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="pf-bio" class="pf-bio"></span><span class="small muted">О себе</span></span></div>
           <div id="pf-channels"></div>

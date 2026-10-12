@@ -399,6 +399,7 @@ function previewOf(m) {
   if (m.dir === 'sys' && m.content?.t === 'call') return callText(m.content);
   if (m.dir === 'sys' && m.content?.t === 'group') return groupEventText(m.content);
   if (m.dir === 'sys' && m.content?.t === 'gift') return giftText(m.content);
+  if (m.dir === 'sys' && m.content?.t === 'protect') return protectText(m.content);
   if (m.dir === 'sys') return t('Служебное сообщение');
   const body = textOf(m.content);
   const who = m.dir === 'out' ? t('Вы: ') : m.from ? `${nameOf(m.from)}: ` : '';
@@ -1234,6 +1235,11 @@ document.addEventListener('click', (e) => {
   }
 });
 
+/** Отметка о запрете копирования в чате. */
+function protectText(c) {
+  if (c.who === 'me') return c.on ? t('Вы запретили копировать, пересылать и сохранять ваши сообщения в этом чате') : t('Вы сняли запрет на копирование ваших сообщений');
+  return c.on ? t('Собеседник запретил копировать, пересылать и сохранять его сообщения в этом чате') : t('Собеседник снял запрет на копирование своих сообщений');
+}
 function messageNode(m) {
   if (m.dir === 'sys' && m.content?.t === 'call') {
     const li = el('li', 'msg sys call' + (m.content.result === 'missed' ? ' missed' : ''));
@@ -1243,6 +1249,13 @@ function messageNode(m) {
   if (m.dir === 'sys' && m.content?.t === 'gift') {
     const li = el('li', 'msg sys gift');
     li.append(el('div', 'bubble', giftText(m.content)));
+    return li;
+  }
+  if (m.dir === 'sys' && m.content?.t === 'protect') {
+    const li = el('li', 'msg sys protect');
+    const b = el('div', 'bubble');
+    b.append(icon('lock'), protectText(m.content));
+    li.append(b);
     return li;
   }
   if (m.dir === 'sys' && m.content?.t === 'group') {
@@ -1261,6 +1274,8 @@ function messageNode(m) {
   }
   const li = el('li', `msg ${m.dir}${m.status === 'failed' ? ' failed' : ''}`);
   li.dataset.id = m.id;
+  // Собеседник запретил копировать и сохранять свои сообщения: без выделения и меню «Сохранить как»
+  if (client.isProtected(current, m)) li.classList.add('protected');
   msgText.set(m.id, m.content?.t === 'notice' ? noticeText(m.content) : m.content?.body ?? '');
   const bubble = el('div', 'bubble');
   // В группе — кто написал (нажатие открывает профиль участника)
@@ -1594,7 +1609,19 @@ function closeViewer() {
 $('viewer-close').addEventListener('click', closeViewer);
 $('viewer').addEventListener('close', () => viewing && closeViewer());
 $('viewer').addEventListener('click', (e) => e.target === $('viewer-body') && closeViewer());
-$('viewer-save').addEventListener('click', () => viewing && saveMedia(viewing));
+$('viewer-save').addEventListener('click', () => viewing && !$('viewer').classList.contains('protected') && saveMedia(viewing));
+// Под запретом: без «Сохранить картинку как», перетаскивания и копирования
+for (const root of [$('messages'), $('viewer')]) {
+  root?.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.msg.protected, #viewer.protected') && e.target.closest('img, video, audio, .bubble, #viewer-body')) e.preventDefault();
+  });
+  root?.addEventListener('dragstart', (e) => e.target.closest('.msg.protected, #viewer.protected') && e.preventDefault());
+}
+document.addEventListener('copy', (e) => {
+  const sel = getSelection();
+  const node = sel?.anchorNode?.parentElement;
+  if (node?.closest('.msg.protected') || sel?.focusNode?.parentElement?.closest('.msg.protected')) e.preventDefault();
+});
 
 /** Фото профиля на весь экран (большое, если владелец его прислал). */
 async function openPhoto(username) {
@@ -1620,9 +1647,11 @@ async function openMedia(id) {
   const m = await findMsg(id);
   const f = m?.content?.file;
   if (!f) return;
-  if (f.kind === 'file') return saveMedia(f);
+  const locked = client.isProtected(current, m);
+  if (f.kind === 'file') return locked ? toast(t('Собеседник запретил сохранять файлы из этого чата')) : saveMedia(f);
   viewing = f;
-  $('viewer-save').hidden = false;
+  $('viewer-save').hidden = locked;
+  $('viewer').classList.toggle('protected', locked);
   $('viewer-name').textContent = `${f.name} · ${sizeText(f.size)}`;
   const body = $('viewer-body');
   const wait = el('div', 'viewer-wait');
@@ -1646,6 +1675,11 @@ async function openMedia(id) {
     node = el(f.kind === 'video' ? 'video' : 'audio');
     node.controls = true;
     node.autoplay = true;
+    if (locked) {
+      // Без кнопки «Скачать» и картинки-в-картинке во встроенном плеере
+      node.setAttribute('controlsList', 'nodownload noplaybackrate');
+      node.disablePictureInPicture = true;
+    }
     node.playsInline = true;
     node.onerror = () => body.replaceChildren(el('p', 'viewer-error', t('Это устройство не может воспроизвести файл. Сохраните его и откройте в другом приложении.')));
   }
@@ -5046,8 +5080,10 @@ async function openMenu(id, x, y) {
   menu.querySelector('[data-act="pin"]').hidden = sys;
   const pinnedId = (await client.contacts())[current]?.pinned?.id;
   menu.querySelector('[data-act="pin"]').replaceChildren(icon('pin'), pinnedId === id ? t('Открепить') : t('Закрепить'));
-  menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys;
-  menu.querySelector('[data-act="copy"]').hidden = !!m?.content?.file && !m.content.body;
+  const locked = client.isProtected(current, m);
+  menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys || locked;
+  menu.querySelector('[data-act="copy"]').hidden = (!!m?.content?.file && !m.content.body) || locked;
+  if (locked) menu.querySelector('[data-act="save"]').hidden = true;
   menu.hidden = false;
   const w = menu.offsetWidth;
   const h = menu.offsetHeight;
@@ -5115,6 +5151,7 @@ $('msg-menu').addEventListener('click', async (e) => {
   const id = menuFor;
   closeMenu();
   if (b.dataset.act === 'reply') return replyTo(id);
+  if (['forward', 'save', 'copy'].includes(b.dataset.act) && client.isProtected(current, await findMsg(id))) return toast(ERROR_TEXT.protected);
   if (b.dataset.act === 'forward') return openForward(id);
   if (b.dataset.act === 'pin') {
     const c = (await client.contacts())[current];
@@ -5200,6 +5237,11 @@ async function renderProfile() {
   else $('pf-status').textContent = presenceText(client.presenceOf(name)) || '';
   $('pf-status').classList.toggle('online', !!client.presenceOf(name)?.online && !client.isBlocked(name));
   $('pf-username').textContent = '@' + name;
+  // Запрет копирования: свой (переключатель) и собеседника (пометка)
+  const prot = client.protectOf(name);
+  $('pf-protect').checked = prot.mine;
+  $('pf-protect-row').hidden = !c || client.isBlocked(name);
+  $('pf-peer-protect').hidden = !prot.peer;
   // Своё имя и фото для собеседника; под ним — как он подписан сам
   const alias = client.aliasOf(name);
   $('pf-alias-value').textContent = alias?.name || (alias?.avatar ? t('своё фото') : '');
@@ -5293,6 +5335,21 @@ function cachedImage(f) {
 }
 
 $('pf-close').addEventListener('click', () => $('profile-dialog').close());
+$('pf-protect').addEventListener('change', async (e) => {
+  const on = e.target.checked;
+  try {
+    await client.setProtect(profileFor, on);
+    toast(on ? t('Ваши сообщения в этом чате нельзя будет скопировать, переслать и сохранить') : t('Запрет снят'));
+  } catch (err) {
+    e.target.checked = !on;
+    toast(err.message);
+  }
+});
+// Запрет изменился (здесь, на другом своём устройстве или у собеседника) — перерисовать чат
+client.on('protect', async ({ chat }) => {
+  if (chat === current) await renderChat();
+  if ($('profile-dialog').open && profileFor === chat) renderProfile();
+});
 
 // ---------- Своё имя и фото для собеседника ----------
 // Видны только вам (и вашим устройствам) — как «Изменить контакт» в Telegram
@@ -5861,6 +5918,10 @@ function openChatMenu(name, x, y) {
   menu.querySelector('[data-act="block"]').hidden = isBlocked || group || chan || sys;
   menu.querySelector('[data-act="unblock"]').hidden = !isBlocked || group || chan || sys;
   menu.querySelector('[data-act="profile"]').hidden = group || chan || sys;
+  // Запрет копирования своих сообщений — только в личном чате
+  const prot = !group && !chan && !sys && !isBlocked ? client.protectOf(name) : null;
+  menu.querySelector('[data-act="protect"]').hidden = !prot || prot.mine;
+  menu.querySelector('[data-act="unprotect"]').hidden = !prot || !prot.mine;
   menu.querySelector('[data-act="group"]').hidden = !group;
   menu.querySelector('[data-act="channel"]').hidden = !chan;
   menu.querySelector('[data-act="leave"]').hidden = !group;
@@ -5926,6 +5987,14 @@ $('chat-menu').addEventListener('click', (e) => {
     return;
   }
   if (b.dataset.act === 'folders') return openChatFolders(name);
+  if (b.dataset.act === 'protect' || b.dataset.act === 'unprotect') {
+    const on = b.dataset.act === 'protect';
+    client
+      .setProtect(name, on)
+      .then(() => toast(on ? t('Ваши сообщения в этом чате нельзя будет скопировать, переслать и сохранить') : t('Запрет снят')))
+      .catch((err) => toast(err.message));
+    return;
+  }
   if (b.dataset.act === 'archive' || b.dataset.act === 'unarchive') {
     const on = b.dataset.act === 'archive';
     client.setArchived(name, on).then(() => {

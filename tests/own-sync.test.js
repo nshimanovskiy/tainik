@@ -112,3 +112,49 @@ test('после обновления свои устройства обмени
   await until(async () => (await alice.folders())[0]?.name === 'Моё', 10000);
   assert.deepEqual((await alice2.folders()).map((f) => f.name), ['Моё']);
 });
+
+test('запрет копирования: у собеседника, на своих устройствах, на старых и новых сообщениях', async (t) => {
+  const { mk } = await setup(t);
+  const [alice, bob] = [mk(), mk()];
+  await alice.register('alice');
+  await bob.register('bob');
+  const alice2 = mk();
+  await link(alice2, alice);
+  await alice.addContact('bob');
+  await bob.addContact('alice');
+  await alice.sendText('bob', 'до запрета');
+  await until(async () => (await bob.messages('alice')).some((m) => m.content.body === 'до запрета'));
+
+  await alice.setProtect('bob', true);
+  await until(() => bob.protectOf('alice').peer && alice2.protectOf('bob').mine);
+  assert.deepEqual(alice.protectOf('bob'), { mine: true, peer: false });
+  const old = (await bob.messages('alice')).find((m) => m.content.body === 'до запрета');
+  assert.equal(bob.isProtected('alice', old), true, 'и уже полученные сообщения');
+  // Отметка в чате — у обоих (и на втором устройстве Алисы)
+  const note = async (c, chat, who) => (await c.messages(chat)).filter((m) => m.dir === 'sys' && m.content.t === 'protect' && m.content.who === who && m.content.on);
+  await until(async () => (await note(bob, 'alice', 'peer')).length === 1 && (await note(alice2, 'bob', 'me')).length === 1);
+  assert.equal((await note(alice, 'bob', 'me')).length, 1);
+
+  await alice.sendText('bob', 'после запрета');
+  await until(async () => (await bob.messages('alice')).some((m) => m.content.body === 'после запрета'));
+  const fresh = (await bob.messages('alice')).find((m) => m.content.body === 'после запрета');
+  assert.equal(fresh.content.protect, true, 'пометка на новом сообщении');
+  const copy = (await alice2.messages('bob')).find((m) => m.content.body === 'после запрета');
+  assert.equal(copy?.content.protect, true, 'копия на своём устройстве — с пометкой');
+
+  // Переслать нельзя; свои сообщения Боба — можно
+  await bob.addContact('alice');
+  await assert.rejects(bob.forwardMessages('alice', [fresh], 'alice'), (e) => e.code === 'protected');
+  assert.equal(alice.isProtected('bob', (await alice.messages('bob')).find((m) => m.dir === 'out')), false, 'свои — не под запретом');
+
+  // Пометка на сообщении действует, даже если сама настройка до получателя не дошла
+  assert.equal(bob.isProtected('alice', fresh, { alice: {} }), true);
+  assert.equal(bob.isProtected('alice', old, { alice: {} }), false);
+
+  // Снять: можно снова всё — и старое, и отправленное под запретом
+  await alice.setProtect('bob', false);
+  await until(() => !bob.protectOf('alice').peer);
+  assert.equal(bob.isProtected('alice', old), false);
+  assert.equal(bob.isProtected('alice', fresh), false);
+  await assert.rejects(alice.setProtect('#0123456789abcdef01234567', true));
+});

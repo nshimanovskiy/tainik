@@ -1134,3 +1134,9 @@ a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset:
 :root[data-palette="sdsds"] .theme-swatch.light { background: linear-gradient(135deg, #fffdf8 50%, #ff5a1f 50%); }
 :root[data-palette="sdsds"] .theme-swatch.dark { background: linear-gradient(135deg, #1e1e23 50%, #ff5a1f 50%); }
 :root[data-palette="sdsds"] .theme-swatch.system { background: linear-gradient(135deg, #fffdf8 50%, #1e1e23 50%); }
+
+/* Запрет копирования: сообщения собеседника без выделения и сохранения */
+.msg.protected .bubble { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.msg.protected img, .msg.protected video, #viewer.protected img, #viewer.protected video { -webkit-user-drag: none; -webkit-touch-callout: none; pointer-events: auto; }
+#viewer.protected #viewer-body { -webkit-user-select: none; user-select: none; }
+.set-sublabel { display: block; font-weight: 400; margin-top: 2px; }
