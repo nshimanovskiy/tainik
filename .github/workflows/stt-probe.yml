@@ -19,7 +19,11 @@ jobs:
           node scripts/fetch-stt.mjs out --print-hashes || true
           du -ah out | sort -h | tail -30
       - run: |
-          git config user.name probe; git config user.email probe@example.com
+          exec >> probe.txt 2>&1
+          set -x
+          git config user.name probe; git config user.email probe@example.com; git config http.postBuffer 524288000
           git checkout -b o
-          git add -f probe.txt || true; git commit -qm "probe log"; git push --force origin o:stt-probe-log || true
-          git add -f out || true; git commit -qm "probe files"; git push --force origin o:stt-probe-out || true
+          git add -f out/v1/runtime out/v1/models/whisper-base/*.json; git commit -qm "p1"; git push --force origin o:stt-probe-out || true
+          git add -f out/v1/models/whisper-base/onnx/encoder_model_quantized.onnx; git commit -qm "p2"; git push origin o:stt-probe-out || true
+          git add -f out/v1/models/whisper-base/onnx/decoder_model_merged_quantized.onnx; git commit -qm "p3"; git push origin o:stt-probe-out || true
+          git checkout -b l HEAD~3 -q; git add -f probe.txt; git commit -qm log; git push --force origin l:stt-probe-log
