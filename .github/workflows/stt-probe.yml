@@ -1,0 +1,18 @@
+name: stt-probe
+on:
+  push:
+    branches: [stt-probe-audio]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update -q && sudo apt-get install -y -q espeak-ng ffmpeg
+          espeak-ng -v ru -s 140 "Привет! Это проверка расшифровки голосовых сообщений в Тайнике." -w ru.wav
+          espeak-ng -v en -s 150 "Hello, this is a test of voice message transcription." -w en.wav
+          for f in ru en; do ffmpeg -loglevel error -i $f.wav -ac 1 -c:a libopus -b:a 32k $f.webm; ffmpeg -loglevel error -i $f.wav -ac 1 -c:a aac -b:a 48k $f.m4a; done
+          git config user.name probe; git config user.email probe@example.com
+          git checkout -b a; git add -f *.webm *.m4a; git commit -qm audio; git push --force origin a:stt-probe-audio-out
