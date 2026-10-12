@@ -30,9 +30,17 @@ jobs:
           curl -fsSL https://huggingface.co/api/models/onnx-community/whisper-base/tree/main | python3 -c "import json,sys; [print(x['path'], x.get('size'), x.get('lfs',{}).get('oid')) for x in json.load(sys.stdin)]"
           curl -fsSL https://huggingface.co/api/models/onnx-community/whisper-base | head -c 600
       - run: |
+          exec >> probe.txt 2>&1
+          set -x
           mkdir -p probe/dist probe/model/onnx
           cp /tmp/p/package/dist/* probe/dist/ || true
           cd probe/model
           for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json; do curl -fsSL -o $f https://huggingface.co/onnx-community/whisper-base/resolve/main/$f || true; done
           for f in encoder_model_quantized.onnx decoder_model_merged_quantized.onnx; do curl -fsSL -o onnx/$f https://huggingface.co/onnx-community/whisper-base/resolve/main/onnx/$f || true; done
-          cd ../.. && git config user.name probe && git config user.email probe@x && git add -f probe.txt probe && git commit -qm "probe output" && git push -q origin HEAD:stt-probe-out --force
+          cd ../..
+          du -ah probe | sort -h | tail -40
+          git config user.name probe; git config user.email probe@example.com
+          git checkout -b out
+          git add -f probe.txt; git commit -qm "probe log"; git push --force origin out:stt-probe-log || true
+          git add -f probe; git commit -qm "probe files"; git push --force origin out:stt-probe-out || true
+          git add -f probe.txt; git commit -qm "probe log2"; git push --force origin out:stt-probe-log || true
