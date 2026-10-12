@@ -96,6 +96,7 @@ function resolveAppPath(rendererDir, url) {
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
@@ -124,7 +125,7 @@ function linuxAutostartEntry(exec) {
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'", // WebAssembly — для расшифровки голосовых на устройстве
   "style-src 'self'",
   "img-src 'self' data: blob:",
   "media-src 'self' blob:", // фото и видео из вложений расшифровываются в blob:

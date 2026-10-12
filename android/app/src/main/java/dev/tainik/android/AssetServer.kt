@@ -18,7 +18,7 @@ class AssetServer(private val am: AssetManager) {
         // Та же политика, что у десктопа (desktop/lib.cjs)
         val CSP = listOf(
             "default-src 'self'",
-            "script-src 'self'",
+            "script-src 'self' 'wasm-unsafe-eval'", // WebAssembly — для расшифровки голосовых на устройстве
             "style-src 'self'",
             "img-src 'self' data: blob:",
             "media-src 'self' blob:", // фото и видео из вложений расшифровываются в blob:
@@ -32,13 +32,14 @@ class AssetServer(private val am: AssetManager) {
         private val MIME = mapOf(
             "html" to "text/html",
             "js" to "text/javascript",
+            "mjs" to "text/javascript",
             "css" to "text/css",
             "svg" to "image/svg+xml",
             "png" to "image/png",
             "json" to "application/json",
             "webmanifest" to "application/manifest+json",
         )
-        private val TEXT = setOf("html", "js", "css", "svg", "json", "webmanifest")
+        private val TEXT = setOf("html", "js", "mjs", "css", "svg", "json", "webmanifest")
     }
 
     fun serve(rawPath: String): WebResourceResponse {

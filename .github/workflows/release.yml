@@ -109,6 +109,8 @@ jobs:
           else
             echo "::warning title=APK подписан отладочным ключом::Добавьте секреты ANDROID_KEYSTORE_BASE64 и ANDROID_KEYSTORE_PASSWORD (RELEASING.md). Такой APK нельзя будет обновить версией с настоящим ключом — только удалить и поставить заново."
           fi
+      - name: Движок распознавания речи (код — внутри приложения)
+        run: node scripts/fetch-stt.mjs client/stt --runtime-only
       - name: Сборка APK
         run: android/scripts/ci-gradle.sh assembleRelease -Ptainik.version=${{ needs.meta.outputs.version }}
         env:

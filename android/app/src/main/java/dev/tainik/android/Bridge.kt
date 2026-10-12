@@ -30,6 +30,7 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
     private val main = Handler(Looper.getMainLooper())
     private val settings = PageSettings(app)
     private val saves = Saves()
+    private val speech by lazy { Speech(app) { id, ok, text -> host.reply(id, ok, text) } }
 
     private fun ours() = host.isOurs(host.pageUrl)
 
@@ -104,6 +105,12 @@ class Bridge(private val app: TainikApp, private val host: WebHost) {
             "save.chunk" -> onIo(id) { saves.chunk(a.getString(0), a.getString(1)); null }
             "save.end" -> io.execute { saves.end(id, a.getString(0)) }
             "save.cancel" -> onIo(id) { saves.cancel(a.getString(0)); null }
+            // Озвучка сообщения (Speech.kt): ответ — когда дочитано или остановлено
+            "tts.speak" -> {
+                val text = a.optString(0).take(20_000)
+                main.post { speech.speak(id, text, a.optString(1).take(16)) }
+            }
+            "tts.stop" -> main.post { speech.stop(); host.reply(id, true, null) }
             else -> host.reply(id, false, "Неизвестный вызов: $method")
         }
     }

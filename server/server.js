@@ -86,8 +86,40 @@ function take(bucket, limit, windowMs) {
   return true;
 }
 
+// ---------- Распознавание речи (Whisper на устройстве) ----------
+// Файлы модели и движка, скачанные scripts/fetch-stt.mjs. Сервер только раздаёт их:
+// голосовые расшифровываются на устройстве и сюда не приходят.
+const STT_MIME = { '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.wasm': 'application/wasm', '.json': 'application/json; charset=utf-8', '.onnx': 'application/octet-stream' };
+
+function serveStt(req, res, rel, sttDir) {
+  const ok = sttDir && /^\/stt\/v\d+\/(runtime\/[a-z0-9._-]+\.(?:js|mjs|wasm)|models\/[a-z0-9-]+\/(?:onnx\/)?[a-z0-9_]+\.(?:json|onnx))$/i.test(rel);
+  const file = ok ? path.join(sttDir, rel.slice('/stt/'.length)) : null;
+  const headers = {
+    // Приложения (app://, appassets…) скачивают модель с сервера
+    'Access-Control-Allow-Origin': '*',
+    'X-Content-Type-Options': 'nosniff',
+    'Cross-Origin-Resource-Policy': 'cross-origin',
+  };
+  fs.stat(file || '/nonexistent', (err, st) => {
+    if (err || !st.isFile()) {
+      res.writeHead(404, { ...headers, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }).end('Не найдено');
+      return;
+    }
+    res.writeHead(200, {
+      ...headers,
+      'Content-Type': STT_MIME[path.extname(file)] || 'application/octet-stream',
+      'Content-Length': st.size,
+      'Cache-Control': 'public, max-age=31536000, immutable', // в адресе версия набора — файлы не меняются
+      // Модуль движка запускается в воркере — та же политика, плюс WebAssembly
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'",
+    });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+  });
+}
+
 // ---------- Статика ----------
-function serveStatic(req, res) {
+function serveStatic(req, res, { sttDir = null } = {}) {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405).end();
     return;
@@ -105,6 +137,7 @@ function serveStatic(req, res) {
     base = path.join(ROOT, 'shared');
     rel = rel.slice('/shared'.length);
   }
+  if (rel.startsWith('/stt/')) return serveStt(req, res, rel, sttDir);
   // Ссылка на пользователя или публичный канал: /@имя → мессенджер, он сам откроет чат или канал
   const at = /^\/@([A-Za-z0-9_]{3,32})\/?$/.exec(rel);
   if (at) {
@@ -139,7 +172,7 @@ function serveStatic(req, res) {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Permissions-Policy': 'camera=(self), microphone=(self), display-capture=(self), speaker-selection=(self), geolocation=()',
       'Content-Security-Policy':
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss: https://translate.googleapis.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss: https://translate.googleapis.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     });
     res.end(req.method === 'HEAD' ? undefined : data);
   });
@@ -181,6 +214,8 @@ export function startServer({
   // Примеры рамок в магазине при первом запуске (в тестах выключены)
   shopSamples = false,
   changelogPath = path.join(ROOT, 'CHANGELOG.md'),
+  // Файлы распознавания речи (scripts/fetch-stt.mjs); нет папки — расшифровка голосовых недоступна
+  sttDir = path.join(ROOT, 'stt'),
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -1436,7 +1471,7 @@ export function startServer({
       res.end(JSON.stringify({ ok, version: VERSION }));
       return;
     }
-    serveStatic(req, res);
+    serveStatic(req, res, { sttDir });
   });
   server.headersTimeout = 15_000;
   server.requestTimeout = 30_000;
@@ -1618,6 +1653,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
               (env.ACME_EMAIL ? `mailto:${env.ACME_EMAIL}` : env.DOMAIN ? `https://${env.DOMAIN}` : undefined),
           },
     domain: env.DOMAIN || null,
+    sttDir: env.STT_DIR || undefined,
     news: env.NEWS_CHANNEL !== '0', // канал «Обновления Тайника»; NEWS_CHANNEL=0 — выключить
     shopSamples: env.SHOP_SAMPLES !== '0', // примеры рамок в магазине при первом запуске; SHOP_SAMPLES=0 — не добавлять
     uploads: { maxMb: Number(env.MAX_UPLOAD_MB) || 100, maxTotalGb: Number(env.MAX_STORAGE_GB) || 20 },

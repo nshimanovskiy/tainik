@@ -121,6 +121,11 @@
         updHandler = handler;
       },
     }),
+    // Озвучка голосом системы (в WebView нет speechSynthesis): speak → true (дочитано) / false (остановлено)
+    speech: Object.freeze({
+      speak: (text, lang) => call('tts.speak', String(text ?? ''), String(lang ?? '')).then(parsed(false)),
+      stop: () => call('tts.stop').then(() => undefined),
+    }),
     // Сохранить вложение (Uint8Array) через системное окно «Сохранить как».
     // true — сохранено, false — отменили. Скачивание blob:-ссылок WebView не умеет.
     async saveFile(name, mime, bytes) {

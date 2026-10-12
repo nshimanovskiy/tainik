@@ -8,6 +8,8 @@ import { t, LANG, LOCALE, setLang, translateDom, LANGS as LANG_LIST } from '/sha
 import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
 import { linkify, profileLinkOf } from '/shared/linkify.js';
 import { translateText, hasLocal as hasLocalTranslator } from './translate.js';
+import { transcribe, sttOnServer } from './stt.js';
+import { speak, stopSpeaking, ttsSupported, guessLang } from './tts.js';
 import { loadIcons, icon } from './icons.js';
 import { VERSION } from '/shared/version.js';
 
@@ -1368,6 +1370,147 @@ async function translateMsg(id) {
   redrawMsg(id);
 }
 
+// ---------- Озвучка сообщений ----------
+// Голосом системы на устройстве; сетевые голоса браузера — с тем же согласием, что и перевод через Google.
+let speakingId = null; // какое сообщение сейчас читается
+async function speakMsg(id) {
+  if (speakingId === id) {
+    stopSpeaking();
+    speakingId = null;
+    return;
+  }
+  const m = await findMsg(id);
+  const text = (m?.content?.body || '').trim();
+  if (!text) return;
+  const locked = client.isProtected(current, m);
+  const lang = guessLang(text, LANG);
+  speakingId = id;
+  try {
+    let r;
+    try {
+      r = speak(text, { lang, allowRemote: cloudOk() && !locked });
+      await r;
+    } catch (e) {
+      if (e.code !== 'tts_cloud_needed' || locked) throw e;
+      if (!confirm(t('На этом устройстве нет голоса для этого языка. Озвучить голосом Google? Текст сообщения уйдёт в Google. Согласие можно отозвать в Настройках → «Конфиденциальность».'))) throw null;
+      setCloudOk(true);
+      $('translate-cloud').checked = true;
+      if (speakingId !== id) return;
+      await speak(text, { lang, allowRemote: true });
+    }
+  } catch (e) {
+    if (e) toast(e.code === 'tts_cloud_needed' ? t('Это сообщение можно озвучить только голосом на устройстве, а для этого языка его нет') : e.code === 'tts_no_voice' ? t('На этом устройстве нет голоса для этого языка') : t('Не удалось озвучить сообщение'));
+  } finally {
+    if (speakingId === id) speakingId = null;
+  }
+}
+
+// ---------- Расшифровка голосовых ----------
+// Whisper на этом устройстве (client/stt.js): модель один раз скачивается с сервера, голосовое
+// никуда не уходит. Расшифровка хранится только на этом устройстве.
+const stt = new Map(); // id вложения → { text } | { loading, frac?, run? }
+const sttHidden = new Set(); // свернули — не показываем, пока не попросят снова
+const sttChecked = new Set(); // уже искали сохранённую расшифровку
+const sttBase = () => (desktop ? client._httpBase() : location.origin);
+const sttOk = () => {
+  try {
+    return localStorage.getItem('tainik:stt-ok') === '1';
+  } catch {
+    return false;
+  }
+};
+/** Узел с расшифровкой под голосовым. */
+function sttNode(st) {
+  const box = el('div', 'tr stt' + (st.loading ? ' loading' : ''));
+  const head = el('div', 'tr-head');
+  const label = !st.loading
+    ? t('Расшифровка')
+    : st.run
+      ? t('Расшифровываем…')
+      : st.frac != null
+        ? t('Загружаем распознавание речи… {0}%', Math.round(st.frac * 100))
+        : t('Готовим расшифровку…');
+  head.append(icon('text'), label);
+  box.append(head);
+  if (!st.loading) box.append(el('div', 'tr-text', st.text || t('Речь не распознана')));
+  return box;
+}
+/** Перерисовать сообщения с этим вложением. */
+function redrawFile(fid) {
+  for (const n of document.querySelectorAll(`#messages [data-media-id="${CSS.escape(fid)}"]`)) {
+    const id = msgId(n);
+    if (id) redrawMsg(id);
+  }
+}
+/** Обновить подпись хода загрузки без перерисовки сообщения. */
+function paintStt(fid) {
+  const st = stt.get(fid);
+  for (const n of document.querySelectorAll(`#messages [data-media-id="${CSS.escape(fid)}"]`)) {
+    const old = n.closest('.bubble')?.querySelector('.tr.stt');
+    if (old && st) old.replaceWith(sttNode(st));
+  }
+}
+/** Подтянуть сохранённую расшифровку (один раз на вложение). */
+function loadSavedStt(f) {
+  if (sttChecked.has(f.id) || stt.has(f.id)) return;
+  sttChecked.add(f.id);
+  client.storage
+    .get('stt:' + f.id)
+    .then((text) => {
+      if (typeof text !== 'string' || stt.has(f.id)) return;
+      stt.set(f.id, { text });
+      redrawFile(f.id);
+    })
+    .catch(() => {});
+}
+async function transcribeMsg(id) {
+  const m = await findMsg(id);
+  const f = m?.content?.file;
+  if (!f || (f.as !== 'voice' && f.as !== 'note')) return;
+  const st = stt.get(f.id);
+  if (st && !st.loading) {
+    // Готовая — показать или свернуть
+    if (sttHidden.has(f.id)) sttHidden.delete(f.id);
+    else sttHidden.add(f.id);
+    return redrawFile(f.id);
+  }
+  if (st?.loading) return;
+  if (!sttOk()) {
+    const there = await sttOnServer(sttBase());
+    if (there === false) return toast(t('На вашем сервере не установлено распознавание речи'), 6000);
+    if (!confirm(t('Расшифровка работает на этом устройстве: один раз скачается модель распознавания речи (около 90 МБ) с вашего сервера. Голосовые никуда не отправляются. Скачать?'))) return;
+    try {
+      localStorage.setItem('tainik:stt-ok', '1');
+    } catch {}
+  }
+  sttHidden.delete(f.id);
+  stt.set(f.id, { loading: true });
+  redrawFile(f.id);
+  try {
+    const entry = await loadMedia(f);
+    const text = await transcribe(await entry.blob.arrayBuffer(), {
+      base: sttBase(),
+      onProgress: (p) => {
+        stt.set(f.id, p.stage === 'run' ? { loading: true, run: true } : { loading: true, frac: p.frac });
+        paintStt(f.id);
+      },
+    });
+    stt.set(f.id, { text });
+    client.storage.set('stt:' + f.id, text).catch(() => {});
+  } catch (e) {
+    stt.delete(f.id);
+    const msg = {
+      stt_missing: t('На вашем сервере не установлено распознавание речи'),
+      stt_download: t('Не удалось скачать распознавание речи — проверьте соединение'),
+      stt_corrupt: t('Файл распознавания речи на сервере повреждён или подменён — расшифровка отменена'),
+      stt_audio: t('Это устройство не может прочитать звук этого сообщения'),
+      stt_long: t('Слишком длинная запись для расшифровки на устройстве'),
+    }[e?.code];
+    toast(msg || t('Не удалось расшифровать — возможно, на устройстве не хватает памяти'), 6000);
+  }
+  redrawFile(f.id);
+}
+
 /** Отметка о запрете копирования в чате. */
 function protectText(c) {
   if (c.who === 'me') return c.on ? t('Вы запретили копировать, пересылать и сохранять ваши сообщения в этом чате') : t('Вы сняли запрет на копирование ваших сообщений');
@@ -1434,6 +1577,12 @@ function messageNode(m) {
     bubble.classList.add('has-media');
     if (m.content.file.as === 'note') bubble.classList.add('has-note');
     bubble.append(mediaNode(m.content.file));
+    const f = m.content.file;
+    if (f.as === 'voice' || f.as === 'note') {
+      loadSavedStt(f);
+      const st = stt.get(f.id);
+      if (st && !sttHidden.has(f.id)) bubble.append(sttNode(st));
+    }
     if (m.content.body) bubble.append(linkNodes(el('div', 'caption'), m.content.body));
   } else if (m.content?.t === 'notice') {
     bubble.classList.add('notice');
@@ -2736,7 +2885,15 @@ function voiceNode(f) {
   }));
   const body = el('span', 'vbody');
   body.append(wave, el('span', 'vtime', fmtClock(f.dur || 0)));
-  box.append(btn, body);
+  // Расшифровать в текст (на устройстве)
+  const sb = el('button', 'vstt');
+  sb.type = 'button';
+  sb.dataset.act = 'stt';
+  sb.append(icon('text'));
+  sb.title = t('Расшифровать');
+  sb.setAttribute('aria-label', t('Расшифровать'));
+  if (stt.get(f.id)?.text != null && !sttHidden.has(f.id)) sb.classList.add('on');
+  box.append(btn, body, sb);
   if (playing?.f.id === f.id) requestAnimationFrame(paintPlay);
   return box;
 }
@@ -5242,6 +5399,15 @@ async function openMenu(id, x, y) {
   const canTr = !!m && m.dir === 'in' && !!m.content?.body?.trim();
   menu.querySelector('[data-act="translate"]').hidden = !canTr;
   if (canTr) menu.querySelector('[data-act="translate"]').replaceChildren(icon('globe'), translations.has(id) ? t('Скрыть перевод') : t('Перевести'));
+  // Озвучить — сообщения с текстом; во время чтения — «Остановить»
+  const canSpeak = !!m?.content?.body?.trim() && m.dir !== 'sys' && ttsSupported();
+  menu.querySelector('[data-act="speak"]').hidden = !canSpeak;
+  if (canSpeak) menu.querySelector('[data-act="speak"]').replaceChildren(icon(speakingId === id ? 'pause' : 'speaker'), speakingId === id ? t('Остановить') : t('Озвучить'));
+  // Расшифровать — голосовые и видеосообщения
+  const vf = m?.content?.file;
+  const canStt = !!vf && (vf.as === 'voice' || vf.as === 'note');
+  menu.querySelector('[data-act="stt"]').hidden = !canStt;
+  if (canStt) menu.querySelector('[data-act="stt"]').replaceChildren(icon('text'), stt.get(vf.id)?.text != null && !sttHidden.has(vf.id) ? t('Скрыть расшифровку') : t('Расшифровать'));
   const locked = client.isProtected(current, m);
   menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys || locked;
   menu.querySelector('[data-act="copy"]').hidden = (!!m?.content?.file && !m.content.body) || locked;
@@ -5286,6 +5452,7 @@ $('messages').addEventListener('click', (e) => {
   if (act.dataset.act === 'reply') return replyTo(id);
   if (act.dataset.act === 'open') return openMedia(id);
   if (act.dataset.act === 'vplay') return togglePlay(id);
+  if (act.dataset.act === 'stt') return transcribeMsg(id);
   if (act.dataset.act === 'menu') {
     const r = act.getBoundingClientRect();
     openMenu(id, r.left, r.bottom + 4);
@@ -5314,6 +5481,8 @@ $('msg-menu').addEventListener('click', async (e) => {
   closeMenu();
   if (b.dataset.act === 'reply') return replyTo(id);
   if (b.dataset.act === 'translate') return translateMsg(id);
+  if (b.dataset.act === 'speak') return speakMsg(id);
+  if (b.dataset.act === 'stt') return transcribeMsg(id);
   if (['forward', 'save', 'copy'].includes(b.dataset.act) && client.isProtected(current, await findMsg(id))) return toast(ERROR_TEXT.protected);
   if (b.dataset.act === 'forward') return openForward(id);
   if (b.dataset.act === 'pin') {

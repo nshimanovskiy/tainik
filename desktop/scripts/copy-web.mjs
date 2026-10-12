@@ -30,4 +30,13 @@ if (raw) {
   );
   console.log('сервер по умолчанию:', u.toString());
 }
+// Движок расшифровки голосовых — внутри приложения (код не берём с сервера); wasm и модель — с сервера
+if (!fs.existsSync(path.join(out, 'stt'))) {
+  try {
+    const { fetchStt } = await import('../../scripts/fetch-stt.mjs');
+    await fetchStt(path.join(out, 'stt'), { runtimeOnly: true });
+  } catch (e) {
+    console.warn('[!] Движок распознавания речи не скачался — расшифровка голосовых в этой сборке не работает:', e.message);
+  }
+}
 console.log('renderer готов:', path.relative(process.cwd(), out));
