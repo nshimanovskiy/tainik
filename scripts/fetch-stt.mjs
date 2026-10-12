@@ -29,7 +29,6 @@ const NPM = [
       'package/dist/ort-wasm-simd-threaded.wasm': 'runtime/ort-wasm-simd-threaded.wasm',
       'package/dist/ort-wasm-simd-threaded.asyncify.mjs': 'runtime/ort-wasm-simd-threaded.asyncify.mjs',
       'package/dist/ort-wasm-simd-threaded.asyncify.wasm': 'runtime/ort-wasm-simd-threaded.asyncify.wasm',
-      'package/LICENSE': 'runtime/LICENSE-onnxruntime',
     },
   },
 ];
@@ -89,6 +88,7 @@ async function npmFiles({ pkg, ver, files }) {
   const tar = untar(zlib.gunzipSync(tgz));
   const res = {};
   for (const [from, to] of Object.entries(files)) {
+    if (!tar[from] && from.endsWith('LICENSE')) continue;
     if (!tar[from]) throw new Error(`${pkg}@${ver}: нет файла ${from}`);
     res[to] = tar[from];
   }

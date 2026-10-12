@@ -14,12 +14,12 @@ jobs:
       - run: |
           exec > probe.txt 2>&1
           set -x
-          mkdir -p /tmp/o && cd /tmp/o && npm pack onnxruntime-web@1.31.0-dev.20260914-8d85527a0 && tar xzf *.tgz && ls -la package/dist | grep -v '\.map$'
+          mkdir -p /tmp/o && cd /tmp/o && npm pack onnxruntime-web@1.31.0-dev.20260914-8d85527a0 && tar xzf *.tgz && ls package && ls -la package/dist | grep -v '\.map$'
           cd $GITHUB_WORKSPACE
           node scripts/fetch-stt.mjs out --print-hashes || true
           du -ah out | sort -h | tail -30
       - run: |
           git config user.name probe; git config user.email probe@example.com
           git checkout -b o
-          git add -f probe.txt; git commit -qm "probe log"; git push --force origin o:stt-probe-log || true
-          git add -f out; git commit -qm "probe files"; git push --force origin o:stt-probe-out || true
+          git add -f probe.txt || true; git commit -qm "probe log"; git push --force origin o:stt-probe-log || true
+          git add -f out || true; git commit -qm "probe files"; git push --force origin o:stt-probe-out || true
