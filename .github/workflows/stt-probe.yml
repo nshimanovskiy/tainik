@@ -1,0 +1,28 @@
+name: stt-probe
+on:
+  push:
+    branches: [stt-probe-small]
+permissions:
+  contents: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          exec > probe.txt 2>&1
+          set -x
+          M=onnx-community/whisper-small
+          curl -fsSL https://huggingface.co/api/models/$M | python3 -c "import json,sys; d=json.load(sys.stdin); print('SHA', d['sha'])"
+          mkdir -p out/models/whisper-small/onnx && cd out/models/whisper-small
+          for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx; do curl -fsSL -o $f https://huggingface.co/$M/resolve/main/$f; done
+          sha256sum config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json onnx/*
+          cd $GITHUB_WORKSPACE
+          sudo apt-get install -y -q espeak-ng >/dev/null
+          espeak-ng -v ru -s 130 "Завтра в десять утра мы встречаемся у входа в парк. Не забудь взять документы и зарядку для телефона." -w out/ru2.wav
+          ls -la out out/models/whisper-small/onnx
+      - run: |
+          git config user.name probe; git config user.email probe@example.com
+          git checkout -q -b o
+          tar czf stt.tgz out && split -b 45m stt.tgz stt.part. && ls stt.part.*
+          git add -f stt.part.* probe.txt; git commit -qm files; git push --force origin o:stt-probe-small-out || (git reset -q HEAD~1; git add -f probe.txt; git commit -qm log; git push --force origin o:stt-probe-small-out)
