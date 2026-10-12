@@ -70,7 +70,7 @@ function getWorker() {
     if (data.stage) return w.onProgress?.({ stage: data.stage });
     waiting.delete(data.id);
     if (data.error) w.reject(Object.assign(new Error(data.message || data.error), { code: data.error }));
-    else w.resolve(data.text || '');
+    else w.resolve({ text: data.text || '', language: data.language || null, model: data.model });
   };
   worker.onerror = () => {
     for (const w of waiting.values()) w.reject(Object.assign(new Error('stt_failed'), { code: 'stt_failed' }));
@@ -81,27 +81,29 @@ function getWorker() {
 }
 
 /**
- * Расшифровать звук. base — адрес сервера (https://…), откуда берутся модель и wasm.
+ * Расшифровать звук → { text, language, model }. base — адрес сервера (https://…), откуда берутся
+ * модель и wasm; model — 'whisper-small' (точная) или 'whisper-base' (быстрая); prefer — языки
+ * пользователя (['ru']), их выбираем, если запись неоднозначна.
  * onProgress({ stage: 'load', frac } | { stage: 'run' }). Расшифровки идут по одной.
  */
 let chain = Promise.resolve();
-export function transcribe(buf, { base, onProgress } = {}) {
+export function transcribe(buf, { base, model = 'whisper-base', prefer = [], onProgress } = {}) {
   const job = chain.then(async () => {
     const audio = await decodeAudio(buf);
     const id = ++seq;
     return new Promise((resolve, reject) => {
       waiting.set(id, { resolve, reject, onProgress });
-      getWorker().postMessage({ id, base, audio }, [audio.buffer]);
+      getWorker().postMessage({ id, base, model, prefer, audio }, [audio.buffer]);
     });
   });
   chain = job.catch(() => {});
   return job;
 }
 
-/** Есть ли на сервере файлы распознавания (true/false; не знаем — null). */
-export async function sttOnServer(base) {
+/** Есть ли на сервере эта модель (true/false; не знаем — null). */
+export async function sttOnServer(base, model = 'whisper-base') {
   try {
-    const r = await fetch(`${base}/stt/v1/models/whisper-base/config.json`, { method: 'HEAD', credentials: 'omit', cache: 'no-store' });
+    const r = await fetch(`${base}/stt/v1/models/${model}/config.json`, { method: 'HEAD', credentials: 'omit', cache: 'no-store' });
     return r.ok;
   } catch {
     return null;

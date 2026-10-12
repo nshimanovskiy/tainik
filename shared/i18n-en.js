@@ -1117,7 +1117,6 @@ export default {
   "Готовим расшифровку…": "Preparing transcription…",
   "Речь не распознана": "No speech recognized",
   "На вашем сервере не установлено распознавание речи": "Speech recognition isn't installed on your server",
-  "Расшифровка работает на этом устройстве: один раз скачается модель распознавания речи (около 90 МБ) с вашего сервера. Голосовые никуда не отправляются. Скачать?": "Transcription runs on this device: a speech recognition model (about 90 MB) will be downloaded once from your server. Voice messages aren't sent anywhere. Download it?",
   "Не удалось скачать распознавание речи — проверьте соединение": "Couldn't download speech recognition — check your connection",
   "Файл распознавания речи на сервере повреждён или подменён — расшифровка отменена": "The speech recognition file on the server is damaged or was replaced — transcription cancelled",
   "Это устройство не может прочитать звук этого сообщения": "This device can't read the audio of this message",
@@ -1130,4 +1129,9 @@ export default {
   "Озвучка": "Read aloud",
   "Громкость озвучки сообщений": "Read-aloud volume",
   "Громкость озвучки": "Read-aloud volume",
+  "Расшифровка работает на этом устройстве: один раз скачается модель распознавания речи (около {0} МБ) с вашего сервера. Голосовые никуда не отправляются. Скачать?": "Transcription runs on this device: a speech recognition model (about {0} MB) will be downloaded once from your server. Voice messages aren't sent anywhere. Download it?",
+  "Расшифровка голосовых": "Voice message transcription",
+  "Точная — около 260 МБ, медленнее": "Accurate — about 260 MB, slower",
+  "Быстрая — около 90 МБ": "Fast — about 90 MB",
+  "Расшифровать заново": "Transcribe again",
 };

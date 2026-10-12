@@ -1044,7 +1044,6 @@ export default {
   "Готовим расшифровку…": "Preparando la transcripción…",
   "Речь не распознана": "No se reconoció ninguna voz",
   "На вашем сервере не установлено распознавание речи": "El reconocimiento de voz no está instalado en tu servidor",
-  "Расшифровка работает на этом устройстве: один раз скачается модель распознавания речи (около 90 МБ) с вашего сервера. Голосовые никуда не отправляются. Скачать?": "La transcripción funciona en este dispositivo: se descargará una vez un modelo de reconocimiento de voz (unos 90 MB) desde tu servidor. Los mensajes de voz no se envían a ningún sitio. ¿Descargarlo?",
   "Не удалось скачать распознавание речи — проверьте соединение": "No se pudo descargar el reconocimiento de voz: comprueba la conexión",
   "Файл распознавания речи на сервере повреждён или подменён — расшифровка отменена": "El archivo de reconocimiento de voz del servidor está dañado o fue sustituido: transcripción cancelada",
   "Это устройство не может прочитать звук этого сообщения": "Este dispositivo no puede leer el audio de este mensaje",
@@ -1057,4 +1056,9 @@ export default {
   "Озвучка": "Lectura en voz alta",
   "Громкость озвучки сообщений": "Volumen de lectura en voz alta",
   "Громкость озвучки": "Volumen de lectura",
+  "Расшифровка работает на этом устройстве: один раз скачается модель распознавания речи (около {0} МБ) с вашего сервера. Голосовые никуда не отправляются. Скачать?": "La transcripción funciona en este dispositivo: se descargará una vez un modelo de reconocimiento de voz (unos {0} MB) desde tu servidor. Los mensajes de voz no se envían a ningún sitio. ¿Descargarlo?",
+  "Расшифровка голосовых": "Transcripción de mensajes de voz",
+  "Точная — около 260 МБ, медленнее": "Precisa: unos 260 MB, más lenta",
+  "Быстрая — около 90 МБ": "Rápida: unos 90 MB",
+  "Расшифровать заново": "Transcribir de nuevo",
 };

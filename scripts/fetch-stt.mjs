@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Скачивает всё для расшифровки голосовых на устройстве (Whisper в браузере):
 //   runtime/ — transformers.js и onnxruntime-web (wasm, ~14 МБ), из npm;
-//   models/whisper-base/ — модель распознавания речи (~76 МБ), с Hugging Face.
+//   models/whisper-base/ — быстрая модель распознавания речи (~76 МБ), с Hugging Face;
+//   models/whisper-small/ — точная (~250 МБ): заметно лучше с русским, но медленнее.
 // Для сборки приложений (--runtime-only) — только код движка (~0,6 МБ): его нельзя брать с сервера.
 // Версии закреплены, каждый файл сверяется по sha256 — подменённый файл не ляжет на диск.
 // Сервер Тайника отдаёт эти файлы по /stt/…; сообщения и голосовые туда не уходят.
 //
-//   node scripts/fetch-stt.mjs [папка=stt] [--runtime-only] [--print-hashes]
+//   node scripts/fetch-stt.mjs [папка=stt] [--runtime-only] [--models=whisper-base,whisper-small] [--print-hashes]
 //   Сервер (Docker) делает это сам при сборке образа; приложения — в CI перед сборкой.
 // Без внешних зависимостей: npm-пакеты (tgz) распаковываются здесь же.
 import fs from 'node:fs';
@@ -17,8 +18,11 @@ import crypto from 'node:crypto';
 export const STT_VERSION = 'v1'; // меняется вместе с набором файлов (адреса /stt/v1/… кешируются навсегда)
 const TRANSFORMERS = '4.3.1';
 const ORT = '1.31.0-dev.20260914-8d85527a0'; // ровно та версия, с которой собран transformers.js
-const MODEL = 'onnx-community/whisper-base';
-const MODEL_REV = '1846881b6b3a3024392c1eea3ad983695bc23925';
+// Модели: репозиторий на Hugging Face и закреплённая ревизия
+export const MODELS = {
+  'whisper-base': { repo: 'onnx-community/whisper-base', rev: '1846881b6b3a3024392c1eea3ad983695bc23925' },
+  'whisper-small': { repo: 'onnx-community/whisper-small', rev: '36050c46d777d46dc4b5f43f6d90574fc38f8732' },
+};
 
 // Что берём: [куда, откуда, sha256]
 const NPM = [
@@ -45,6 +49,13 @@ const SHA256 = {
   'models/whisper-base/tokenizer_config.json': '2e036e4dbacfdeb7242c7d4ec4149f4a16e86026048f94d1637e3a8ee9c6a573',
   'models/whisper-base/onnx/encoder_model_quantized.onnx': '5862993336bf33acd23736071aae2b32261d3b1b2f37780194460d4ef974dd46',
   'models/whisper-base/onnx/decoder_model_merged_quantized.onnx': 'fa3ef9902734ce5ae6f9ef2bdb2ba9a6c4b5785b09f4f420ce036573dc9d090b',
+  'models/whisper-small/config.json': '457854d452f17661e197d74aee12b8e74fb75ba30ebfaa7426d0d61ea1e08a18',
+  'models/whisper-small/generation_config.json': 'f538b28220c6a6d6f1af1458d4141cacb4ef4963df3de98a19490440c412ddf0',
+  'models/whisper-small/preprocessor_config.json': 'a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d',
+  'models/whisper-small/tokenizer.json': '27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566',
+  'models/whisper-small/tokenizer_config.json': '2a4c4281cf9f51ac6ccc406fdc711a087afe6530f671fa7b80953edc498275ce',
+  'models/whisper-small/onnx/encoder_model_quantized.onnx': 'a43a83f3c5361cd591cfa7c36f14b43cf7cb22f47a415cc14a8d557be800fa92',
+  'models/whisper-small/onnx/decoder_model_merged_quantized.onnx': 'ec07c3cbb64172c39791e26ee870a65ac22b458c36722bfe2776b3dbf741e0c9',
 };
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
@@ -102,13 +113,17 @@ async function npmFiles({ pkg, ver, files }) {
   return res;
 }
 
-export async function fetchStt(dir, { runtimeOnly = false, printHashes = false, log = console.log } = {}) {
+export async function fetchStt(dir, { runtimeOnly = false, models = Object.keys(MODELS), printHashes = false, log = console.log } = {}) {
   const got = {};
   for (const p of NPM) Object.assign(got, await npmFiles(p));
   // Приложениям нужен только код движка (он внутри приложения); wasm и модель — с сервера
   if (runtimeOnly) for (const k of Object.keys(got)) if (!/\.(m?js)$/.test(k) && !k.includes('LICENSE')) delete got[k];
   if (!runtimeOnly) {
-    for (const f of MODEL_FILES) got[`models/whisper-base/${f}`] = await get(`https://huggingface.co/${MODEL}/resolve/${MODEL_REV}/${f}`);
+    for (const name of models) {
+      const m = MODELS[name];
+      if (!m) throw new Error(`неизвестная модель: ${name}`);
+      for (const f of MODEL_FILES) got[`models/${name}/${f}`] = await get(`https://huggingface.co/${m.repo}/resolve/${m.rev}/${f}`);
+    }
   }
   for (const [rel, buf] of Object.entries(got)) {
     const h = sha256(buf);
@@ -127,7 +142,9 @@ export async function fetchStt(dir, { runtimeOnly = false, printHashes = false, 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   const dir = args.find((a) => !a.startsWith('--')) || 'stt';
-  fetchStt(dir, { runtimeOnly: args.includes('--runtime-only'), printHashes: args.includes('--print-hashes') }).catch((e) => {
+  const m = args.find((a) => a.startsWith('--models='));
+  const models = m ? m.slice('--models='.length).split(',').map((x) => x.trim()).filter(Boolean) : undefined;
+  fetchStt(dir, { runtimeOnly: args.includes('--runtime-only'), models, printHashes: args.includes('--print-hashes') }).catch((e) => {
     console.error('Не удалось скачать распознавание речи:', e.message);
     process.exit(1);
   });

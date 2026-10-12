@@ -28,17 +28,54 @@ export function guessLang(text, fallback = 'en') {
   return ['en', 'es', 'de', 'fr', 'it', 'pt'].includes(fallback) ? fallback : 'en';
 }
 
-async function voices() {
+// Голоса: список приходит не сразу (особенно в Safari) — держим его заранее, чтобы при нажатии
+// «Озвучить» говорить сразу, не теряя жест пользователя (без жеста iOS молчит).
+let voiceList = [];
+function loadVoices() {
   const sy = synth();
-  let list = sy.getVoices();
-  if (list.length) return list;
-  // Список голосов приходит не сразу
+  if (!sy) return;
+  try {
+    const l = sy.getVoices();
+    if (l?.length) voiceList = l;
+  } catch {}
+}
+loadVoices();
+try {
+  synth()?.addEventListener?.('voiceschanged', loadVoices);
+} catch {}
+
+async function voices() {
+  loadVoices();
+  if (voiceList.length) return voiceList;
+  const sy = synth();
   await new Promise((ok) => {
     const done = () => (sy.removeEventListener?.('voiceschanged', done), ok());
     sy.addEventListener?.('voiceschanged', done);
     setTimeout(done, 1500);
   });
-  return sy.getVoices();
+  loadVoices();
+  return voiceList;
+}
+
+let primed = false;
+let primer = null; // беззвучная фраза-«ключ» ещё звучит — её не отменяем (иначе Safari съест следующую)
+/**
+ * Вызывать синхронно в обработчике нажатия: iOS разрешает речь только по жесту пользователя,
+ * а до озвучки ещё идут асинхронные шаги. Беззвучная фраза «открывает» синтез речи.
+ */
+export function primeSpeech() {
+  const sy = synth();
+  if (native() || !sy || primed) return;
+  primed = true;
+  try {
+    if (sy.paused) sy.resume();
+    const u = new SpeechSynthesisUtterance(' ');
+    u.volume = 0;
+    u.onend = u.onerror = () => primer === u && (primer = null);
+    primer = u;
+    setTimeout(() => primer === u && (primer = null), 3000);
+    sy.speak(u);
+  } catch {}
 }
 
 /** Подходящий голос: { voice } или { remote: true } (есть только сетевой) или null. */
@@ -97,8 +134,12 @@ export function stopSpeaking() {
   token++;
   restart = null;
   native()?.stop().catch(() => {});
-  synth()?.cancel();
+  const sy = synth();
+  // Safari: cancel() прямо перед speak() иногда «съедает» новую фразу — отменяем, только если есть что
+  if (sy && (sy.speaking || sy.pending) && !primer) sy.cancel();
 }
+
+let utterance = null; // ссылка на текущую фразу: иначе Safari может «потерять» её и не сообщить о конце
 
 const ttsError = (code) => Object.assign(new Error(code), { code });
 
@@ -126,17 +167,31 @@ export async function speak(text, { lang, allowRemote = false } = {}) {
   } else {
     const sy = synth();
     if (!sy) throw ttsError('tts_unavailable');
-    const pick = pickVoice(await voices(), lang, allowRemote);
+    const list = voiceList.length ? voiceList : await voices();
+    // Список голосов пуст (так бывает в Safari и в приложении на iPhone) — голос выберет система по языку
+    const pick = list.length ? pickVoice(list, lang, allowRemote) : { voice: null };
     if (!pick) throw ttsError('tts_no_voice');
     if (pick.remote) throw ttsError('tts_cloud_needed');
     say = (part) =>
       new Promise((resolve) => {
         const u = new SpeechSynthesisUtterance(part);
-        u.voice = pick.voice;
-        u.lang = pick.voice.lang;
+        if (pick.voice) u.voice = pick.voice;
+        u.lang = pick.voice?.lang || lang;
         u.volume = volume;
-        u.onend = () => resolve(true);
-        u.onerror = () => resolve(false);
+        let started = false;
+        let watch = 0;
+        const end = (ok) => {
+          clearInterval(watch);
+          if (utterance === u) utterance = null;
+          resolve(ok);
+        };
+        u.onstart = () => (started = true);
+        u.onend = () => end(true);
+        u.onerror = (e) => end(e?.error === 'interrupted' || e?.error === 'canceled' ? false : !started ? false : true);
+        // Safari иногда не присылает onend — следим, не замолчал ли синтез
+        watch = setInterval(() => started && !sy.speaking && !sy.pending && end(true), 700);
+        utterance = u;
+        if (sy.paused) sy.resume();
         sy.speak(u);
       });
     cancel = () => sy.cancel();

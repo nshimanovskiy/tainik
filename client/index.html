@@ -456,6 +456,7 @@
           <label class="set-field vol-field"><span>Громкость моего голоса <b class="vol-val" id="vol-mic-val"></b></span><input type="range" id="vol-mic" class="vol-range" min="0" max="200" step="5"></label>
           <label class="set-field vol-field"><span>Громкость собеседника <b class="vol-val" id="vol-peer-val"></b></span><input type="range" id="vol-peer" class="vol-range" min="0" max="200" step="5"></label>
           <label class="set-field vol-field"><span>Громкость озвучки сообщений <b class="vol-val" id="vol-tts-val"></b></span><input type="range" id="vol-tts" class="vol-range" min="0" max="100" step="5"></label>
+          <label class="set-field"><span>Расшифровка голосовых</span><select id="stt-model" class="dev-select"><option value="whisper-small">Точная — около 260 МБ, медленнее</option><option value="whisper-base">Быстрая — около 90 МБ</option></select></label>
           <label class="set-field" id="dev-speaker-row"><span>Динамик или наушники</span><select id="dev-speaker" class="dev-select"></select></label>
           <button type="button" id="dev-speaker-test" class="ghost"><i class="ic" data-icon="speaker"></i>Проверить звук</button>
         </div>
@@ -604,6 +605,7 @@
     <button type="button" data-act="translate" role="menuitem"><i class="ic" data-icon="globe"></i>Перевести</button>
     <button type="button" data-act="speak" role="menuitem"><i class="ic" data-icon="speaker"></i>Озвучить</button>
     <button type="button" data-act="stt" role="menuitem"><i class="ic" data-icon="text"></i>Расшифровать</button>
+    <button type="button" data-act="stt-again" role="menuitem"><i class="ic" data-icon="update"></i>Расшифровать заново</button>
     <button type="button" data-act="copy" role="menuitem"><i class="ic" data-icon="copy"></i>Копировать</button>
     <button type="button" data-act="save" role="menuitem"><i class="ic" data-icon="download"></i>Сохранить файл</button>
     <button type="button" data-act="delete" role="menuitem" class="danger"><i class="ic" data-icon="trash"></i>Удалить</button>

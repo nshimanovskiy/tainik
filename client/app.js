@@ -9,7 +9,7 @@ import { fmtSize, kindOf, THUMB_MAX } from '/shared/media.js';
 import { linkify, profileLinkOf } from '/shared/linkify.js';
 import { translateText, hasLocal as hasLocalTranslator } from './translate.js';
 import { transcribe, sttOnServer } from './stt.js';
-import { speak, stopSpeaking, ttsSupported, guessLang, getVolume as ttsVolume, setVolume as setTtsVolume } from './tts.js';
+import { speak, stopSpeaking, primeSpeech, ttsSupported, guessLang, getVolume as ttsVolume, setVolume as setTtsVolume } from './tts.js';
 import { loadIcons, icon } from './icons.js';
 import { VERSION } from '/shared/version.js';
 
@@ -1434,13 +1434,29 @@ const stt = new Map(); // id вложения → { text } | { loading, frac?, r
 const sttHidden = new Set(); // свернули — не показываем, пока не попросят снова
 const sttChecked = new Set(); // уже искали сохранённую расшифровку
 const sttBase = () => (desktop ? client._httpBase() : location.origin);
-const sttOk = () => {
+// Модель: «точная» (whisper-small, ~260 МБ) или «быстрая» (whisper-base, ~90 МБ). На телефоне по
+// умолчанию быстрая: точной нужно много памяти и времени. Выбор — в «Звук и микрофон».
+const STT_SIZE = { 'whisper-small': 260, 'whisper-base': 90 };
+const lsGet = (k) => {
   try {
-    return localStorage.getItem('tainik:stt-ok') === '1';
+    return localStorage.getItem(k);
   } catch {
-    return false;
+    return null;
   }
 };
+const lsSet = (k, v) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {}
+};
+const sttModel = () => {
+  const m = lsGet('tainik:stt-model');
+  if (STT_SIZE[m]) return m;
+  return matchMedia('(pointer: coarse)').matches || android ? 'whisper-base' : 'whisper-small';
+};
+const sttOk = (model) => lsGet('tainik:stt-ok:' + model) === '1' || (model === 'whisper-base' && lsGet('tainik:stt-ok') === '1');
+$('stt-model').value = sttModel();
+$('stt-model').addEventListener('change', (e) => lsSet('tainik:stt-model', e.target.value));
 /** Узел с расшифровкой под голосовым. */
 function sttNode(st) {
   const box = el('div', 'tr stt' + (st.loading ? ' loading' : ''));
@@ -1478,49 +1494,61 @@ function loadSavedStt(f) {
   sttChecked.add(f.id);
   client.storage
     .get('stt:' + f.id)
-    .then((text) => {
-      if (typeof text !== 'string' || stt.has(f.id)) return;
-      stt.set(f.id, { text });
+    .then((v) => {
+      // Раньше хранили только текст, теперь — { text, model }
+      const saved = typeof v === 'string' ? { text: v, model: 'whisper-base' } : v && typeof v.text === 'string' ? { text: v.text, model: String(v.model || '') } : null;
+      if (!saved || stt.has(f.id)) return;
+      stt.set(f.id, saved);
       redrawFile(f.id);
     })
     .catch(() => {});
 }
-async function transcribeMsg(id) {
+async function transcribeMsg(id, { again = false } = {}) {
   const m = await findMsg(id);
   const f = m?.content?.file;
   if (!f || (f.as !== 'voice' && f.as !== 'note')) return;
   const st = stt.get(f.id);
-  if (st && !st.loading) {
+  if (st && !st.loading && !again) {
     // Готовая — показать или свернуть
     if (sttHidden.has(f.id)) sttHidden.delete(f.id);
     else sttHidden.add(f.id);
     return redrawFile(f.id);
   }
   if (st?.loading) return;
-  if (!sttOk()) {
-    const there = await sttOnServer(sttBase());
+  let model = sttModel();
+  if (!sttOk(model)) {
+    let there = await sttOnServer(sttBase(), model);
+    // Точной модели на сервере нет (собран только с быстрой) — берём быструю
+    if (there === false && model !== 'whisper-base' && (await sttOnServer(sttBase(), 'whisper-base')) !== false) {
+      model = 'whisper-base';
+      there = true;
+    }
     if (there === false) return toast(t('На вашем сервере не установлено распознавание речи'), 6000);
-    if (!confirm(t('Расшифровка работает на этом устройстве: один раз скачается модель распознавания речи (около 90 МБ) с вашего сервера. Голосовые никуда не отправляются. Скачать?'))) return;
-    try {
-      localStorage.setItem('tainik:stt-ok', '1');
-    } catch {}
+    if (!sttOk(model)) {
+      if (!confirm(t('Расшифровка работает на этом устройстве: один раз скачается модель распознавания речи (около {0} МБ) с вашего сервера. Голосовые никуда не отправляются. Скачать?', STT_SIZE[model]))) return;
+      lsSet('tainik:stt-ok:' + model, '1');
+    }
   }
   sttHidden.delete(f.id);
   stt.set(f.id, { loading: true });
   redrawFile(f.id);
   try {
     const entry = await loadMedia(f);
-    const text = await transcribe(await entry.blob.arrayBuffer(), {
+    const { text } = await transcribe(await entry.blob.arrayBuffer(), {
       base: sttBase(),
+      model,
+      // Языки пользователя: при неоднозначной записи выбираем их
+      prefer: [...new Set([LANG, ...(navigator.languages || []).map((l) => String(l).slice(0, 2).toLowerCase())])].slice(0, 3),
       onProgress: (p) => {
         stt.set(f.id, p.stage === 'run' ? { loading: true, run: true } : { loading: true, frac: p.frac });
         paintStt(f.id);
       },
     });
-    stt.set(f.id, { text });
-    client.storage.set('stt:' + f.id, text).catch(() => {});
+    stt.set(f.id, { text, model });
+    client.storage.set('stt:' + f.id, { text, model }).catch(() => {});
   } catch (e) {
-    stt.delete(f.id);
+    if (st && !st.loading) stt.set(f.id, st); // заново не вышло — оставляем прежнюю
+    else stt.delete(f.id);
     const msg = {
       stt_missing: t('На вашем сервере не установлено распознавание речи'),
       stt_download: t('Не удалось скачать распознавание речи — проверьте соединение'),
@@ -5430,6 +5458,8 @@ async function openMenu(id, x, y) {
   const canStt = !!vf && (vf.as === 'voice' || vf.as === 'note');
   menu.querySelector('[data-act="stt"]').hidden = !canStt;
   if (canStt) menu.querySelector('[data-act="stt"]').replaceChildren(icon('text'), stt.get(vf.id)?.text != null && !sttHidden.has(vf.id) ? t('Скрыть расшифровку') : t('Расшифровать'));
+  // Есть расшифровка — можно расшифровать заново (например, точной моделью)
+  menu.querySelector('[data-act="stt-again"]').hidden = !(canStt && stt.get(vf.id)?.text != null);
   const locked = client.isProtected(current, m);
   menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys || locked;
   menu.querySelector('[data-act="copy"]').hidden = (!!m?.content?.file && !m.content.body) || locked;
@@ -5503,8 +5533,9 @@ $('msg-menu').addEventListener('click', async (e) => {
   closeMenu();
   if (b.dataset.act === 'reply') return replyTo(id);
   if (b.dataset.act === 'translate') return translateMsg(id);
-  if (b.dataset.act === 'speak') return speakMsg(id);
+  if (b.dataset.act === 'speak') return primeSpeech(), speakMsg(id); // iOS: речь — только по жесту
   if (b.dataset.act === 'stt') return transcribeMsg(id);
+  if (b.dataset.act === 'stt-again') return transcribeMsg(id, { again: true });
   if (['forward', 'save', 'copy'].includes(b.dataset.act) && client.isProtected(current, await findMsg(id))) return toast(ERROR_TEXT.protected);
   if (b.dataset.act === 'forward') return openForward(id);
   if (b.dataset.act === 'pin') {

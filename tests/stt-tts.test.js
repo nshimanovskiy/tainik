@@ -7,6 +7,7 @@ import path from 'node:path';
 import { startServer } from '../server/server.js';
 import { untar, STT_VERSION } from '../scripts/fetch-stt.mjs';
 import { resample } from '../client/stt.js';
+import { chooseLanguage } from '../client/stt-lang.js';
 import { guessLang, pickVoice, splitText, speak, stopSpeaking, getVolume, setVolume } from '../client/tts.js';
 
 const read = (f) => fs.readFileSync(new URL('../' + f, import.meta.url), 'utf8');
@@ -181,4 +182,14 @@ test('громкость озвучки: сохраняется, применя�
   } finally {
     delete globalThis.window;
   }
+});
+
+test('язык записи: уверенный выбор модели, иначе — язык пользователя', () => {
+  const m = (o) => new Map(Object.entries(o));
+  assert.equal(chooseLanguage(m({ en: 0.78, ru: 0.01 }), ['ru']), 'en', 'английская речь остаётся английской');
+  assert.equal(chooseLanguage(m({ uk: 0.55, ru: 0.3 }), ['ru']), 'ru', 'соседний язык — берём свой');
+  assert.equal(chooseLanguage(m({ pl: 0.16, la: 0.14, ru: 0.02 }), ['ru']), 'ru', 'модель не уверена');
+  assert.equal(chooseLanguage(m({ pl: 0.9, ru: 0.02 }), ['ru']), 'pl');
+  assert.equal(chooseLanguage(m({ ru: 0.4, en: 0.3 }), ['en', 'ru']), 'ru', 'свой язык уже на первом месте');
+  assert.equal(chooseLanguage(m({ ja: 0.3 }), []), 'ja');
 });

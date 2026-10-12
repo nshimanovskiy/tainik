@@ -1,14 +1,16 @@
 # Сервер Тайника: Node.js без внешних зависимостей + встроенный SQLite.
 
-# Распознавание речи для расшифровки голосовых на устройствах (~90 МБ: движок и модель Whisper).
+# Распознавание речи для расшифровки голосовых на устройствах: движок и модели Whisper
+# (быстрая whisper-base ~90 МБ и точная whisper-small ~250 МБ; только быструю: --build-arg STT_MODELS=whisper-base).
 # Скачивается при сборке, файлы сверяются по sha256. Слой кешируется — повторно не качается,
 # пока не изменится scripts/fetch-stt.mjs. Без сети — образ соберётся, расшифровка будет недоступна.
 # Отключить: docker compose build --build-arg STT=0
 FROM node:22-alpine AS stt
 ARG STT=1
+ARG STT_MODELS=whisper-base,whisper-small
 WORKDIR /w
 COPY scripts/fetch-stt.mjs ./
-RUN mkdir -p /stt && if [ "$STT" = "1" ]; then node fetch-stt.mjs /stt || echo "[!] Распознавание речи не скачалось — расшифровка голосовых будет недоступна"; fi
+RUN mkdir -p /stt && if [ "$STT" = "1" ]; then node fetch-stt.mjs /stt --models="$STT_MODELS" || echo "[!] Распознавание речи не скачалось — расшифровка голосовых будет недоступна"; fi
 
 FROM node:22-alpine
 
