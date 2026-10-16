@@ -6,7 +6,10 @@
 // ENCRYPT: HKDF(MK) → ключ AES-256-GCM + IV; AAD = AD сессии ‖ заголовок ‖ доп. данные
 import { genX25519, dh, hkdf, hmac, aeadEncrypt, aeadDecrypt, concat, fromB64, toB64, te, isKey32 } from './primitives.js';
 
-export const MAX_SKIP = 1000; // максимум пропущенных сообщений в одной цепочке
+// Максимум пропущенных сообщений в одной цепочке. Большой запас: мгновенные сигналы («печатает»,
+// звонки) не хранятся сервером, и выключенное устройство их не получает — их номера пропускаются.
+// Хранятся при этом только последние MAX_STORED_SKIPPED ключей (их ещё может доставить очередь).
+export const MAX_SKIP = 20000;
 export const MAX_STORED_SKIPPED = 2000; // сколько пропущенных ключей храним всего
 
 const INFO_RK = 'tainik/v2/ratchet';
@@ -94,7 +97,7 @@ async function skipMessageKeys(st, until) {
   while (st.Nr < until) {
     const [CKr, mk] = await kdfCK(st.CKr);
     st.CKr = CKr;
-    st.skipped[`${st.DHr}|${st.Nr}`] = mk;
+    if (until - st.Nr <= MAX_STORED_SKIPPED) st.skipped[`${st.DHr}|${st.Nr}`] = mk;
     st.Nr += 1;
   }
   const keys = Object.keys(st.skipped);

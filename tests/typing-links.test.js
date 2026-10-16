@@ -125,3 +125,57 @@ test('переводчик: без согласия в облако не ход�
   assert.equal(same.same, true);
   await assert.rejects(translateText('x y', 'ru', { cloud: true, fetchImpl: async () => ({ ok: false }) }), { code: 'translate_failed' });
 });
+
+async function link(newClient, existing) {
+  let gotCode;
+  const codeP = new Promise((r) => (gotCode = r));
+  const { done } = newClient.linkAsNewDevice({ deviceName: 'Второе', onCode: ({ code }) => gotCode(code) });
+  await existing.linkDevice(await codeP);
+  return done;
+}
+
+test('печатает: только устройствам в сети (выключенные не копят пропущенные ключи)', async (tt) => {
+  const { mk } = await setup(tt);
+  const alice = mk();
+  const bob = mk();
+  await alice.register('alice');
+  await bob.register('bob');
+  const bob2 = mk();
+  await link(bob2, bob);
+  await alice.addContact('bob');
+  await bob.addContact('alice');
+  bob2.disconnect(); // второе устройство Боба выключено
+  await sleep(200);
+  assert.deepEqual(await alice._onlineDevices('bob'), [bob.account.deviceId]);
+  const sent = [];
+  const orig = alice.sendEphemeral.bind(alice);
+  alice.sendEphemeral = (name, content, opts) => (sent.push([name, opts?.deviceIds]), orig(name, content, opts));
+  const got = waitFor(bob, 'typing', (d) => d.users.includes('alice'));
+  alice.sendTyping('bob');
+  await got;
+  assert.deepEqual(sent, [['bob', [bob.account.deviceId]]]);
+  // Заблокировал (как и со скрытым «в сети») — устройств не видно
+  await bob.setBlocked('alice', true);
+  alice._onlineDev.clear();
+  assert.deepEqual(await alice._onlineDevices('bob'), []);
+});
+
+test('смена адреса сервера: проверка, что там тот же аккаунт, ничего не трогая', async (tt) => {
+  const one = await setup(tt);
+  const two = await setup(tt);
+  const alice = one.mk();
+  await alice.register('alice');
+  // Тот же сервер под другим адресом (localhost вместо 127.0.0.1)
+  assert.equal(await alice.probeServer(`ws://localhost:${one.srv.port}/ws`), true);
+  // Другой сервер, где такого аккаунта нет: отказ, а не «аккаунт удалён»
+  const wiped = [];
+  alice.on('error', (e) => wiped.push(e.code));
+  await assert.rejects(alice.probeServer(`ws://127.0.0.1:${two.srv.port}/ws`), { code: 'account_missing' });
+  // Там другой аккаунт с этим же именем
+  const other = two.mk();
+  await other.register('alice');
+  await assert.rejects(alice.probeServer(`ws://127.0.0.1:${two.srv.port}/ws`), { code: 'username_taken' });
+  await assert.rejects(alice.probeServer('ws://127.0.0.1:1/ws', { timeout: 3000 }), (e) => ['unreachable', 'timeout'].includes(e.code));
+  assert.deepEqual(wiped, []);
+  assert.equal(alice.status, 'online', 'основное соединение не тронуто');
+});

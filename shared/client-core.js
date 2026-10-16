@@ -449,6 +449,8 @@ export const ERROR_TEXT = {
   rate_limited: t('Слишком много запросов, подождите'),
   too_many_connections: t('С вашего адреса уже слишком много подключений к серверу — попробуем ещё раз через несколько секунд'),
   timeout: t('Сервер не ответил'),
+  account_missing: t('На этом сервере нет вашего аккаунта — это другой сервер'),
+  unreachable: t('Не удалось подключиться к серверу по этому адресу'),
   offline: t('Нет соединения с сервером'),
   key_changed: t('Ключ собеседника изменился — сначала проверьте его'),
   bad_spk_signature: t('Ключи собеседника не прошли проверку подписи'),
@@ -878,6 +880,53 @@ export class MessengerClient extends Emitter {
         reject: (e) => (clearTimeout(timer), reject(e)),
       };
       this._open();
+    });
+  }
+
+  /**
+   * Проверить, что по адресу url — тот же сервер с этим аккаунтом (перед сменой адреса сервера).
+   * Ничего не меняет: открывает отдельное соединение, ждёт от сервера «вызова» на вход (он
+   * приходит, только если там есть этот аккаунт с этим ключом и это устройство) и закрывает его.
+   * Ошибка с code: account_missing (там такого аккаунта или устройства нет), username_taken
+   * (там другой аккаунт с этим именем), timeout, bad_url, unreachable.
+   */
+  probeServer(url, { timeout = 10_000 } = {}) {
+    if (!this.account) return Promise.reject(new Error(t('Нет аккаунта')));
+    return new Promise((resolve, reject) => {
+      let ws;
+      let done = false;
+      const finish = (err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        try {
+          ws?.close();
+        } catch {}
+        err ? reject(err) : resolve(true);
+      };
+      const timer = setTimeout(() => finish(errorOf('timeout')), timeout);
+      try {
+        ws = new this.WS(url);
+      } catch {
+        return finish(errorOf('bad_url'));
+      }
+      ws.onopen = () =>
+        ws.send(JSON.stringify({ type: 'auth', username: this.account.username, deviceId: this.account.deviceId ?? undefined, identity: this.account.pub, active: false }));
+      ws.onmessage = (ev) => {
+        let msg;
+        try {
+          msg = JSON.parse(typeof ev.data === 'string' ? ev.data : String(ev.data));
+        } catch {
+          return;
+        }
+        if (msg.type === 'challenge') return finish(null);
+        if (msg.type === 'error') {
+          const code = ['account_deleted', 'device_removed', 'unknown_account'].includes(msg.code) ? 'account_missing' : msg.code;
+          finish(Object.assign(new Error(ERROR_TEXT[code] || code), { code }));
+        }
+      };
+      ws.onerror = () => finish(errorOf('unreachable'));
+      ws.onclose = () => finish(errorOf('unreachable'));
     });
   }
 
@@ -3472,10 +3521,29 @@ export class MessengerClient extends Emitter {
       }
       for (const name of to) {
         if (this._typingLog.length >= TYPING_PER_MIN) break;
+        // Только устройствам, которые сейчас в сети: зашифрованный для выключенного устройства
+        // сигнал до него не дойдёт, а храповик собеседника получит «пропущенный» ключ.
+        const devices = await this._onlineDevices(name).catch(() => []);
+        if (!devices.length) continue;
         this._typingLog.push(Date.now());
-        this.sendEphemeral(name, content).catch(() => {});
+        this.sendEphemeral(name, content, { deviceIds: devices }).catch(() => {});
       }
     })().catch(() => {});
+  }
+
+  /** Устройства собеседника в сети (сервер; на 10 с запоминается). Старый сервер — пусто. */
+  async _onlineDevices(name) {
+    this._onlineDev ||= new Map(); // имя → { at, devices }
+    const c = this._onlineDev.get(name);
+    if (c && Date.now() - c.at < 10_000) return c.devices;
+    let devices = [];
+    try {
+      const r = await this._request({ type: 'online-devices', to: name });
+      devices = Array.isArray(r.devices) ? r.devices.filter((d) => Number.isInteger(d) && d > 0) : [];
+    } catch {}
+    this._onlineDev.set(name, { at: Date.now(), devices });
+    if (this._onlineDev.size > 200) this._onlineDev.delete(this._onlineDev.keys().next().value);
+    return devices;
   }
 
   /** Кто сейчас печатает в чате: [юзернейм…] (в личном чате — собеседник или пусто). */
@@ -3834,7 +3902,8 @@ export class MessengerClient extends Emitter {
     // «Печатает…»: сигнал не создаёт чат; только мгновенный и свежий
     if (res.content?.t === 'typing') {
       const age = Date.now() - Number(res.content.ts || 0);
-      if (!ephemeral || age > 15_000 || age < -60_000) return ack(false);
+      // Сигнал приходит только вживую (сервер его не хранит); часы устройств могут расходиться
+      if (!ephemeral || Math.abs(age) > 10 * 60_000) return ack(false);
       const g = res.content.g;
       // В группе достаточно быть её участником; в личном чате — только от знакомых
       if (g != null) {

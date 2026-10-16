@@ -1171,3 +1171,6 @@ a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset:
 .tts-bar .vol-range { flex: 1; min-width: 60px; max-width: 260px; }
 .tts-bar .vol-val { flex: none; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .tts-bar .icon-btn { flex: none; margin-left: auto; }
+
+/* Сервер: текущий адрес */
+.srv-now { margin: 0 0 10px; overflow-wrap: anywhere; }

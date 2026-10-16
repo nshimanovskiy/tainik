@@ -187,6 +187,13 @@ test('восстановление после взлома: старое сос�
   assert.equal((await decrypt(b.store, fresh)).content.body, 'после восстановления');
 });
 
+test('большой пропуск (сигналы для выключенного устройства) не ломает сессию', async () => {
+  const { a, b } = await pair();
+  await decrypt(b.store, await encrypt(a.store, ADDR.bob, text('0')));
+  for (let i = 0; i < 1500; i++) await encrypt(a.store, ADDR.bob, text('печатает')); // не дошли
+  assert.equal((await decrypt(b.store, await encrypt(a.store, ADDR.bob, text('дошло')))).content.body, 'дошло');
+});
+
 test('слишком большой пропуск сообщений отклоняется', async () => {
   const { a, b } = await pair();
   await decrypt(b.store, await encrypt(a.store, ADDR.bob, text('0')));

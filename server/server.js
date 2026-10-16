@@ -662,6 +662,20 @@ export function startServer({
         return send(conn, { type: 'sent-ephemeral', reqId: msg.reqId, id: msg.id, delivered });
       }
 
+      // ----- какие устройства собеседника сейчас в сети (для «печатает…») -----
+      // Мгновенный сигнал шифруется только для них: иначе выключенные устройства копили бы
+      // «пропущенные» ключи храповика. Скрыл «в сети» или заблокировал вас — пусто, как и статус.
+      case 'online-devices': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!take(state.ephemeral, RATE.ephemeralPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        const to = String(msg.to || '').toLowerCase();
+        if (!store.getUser(to)) return error(conn, 'unknown_recipient', { reqId: msg.reqId });
+        const own = to === state.user;
+        const visible = own || !presenceOf(to, state.user).hidden;
+        const devices = visible ? store.deviceIds(to).filter((d) => online.has(addr(to, d)) && !(own && d === state.device)) : [];
+        return send(conn, { type: 'online-devices', reqId: msg.reqId, to, devices });
+      }
+
       // ----- серверы ICE для звонков: STUN и временные учётные данные TURN -----
       case 'get-ice': {
         if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });

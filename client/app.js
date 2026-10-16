@@ -3137,6 +3137,7 @@ function showSetPage(name) {
   if (name === 'coins') fillCoins();
   if (name === 'shop') fillShop();
   if (name === 'media') openMediaPage();
+  if (name === 'server') fillServer();
   if (name === 'proxy') fillProxy();
   else stopMicMeter();
   page.scrollTop = 0;
@@ -3189,7 +3190,68 @@ async function fillSettings() {
   await fillNotifSettings();
 }
 
+// ---------- Сервер: адрес, через который работает мессенджер ----------
+// В приложениях адрес можно сменить (новый домен, запасной адрес). Сначала проверяем, что по
+// новому адресу тот же сервер с этим аккаунтом: иначе сервер ответил бы «аккаунта нет», и
+// приложение стёрло бы ключи как у удалённого аккаунта.
+const prettyServer = (u) => {
+  try {
+    const x = new URL(u);
+    return x.host + (x.pathname === '/ws' ? '' : x.pathname) + (x.protocol === 'ws:' ? ' (' + t('без шифрования') + ')' : '');
+  } catch {
+    return String(u || '');
+  }
+};
+function fillServer() {
+  $('srv-current').textContent = prettyServer(client.url);
+  $('srv-change').hidden = !desktop;
+  $('srv-note-app').hidden = !desktop;
+  $('srv-note-web').hidden = !!desktop;
+  $('srv-status').textContent = '';
+  $('srv-status').classList.remove('error');
+  $('srv-input').value = '';
+}
+function srvStatus(text, error = false) {
+  $('srv-status').textContent = text;
+  $('srv-status').classList.toggle('error', error);
+}
+$('srv-input').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), $('srv-save').click()));
+$('srv-save').addEventListener('click', async () => {
+  if (!desktop || !client.account) return;
+  const raw = $('srv-input').value.trim();
+  if (!raw) return srvStatus(t('Введите адрес сервера'), true);
+  let url;
+  try {
+    url = normalizeServer(raw);
+  } catch (err) {
+    return srvStatus(err.message.startsWith(t('Адрес')) ? err.message : t('Неверный адрес сервера'), true);
+  }
+  if (url === client.url) return srvStatus(t('Мессенджер уже работает через этот адрес'), true);
+  $('srv-save').disabled = true;
+  srvStatus(t('Проверяем адрес…'));
+  try {
+    await client.probeServer(url);
+  } catch (err) {
+    $('srv-save').disabled = false;
+    return srvStatus(err.message, true);
+  }
+  // Тот же сервер, аккаунт на месте — переключаемся
+  client.disconnect();
+  client.url = url;
+  const a = activeAccount();
+  a.server = url;
+  await saveAccounts();
+  await settings.set('server', url);
+  client.connect().catch((err) => toast(err.message, 0));
+  loadIcons(httpOrigin(url));
+  $('srv-save').disabled = false;
+  fillServer();
+  $('set-server-value').textContent = prettyServer(url);
+  srvStatus(t('Готово: мессенджер работает через новый адрес'));
+});
+
 async function openSettings(page = 'main') {
+  $('set-server-value').textContent = prettyServer(client.url);
   await fillSettings();
   showSetPage(page);
   if (!$('menu-dialog').open) $('menu-dialog').showModal();
