@@ -72,7 +72,33 @@
   // Цвет строки состояния зависит от стилей — пересчитать, когда они загрузятся
   window.addEventListener('DOMContentLoaded', apply);
 
+  // Анимации: включены (по умолчанию) или выключены. Выключены — data-motion="off" на <html>,
+  // длительности в style.css (--motion) становятся нулевыми. «Уменьшить движение» в системе — тоже выключает.
+  var MOTION_KEY = 'tainik:motion';
+  function motionOn() {
+    try {
+      return localStorage.getItem(MOTION_KEY) !== 'off';
+    } catch (e) {
+      return true;
+    }
+  }
+  function applyMotion() {
+    if (motionOn()) root.removeAttribute('data-motion');
+    else root.setAttribute('data-motion', 'off');
+  }
+  applyMotion();
+
   window.tainikTheme = {
+    /** Анимации включены (настройка этого устройства). */
+    motion: motionOn,
+    setMotion: function (on) {
+      try {
+        if (on) localStorage.removeItem(MOTION_KEY);
+        else localStorage.setItem(MOTION_KEY, 'off');
+      } catch (e) {}
+      applyMotion();
+      return motionOn();
+    },
     /** Выбранная тема: { id, base?, vars? }. */
     get: function () {
       return JSON.parse(JSON.stringify(current));

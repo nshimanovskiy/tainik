@@ -301,9 +301,15 @@ let toastTimer;
 function toast(text, ms = 3500) {
   const box = $('toast');
   box.textContent = text;
-  box.hidden = false;
+  box.classList.remove('leaving');
+  if (box.hidden) box.hidden = false;
+  else replay(box, 'again'); // новый текст поверх прежнего — лёгкий «толчок»
   clearTimeout(toastTimer);
-  if (ms) toastTimer = setTimeout(() => (box.hidden = true), ms);
+  if (ms)
+    toastTimer = setTimeout(() => {
+      box.classList.add('leaving'); // исчезает плавно (см. .toast.leaving), потом скрывается
+      toastTimer = setTimeout(() => ((box.hidden = true), box.classList.remove('leaving')), 180);
+    }, ms);
 }
 /** Иконка + текст в элементе (статусы ключа, блокировки и т. п.). */
 function iconText(node, name, text) {
@@ -958,6 +964,7 @@ $('add-form').addEventListener('submit', async (e) => {
 // ---------- Чат ----------
 async function openChat(name) {
   if (current !== name) setReply(null);
+  const switched = current !== name;
   current = name;
   $('app').classList.add('in-chat');
   $('chat-empty').hidden = true;
@@ -965,6 +972,7 @@ async function openChat(name) {
   await client.markRead(name);
   clearChatNotices(name);
   await renderChat();
+  if (switched) replay($('chat-view'), 'enter'); // переписка нового чата проявляется плавно
   await renderContacts();
   // На телефоне не открываем клавиатуру сразу при входе в чат — только по нажатию на поле
   if (!touchUI()) $('text').focus();
@@ -1046,6 +1054,16 @@ function renderThemes() {
 }
 if (theme) renderThemes();
 else $('menu-dialog').querySelector('[data-go="theme"]').hidden = true;
+// Анимации (theme.js держит выбор и ставит data-motion до отрисовки)
+$('motion-toggle').checked = theme?.motion?.() !== false;
+$('motion-toggle').addEventListener('change', (e) => theme?.setMotion?.(e.target.checked));
+/** Перезапустить анимацию появления: класс снимается и ставится заново. */
+function replay(node, cls) {
+  if (!node) return;
+  node.classList.remove(cls);
+  void node.offsetWidth; // новый кадр — иначе браузер не заметит повторного класса
+  node.classList.add(cls);
+}
 
 // ---------- Язык ----------
 const LANGS = LANG_LIST;
@@ -1566,6 +1584,9 @@ function protectText(c) {
   if (c.who === 'me') return c.on ? t('Вы запретили копировать, пересылать и сохранять ваши сообщения в этом чате') : t('Вы сняли запрет на копирование ваших сообщений');
   return c.on ? t('Собеседник запретил копировать, пересылать и сохранять его сообщения в этом чате') : t('Собеседник снял запрет на копирование своих сообщений');
 }
+// Новые сообщения открытого чата появляются с анимацией (лента перерисовывается целиком,
+// поэтому помечаем, какие сообщения только что пришли или отправлены)
+const freshMsgs = new Set();
 function messageNode(m) {
   if (m.dir === 'sys' && m.content?.t === 'call') {
     const li = el('li', 'msg sys call' + (m.content.result === 'missed' ? ' missed' : ''));
@@ -1600,6 +1621,7 @@ function messageNode(m) {
   }
   const li = el('li', `msg ${m.dir}${m.status === 'failed' ? ' failed' : ''}`);
   li.dataset.id = m.id;
+  if (freshMsgs.delete(m.id)) li.classList.add('appear');
   // Собеседник запретил копировать и сохранять свои сообщения: без выделения и меню «Сохранить как»
   if (client.isProtected(current, m)) li.classList.add('protected');
   msgText.set(m.id, m.content?.t === 'notice' ? noticeText(m.content) : m.content?.body ?? '');
@@ -3127,6 +3149,13 @@ let setPage = 'main';
 function showSetPage(name) {
   const page = document.querySelector(`#menu-dialog .set-page[data-page="${name}"]`);
   if (!page) return;
+  // Вглубь — страница въезжает справа, назад — слева (только в уже открытых настройках)
+  const back = name === 'main' || document.querySelector(`#menu-dialog .set-page[data-page="${setPage}"]`)?.dataset.parent === name;
+  if ($('menu-dialog').open && name !== setPage) {
+    page.classList.remove('enter-fwd', 'enter-back');
+    void page.offsetWidth;
+    page.classList.add(back ? 'enter-back' : 'enter-fwd');
+  }
   setPage = name;
   for (const p of document.querySelectorAll('#menu-dialog .set-page')) p.hidden = p !== page;
   $('set-title').textContent = name === 'main' ? t('Настройки') : t(page.dataset.title);
@@ -4426,6 +4455,10 @@ client.on('contacts', () => {
 });
 client.on('message', async ({ contact, message, quiet }) => {
   const incoming = message.dir === 'in' && !quiet;
+  if (contact === current && message?.id && message.dir !== 'sys') {
+    freshMsgs.add(message.id);
+    if (freshMsgs.size > 50) freshMsgs.delete(freshMsgs.values().next().value);
+  }
   // Открытый чат в окне без фокуса не считаем прочитанным — иначе пропадёт счётчик
   if (contact === current && document.hasFocus()) {
     await client.markRead(contact);

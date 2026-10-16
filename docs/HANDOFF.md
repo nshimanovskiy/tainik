@@ -1,6 +1,6 @@
 # Тайник — резюме проекта для продолжения работы
 
-Состояние на **16 октября 2026**, версия **0.51.0** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
+Состояние на **16 октября 2026**, версия **0.52.0** (ветка `main`, CI зелёный). Сервер работает на `https://chat.sdsds.top`.
 
 Этот файл — для нового чата или нового разработчика: что за проект, как устроен, почему так, что сделано, как работать и что известно плохого. Для пользователей — `README.md` / `README.ru.md`; развёртывание — `DEPLOY.md`; выпуски — `RELEASING.md`; подробная история — `CHANGELOG.md` (раздел на каждую версию). Короткая памятка для ассистента — `CLAUDE.md`.
 
@@ -220,7 +220,7 @@ desktop/           main.cjs, preload.cjs, lib.cjs, updater.cjs, proxy.cjs, i18n.
 android/           Kotlin: TainikApp, MainActivity, WebHost, AssetServer, Bridge, ConnectionService,
                    Notifier, ReplyReceiver, Gallery, SecureStore, Updater, ProxyRelay, I18n; assets/native/bridge.js
 deploy/            setup.sh, update.sh, backup.sh, setup-calls.sh, sign-profile.sh, connect-github.sh, nginx-site.conf
-tests/             node:test, 148 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
+tests/             node:test, 150 тестов (≈30 файлов): протокол, e2e, вложения, группы, каналы, премиум/монеты,
                    уведомления, поддержка, канал обновлений, перенос, архив/папки, иконки, i18n, десктоп, Android-мост…
 .github/workflows/ build.yml (тесты + сборки), release.yml («Выпуск приложений»), deploy.yml («Деплой сервера»)
 docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG.md, README*.md, CLAUDE.md, docs/HANDOFF.md
@@ -230,7 +230,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 
 ## 5. Как работать с проектом
 
-- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 148 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
+- **Тесты:** `npm test` (Node 22.13+), ~2 минуты, 150 тестов, все зелёные. Тесты параллельны; при новых тестах избегать `sleep` — ждать событие или условие (`until(...)`), иначе CI нестабилен.
 - **Локальный сервер для проверки в браузере:** `npm start` → `http://localhost:8080`. Для панели, монет и канала обновлений удобен маленький скрипт:
   ```js
   // devserver.mjs — запуск: node devserver.mjs
@@ -295,6 +295,7 @@ docker-compose.yml, Dockerfile, .env.example, DEPLOY.md, RELEASING.md, CHANGELOG
 | 0.44 | Закреплённые чаты и папки-вкладки |
 | 0.45 | Чат поддержки + вкладка в панели; патчноуты всех пропущенных версий; обновлённая главная |
 | 0.46 | Свои SVG-иконки вместо эмодзи, набор с сервера |
+| 0.52.0 | Анимации: слой в конце `style.css` (длительности `calc(… * var(--motion))`, нажатие — свойство `scale`, окна — `@starting-style` + `overlay/display allow-discrete`); выключатель `tainikTheme.setMotion` (`tainik:motion`, `data-motion=\"off\"`), `prefers-reduced-motion` — тоже 0; JS: `freshMsgs` → класс `.appear` у новых сообщений, `replay(node, cls)`, направление разделов настроек `enter-fwd/back`, уход тоста `.leaving`. Не анимировать то, что перерисовывается целиком при каждом сообщении (список чатов, значки) |
 | 0.51.0 | Смена адреса сервера (приложения): Настройки → «Сервер», `client.probeServer(url)` — отдельное соединение до `challenge` (иначе ответ `account_deleted` стёр бы ключи), затем `activeAccount().server` + `settings.server`; «печатает» — только устройствам в сети: запрос `online-devices` (пусто при скрытом статусе/блокировке, кеш 10 с), без проверки часов отправителя (окно ±10 мин); храповик: `MAX_SKIP = 20000`, хранятся только последние `MAX_STORED_SKIPPED` ключей |
 | 0.50.2 | Модель whisper-small (`MODELS` в `fetch-stt.mjs`, Docker `STT_MODELS`), выбор `tainik:stt-model` (по умолчанию small, на сенсорных/Android — base), согласие на загрузку по модели `tainik:stt-ok:<модель>`, «Расшифровать заново»; язык записи — `client/stt-lang.js` (`chooseLanguage`: при неуверенности — язык пользователя); iOS: `primeSpeech()` синхронно в обработчике нажатия, голоса заранее, пустой список голосов → `u.lang`, без `cancel()` перед `speak()`, сторож окончания фразы |
 | 0.50.1 | Громкость озвучки: `tts.js` `getVolume/setVolume` (localStorage `tainik:tts-volume`, 0…1), чтение по фразам, смена громкости перечитывает текущую фразу; Android `tts.speak(text, lang, volume)` → `KEY_PARAM_VOLUME`; панель `#tts-bar` над полем ввода и ползунок `#vol-tts` в «Звук и микрофон» |

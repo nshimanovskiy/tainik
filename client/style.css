@@ -1174,3 +1174,111 @@ a.lnk { color: var(--accent); text-decoration: underline; text-underline-offset:
 
 /* Сервер: текущий адрес */
 .srv-now { margin: 0 0 10px; overflow-wrap: anywhere; }
+
+/* ===================================================================================
+   Анимации интерактивного: отклик кнопок, появление окон, меню, сообщений и страниц.
+   Длительности умножаются на --motion: 0 — без анимаций (Настройки → «Оформление» →
+   «Анимации» или «Уменьшить движение» в системе). Нажатие — свойством scale, а не transform,
+   чтобы не сбивать уже заданные сдвиги и повороты.
+   =================================================================================== */
+:root { --motion: 1; --ease: cubic-bezier(.2, .8, .2, 1); --ease-out: cubic-bezier(.16, 1, .3, 1); --t-fast: calc(.12s * var(--motion)); --t: calc(.2s * var(--motion)); --t-slow: calc(.28s * var(--motion)); }
+:root[data-motion="off"] { --motion: 0; }
+@media (prefers-reduced-motion: reduce) { :root { --motion: 0; } }
+
+/* Кнопки, строки, ссылки, поля: плавная смена цвета, рамки и тени */
+button, a, .set-row, .contacts li button, .msg-menu button, .tab, .palette-card, .shop-item, .file-card {
+  transition: background-color var(--t), color var(--t), border-color var(--t), box-shadow var(--t), filter var(--t), opacity var(--t), scale var(--t-fast) var(--ease);
+}
+input, textarea, select { transition: border-color var(--t), box-shadow var(--t), background-color var(--t); }
+.ic, svg { transition: color var(--t), fill var(--t); }
+
+/* Нажатие: кнопка чуть «вдавливается» */
+button:active:not(:disabled), a.set-row:active, .palette-card:active, .shop-item:active { scale: .96; }
+.contacts li button:active, .set-row:active, .msg-menu button:active, .file-card:active { scale: .985; }
+.icon-btn:active:not(:disabled), .send:active:not(:disabled), .vplay:active, .vstt:active { scale: .9; }
+.composer .rec-btn:active, .composer .rec-btn.active { scale: 1; } /* запись держат пальцем — без отклика */
+.icon-btn:hover:not(:disabled) .ic { scale: 1.06; }
+.icon-btn .ic { transition: scale var(--t-fast) var(--ease); }
+
+/* Переключатели и ползунки */
+.set-toggle input[type="checkbox"] { transition: background-color var(--t); }
+.set-toggle input[type="checkbox"]::after { transition: transform var(--t) var(--ease-out), width var(--t-fast); }
+.set-toggle input[type="checkbox"]:active::after { width: 22px; }
+.set-toggle input[type="checkbox"]:checked:active::after { transform: translateX(14px); }
+
+/* Окна: появляются и исчезают плавно (исчезание — в браузерах с @starting-style) */
+dialog {
+  transition: opacity var(--t) var(--ease), translate var(--t) var(--ease-out), scale var(--t) var(--ease-out), overlay var(--t) allow-discrete, display var(--t) allow-discrete;
+}
+dialog:not([open]) { opacity: 0; translate: 0 10px; scale: .97; }
+@starting-style { dialog[open] { opacity: 0; translate: 0 14px; scale: .96; } }
+dialog::backdrop { transition: background-color var(--t), backdrop-filter var(--t), overlay var(--t) allow-discrete, display var(--t) allow-discrete; }
+dialog:not([open])::backdrop { background-color: transparent; }
+@starting-style { dialog[open]::backdrop { background-color: transparent; } }
+dialog.viewer:not([open]) { translate: none; scale: 1; }
+@starting-style { dialog.viewer[open] { translate: none; scale: 1.02; } }
+dialog.sheet[open] { animation: sheet-up var(--t) var(--ease-out); }
+
+/* Меню сообщения и прочие всплывающие панели */
+@keyframes pop-in { from { opacity: 0; scale: .92; } }
+@keyframes fade-up { from { opacity: 0; translate: 0 8px; } }
+@keyframes fade-in { from { opacity: 0; } }
+.msg-menu:not([hidden]) { animation: pop-in var(--t) var(--ease-out); transform-origin: top left; }
+.msg-menu button:not([hidden]) { animation: fade-in var(--t) var(--ease); }
+.tts-bar:not([hidden]), #notif-offer:not([hidden]), .blocked-bar:not([hidden]) { animation: fade-up var(--t) var(--ease-out); }
+
+/* Всплывающее сообщение внизу: выезжает, уходит, на новый текст — лёгкий толчок */
+@keyframes toast-in { from { opacity: 0; translate: 0 14px; scale: .96; } }
+@keyframes toast-bump { 40% { scale: 1.04; } }
+.toast:not([hidden]) { animation: toast-in var(--t) var(--ease-out); }
+.toast.again { animation: toast-bump var(--t) var(--ease); }
+.toast.leaving { opacity: 0; translate: 0 10px; transition: opacity var(--t), translate var(--t); }
+
+/* Сообщения: новые въезжают снизу (свои — справа, чужие — слева) */
+@keyframes msg-in { from { opacity: 0; translate: -10px 8px; scale: .97; } }
+@keyframes msg-out { from { opacity: 0; translate: 10px 8px; scale: .97; } }
+.msg.appear.in { animation: msg-in var(--t-slow) var(--ease-out); transform-origin: bottom left; }
+.msg.appear.out { animation: msg-out var(--t-slow) var(--ease-out); transform-origin: bottom right; }
+.msg-actions { transition: opacity var(--t-fast), translate var(--t-fast) var(--ease); }
+.tr.loading .tr-head { animation: breathe calc(1.4s * var(--motion) + .001s) ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .3; } }
+
+/* Открытый чат: переписка проявляется */
+#chat-view.enter { animation: fade-in var(--t) var(--ease); }
+#chat-view.enter .messages, #chat-view.enter #messages { animation: fade-up var(--t-slow) var(--ease-out); }
+
+/* Телефон: чат въезжает справа, список чатов — при возврате слева */
+@keyframes slide-from-right { from { opacity: .4; translate: 28% 0; } }
+@keyframes slide-from-left { from { opacity: .4; translate: -18% 0; } }
+@media (max-width: 720px) {
+  #app.in-chat #chat { animation: slide-from-right var(--t-slow) var(--ease-out); }
+  #app:not(.in-chat) #sidebar { animation: slide-from-left var(--t-slow) var(--ease-out); }
+}
+
+/* Настройки: разделы въезжают вглубь справа, назад — слева */
+@keyframes page-fwd { from { opacity: 0; translate: 24px 0; } }
+@keyframes page-back { from { opacity: 0; translate: -24px 0; } }
+.set-page.enter-fwd { animation: page-fwd var(--t) var(--ease-out); }
+.set-page.enter-back { animation: page-back var(--t) var(--ease-out); }
+
+/* Вкладки, выбор, отметки */
+.set-radio[aria-checked="true"] .set-check .ic, .palette-card.on { animation: pop-in var(--t) var(--ease-out); }
+
+/* «Печатает…» — мягко пульсирует */
+.peer-presence.typing, .c-preview.typing { animation: breathe calc(1.6s * var(--motion) + .001s) ease-in-out infinite; }
+
+/* Кнопки поля ввода: отправить ↔ микрофон сменяются с «прыжком» */
+@keyframes btn-swap { from { opacity: 0; scale: .6; } }
+.composer .send:not([hidden]), .composer .rec-btn:not([hidden]) { animation: btn-swap var(--t) var(--ease-out); }
+
+/* Звонок, просмотр фото, карточки магазина */
+.call-overlay:not([hidden]) { animation: fade-in var(--t-slow) var(--ease); }
+.shop-item:hover, .palette-card:hover { box-shadow: 0 4px 14px rgba(0, 0, 0, .1); }
+.avatar.with-frame, .avatar { transition: scale var(--t) var(--ease); }
+.set-profile:hover .avatar { scale: 1.04; }
+
+/* Полностью без движения: бесконечные «дыхания» тоже останавливаются */
+:root[data-motion="off"] .peer-presence.typing, :root[data-motion="off"] .c-preview.typing, :root[data-motion="off"] .tr.loading .tr-head { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .peer-presence.typing, .c-preview.typing, .tr.loading .tr-head { animation: none; }
+}

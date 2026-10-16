@@ -26,7 +26,7 @@ function boot({ stored = null, systemDark = false } = {}) {
   const ctx = {
     window,
     document: { documentElement: root, querySelectorAll: () => [meta] },
-    localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) },
+    localStorage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) },
     getComputedStyle: () => ({ getPropertyValue: () => (attrs['data-theme'] === 'dark' ? '#111513' : '#f3f1ec') }),
   };
   vm.runInNewContext(code, ctx);
@@ -79,4 +79,27 @@ test('стиль sdsds: отдельно от режима, сохраняетс
   b.api.setPalette('tainik');
   assert.equal(b.attrs['data-palette'], undefined);
   assert.equal(boot({ stored: '{"id":"dark","palette":"<script>"}' }).attrs['data-palette'], undefined, 'чужой стиль не принимается');
+});
+
+test('анимации: включены по умолчанию, выключение запоминается', () => {
+  let b = boot();
+  assert.equal(b.api.motion(), true);
+  assert.equal(b.attrs['data-motion'], undefined);
+  assert.equal(b.api.setMotion(false), false);
+  assert.equal(b.attrs['data-motion'], 'off');
+  b = boot({ stored: null });
+  b.store.set('tainik:motion', 'off');
+  // после перезапуска (новый запуск скрипта с тем же хранилищем)
+  const saved = new Map(b.store);
+  const again = boot();
+  for (const [k, v] of saved) again.store.set(k, v);
+  assert.equal(again.api.motion(), false);
+  again.api.setMotion(true);
+  assert.equal(again.attrs['data-motion'], undefined);
+  assert.equal(again.store.has('tainik:motion'), false);
+});
+test('анимации: длительности в стилях зависят от --motion', () => {
+  const css = fs.readFileSync(new URL('../client/style.css', import.meta.url), 'utf8');
+  assert.match(css, /:root\[data-motion="off"\] \{ --motion: 0; \}/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{ :root \{ --motion: 0; \} \}/);
 });
