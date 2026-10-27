@@ -1330,3 +1330,9 @@ dialog.sheet[open] { animation: sheet-up var(--t) var(--ease-out); }
 .call-ctl.speaking svg { box-shadow: 0 0 0 3px #3fd39a; }
 .call-mini-btn.speaking { box-shadow: 0 0 0 2px #3fd39a; }
 .call-mini.speaking .call-mini-dot { background: #3fd39a; animation-duration: .5s; }
+
+/* Фото группы и канала */
+.chat-photo-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.chat-photo-row button { display: inline-flex; align-items: center; gap: 6px; }
+.chat-photo-row .ic { width: 16px; height: 16px; }
+.chat-photo p { margin: 8px 0 0; }

@@ -300,6 +300,7 @@ export class Store {
     const ccols = this.db.prepare("SELECT name FROM pragma_table_info('channels')").all().map((r) => r.name);
     if (!ccols.includes('verified')) this.db.exec('ALTER TABLE channels ADD COLUMN verified INTEGER NOT NULL DEFAULT 0');
     if (!ccols.includes('uid')) this.db.exec('ALTER TABLE channels ADD COLUMN uid INTEGER');
+    if (!ccols.includes('avatar')) this.db.exec('ALTER TABLE channels ADD COLUMN avatar TEXT'); // фото, зашифрованное ключом канала
     this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS channels_uid ON channels(uid)');
     // Номера каналов и групп — общий счётчик: номер однозначно указывает на канал или группу
     for (const r of this.db.prepare('SELECT id FROM channels WHERE uid IS NULL ORDER BY created_at, rowid').all()) {
@@ -845,7 +846,7 @@ export class Store {
   getChannel({ id, handle }) {
     const r = id ? this.db.prepare('SELECT * FROM channels WHERE id = ?').get(String(id)) : this.db.prepare('SELECT * FROM channels WHERE handle = ?').get(String(handle));
     return r
-      ? { id: r.id, uid: r.uid, owner: r.owner, handle: r.handle || null, public: !!r.public, key: r.key || null, meta: r.meta, seq: r.seq, verified: !!r.verified, createdAt: r.created_at }
+      ? { id: r.id, uid: r.uid, owner: r.owner, handle: r.handle || null, public: !!r.public, key: r.key || null, meta: r.meta, avatar: r.avatar || null, seq: r.seq, verified: !!r.verified, createdAt: r.created_at }
       : null;
   }
   setChannelVerified(id, on) {
@@ -942,8 +943,9 @@ export class Store {
   channelHandleTaken(handle) {
     return !!this.db.prepare('SELECT 1 FROM channels WHERE handle = ?').get(handle);
   }
-  updateChannel(id, { meta, handle, isPublic, key }) {
+  updateChannel(id, { meta, handle, isPublic, key, avatar }) {
     if (meta != null) this.db.prepare('UPDATE channels SET meta = ? WHERE id = ?').run(meta, id);
+    if (avatar !== undefined) this.db.prepare('UPDATE channels SET avatar = ? WHERE id = ?').run(avatar || null, id);
     if (isPublic !== undefined) this.db.prepare('UPDATE channels SET public = ?, handle = ?, key = ? WHERE id = ?').run(isPublic ? 1 : 0, handle, key, id);
   }
   deleteChannel(id) {

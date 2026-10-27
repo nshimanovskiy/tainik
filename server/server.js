@@ -42,6 +42,7 @@ const GROUPS_SYNC_MAX = 500; // групп в одном сообщении grou
 const CHANNEL_HANDLE_RE = /^[a-z][a-z0-9_]{4,31}$/;
 const B64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 const CHANNEL_META_MAX = 8 * 1024; // символов base64: зашифрованные название и описание
+const CHANNEL_AVATAR_MAX = 40 * 1024; // символов base64: зашифрованное фото канала
 const CHANNEL_POST_MAX = 96 * 1024; // символов base64: зашифрованный пост (текст, описание файла)
 const CHANNELS_PER_USER = 20; // своих каналов
 const CHANNEL_PAGE = 100;
@@ -422,7 +423,7 @@ export function startServer({
   /** Описание канала для пользователя user (роль своя у каждого). Ключ — только у публичного. */
   function channelInfo(c, user) {
     const role = c.owner === user ? 'owner' : store.isChannelAdmin(c.id, user) ? 'admin' : store.isSubscribed(c.id, user) ? 'sub' : null;
-    const info = { id: c.id, public: c.public, handle: c.handle, meta: c.meta, seq: c.seq, owner: c.owner, subs: store.subscriberCount(c.id), role, verified: !!c.verified };
+    const info = { id: c.id, public: c.public, handle: c.handle, meta: c.meta, avatar: c.avatar || null, seq: c.seq, owner: c.owner, subs: store.subscriberCount(c.id), role, verified: !!c.verified };
     if (c.public) info.key = c.key;
     if (role === 'owner') info.admins = store.channelAdmins(c.id);
     return info;
@@ -1039,7 +1040,15 @@ export function startServer({
             if (!admin) return fail('channel_not_admin');
             const meta = msg.meta == null ? null : String(msg.meta);
             if (meta != null && (!B64_RE.test(meta) || meta.length > CHANNEL_META_MAX)) return fail('bad_channel');
-            store.updateChannel(c.id, { meta });
+            // Фото канала: поставить — только администратор с Премиум, убрать — любой администратор
+            let avatar;
+            if (msg.avatar === null || msg.avatar === '') avatar = null;
+            else if (msg.avatar !== undefined) {
+              avatar = String(msg.avatar);
+              if (!B64_RE.test(avatar) || avatar.length > CHANNEL_AVATAR_MAX) return fail('bad_avatar');
+              if (!premiumOf(me).active) return fail('premium_chat_photo');
+            }
+            store.updateChannel(c.id, { meta, avatar });
             channelMetaChanged(c.id);
             return reply({ channel: channelInfo(store.getChannel({ id: c.id }), me) });
           }

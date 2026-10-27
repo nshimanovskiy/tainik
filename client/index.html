@@ -843,6 +843,14 @@
           <div id="ci-name" class="pf-name"></div>
           <div id="ci-sub" class="pf-status"></div>
         </div>
+        <div class="set-group set-pad chat-photo" id="ci-photo" hidden>
+          <div class="chat-photo-row">
+            <button type="button" id="ci-photo-pick" class="ghost"><i class="ic" data-icon="camera"></i>Поставить фото</button>
+            <button type="button" id="ci-photo-clear" class="ghost">Убрать фото</button>
+          </div>
+          <p class="small muted" id="ci-photo-note"></p>
+          <input type="file" id="ci-photo-input" accept="image/*" hidden>
+        </div>
         <div class="set-group">
           <div class="set-row set-static pf-info" id="ci-about-row"><span class="set-ico" aria-hidden="true">ℹ️</span><span class="pf-info-text"><span id="ci-about" class="pf-bio"></span><span class="small muted">Описание</span></span></div>
           <button type="button" class="set-row pf-info" id="ci-link-row" title="Скопировать"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="link"></i></span><span class="pf-info-text"><span id="ci-link" class="ci-link"></span><span class="small muted" id="ci-link-label"></span></span></button>
@@ -883,6 +891,14 @@
           <span class="avatar huge" id="gd-avatar"></span>
           <div id="gd-name" class="pf-name"></div>
           <div id="gd-count" class="pf-status"></div>
+        </div>
+        <div class="set-group set-pad chat-photo" id="gd-photo" hidden>
+          <div class="chat-photo-row">
+            <button type="button" id="gd-photo-pick" class="ghost"><i class="ic" data-icon="camera"></i>Поставить фото</button>
+            <button type="button" id="gd-photo-clear" class="ghost">Убрать фото</button>
+          </div>
+          <p class="small muted" id="gd-photo-note"></p>
+          <input type="file" id="gd-photo-input" accept="image/*" hidden>
         </div>
         <div class="set-group set-pad" id="gd-rename" hidden>
           <label class="set-field"><span>Название</span><input id="gd-name-input" maxlength="64" autocomplete="off"></label>

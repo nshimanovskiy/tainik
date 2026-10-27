@@ -358,7 +358,9 @@ function cleanGroup(g) {
   const members = [...new Set(g.members.map(String))].filter((m) => USER_RE.test(m)).slice(0, GROUP_MAX);
   if (!members.length) return null;
   const admins = [...new Set((Array.isArray(g.admins) ? g.admins : []).map(String))].filter((a) => members.includes(a));
-  return { id, name: cleanGroupName(g.name) || t('Группа'), members, admins: admins.length ? admins : [members[0]], v: g.v };
+  const out = { id, name: cleanGroupName(g.name) || t('Группа'), members, admins: admins.length ? admins : [members[0]], v: g.v };
+  if (validAvatar(g.avatar)) out.avatar = g.avatar; // фото группы ставит администратор с Премиум
+  return out;
 }
 
 /** Что изменилось в группе — для служебных строк в чате. */
@@ -366,6 +368,7 @@ function groupEvents(old, next, by) {
   if (!old) return [{ ev: 'created', by, name: next.name }];
   const out = [];
   if (old.name !== next.name) out.push({ ev: 'renamed', by, name: next.name });
+  if ((old.avatar || null) !== (next.avatar || null)) out.push({ ev: 'photo', by, on: !!next.avatar });
   const added = next.members.filter((m) => !old.members.includes(m));
   const removed = old.members.filter((m) => !next.members.includes(m));
   if (added.length) out.push({ ev: 'added', by, who: added });
@@ -465,6 +468,8 @@ export const ERROR_TEXT = {
   bad_currency: t('Этой валютой оплатить нельзя'),
   no_rate: t('Не удалось узнать курс валюты, попробуйте позже или выберите другую'),
   premium_required: t('Фото профиля доступно с подпиской Премиум'),
+  bad_avatar: t('Не удалось загрузить фото'),
+  premium_chat_photo: t('Фото группы или канала может поставить администратор с подпиской Премиум'),
   premium_presence: t('Скрывать статус «в сети» можно с подпиской Премиум'),
   premium_shop: t('Этот товар бесплатен с подпиской Премиум'),
   premium_video: t('Свой фон профиля — с подпиской Премиум'),
@@ -1365,6 +1370,8 @@ export class MessengerClient extends Emitter {
 
   /** Фото профиля для показа: только если у владельца действует подписка. */
   avatarOf(username) {
+    // Фото группы или канала — от их администратора (Премиум нужен был ему, чтобы поставить)
+    if (isGroupChat(username) || isChannelChat(username)) return this._chatAvatars?.get(username) || null;
     // Своё фото для собеседника — всегда (оно только ваше, подписка не нужна)
     const own = this._aliases.get(username)?.avatar;
     if (own) return own;
@@ -1809,6 +1816,7 @@ export class MessengerClient extends Emitter {
     this._avatars.clear();
     this._videos.clear();
     this._aliases.clear();
+    (this._chatAvatars ||= new Map()).clear();
     (this._verifiedChats ||= new Set()).clear();
     (this._archived ||= new Set()).clear();
     (this._protectMine ||= new Set()).clear();
@@ -1825,6 +1833,7 @@ export class MessengerClient extends Emitter {
       if (c.top) this._top.add(c.username);
       if (c.channel?.owner === NEWS_OWNER) this._official.add(c.username);
       if (c.group) this._names.set(c.username, c.group.name);
+      if (c.group?.avatar || c.channel?.avatar) this._chatAvatars.set(c.username, c.group?.avatar || c.channel.avatar);
       if (c.system) this._names.set(c.username, t('Тайник'));
       if (c.support) this._names.set(c.username, t('Поддержка'));
       if (c.channel) this._names.set(c.username, c.channel.title || (c.channel.handle ? '@' + c.channel.handle : t('Канал')));
@@ -2435,6 +2444,10 @@ export class MessengerClient extends Emitter {
       admins: Array.isArray(info.admins) ? info.admins.filter((a) => typeof a === 'string') : c.channel.admins || [],
       verified: info.verified === true,
     });
+    // Фото канала — отдельно зашифрованное тем же ключом (ставит администратор с Премиум)
+    const av = info.avatar ? await channelOpen(key, info.id, info.avatar) : null;
+    if (validAvatar(av?.a)) c.channel.avatar = av.a;
+    else delete c.channel.avatar;
     delete c.channel.gone;
     delete c.hidden;
     return chat;
@@ -2501,13 +2514,23 @@ export class MessengerClient extends Emitter {
     return chat;
   }
 
-  /** Изменить название или описание (владелец и администраторы). */
-  async updateChannel(chat, { title, about } = {}) {
+  /**
+   * Изменить название, описание или фото (владелец и администраторы). avatar: data:-URL — поставить
+   * (нужен Премиум), null — убрать, не указан — не трогать.
+   */
+  async updateChannel(chat, { title, about, avatar } = {}) {
     const ch = await this.channelOf(chat);
     if (!ch) throw errorOf('channel_not_found');
     const meta = cleanChannelMeta({ title: title ?? ch.title, about: about ?? ch.about });
     if (!meta.title) throw errorOf('channel_title');
-    const r = await this._request({ type: 'channel-update', id: ch.id, meta: await channelSeal(ch.key, ch.id, meta) });
+    const req = { type: 'channel-update', id: ch.id, meta: await channelSeal(ch.key, ch.id, meta) };
+    if (avatar === null) req.avatar = null;
+    else if (avatar !== undefined) {
+      if (!this.isPremium()) throw errorOf('premium_chat_photo');
+      if (!validAvatar(avatar)) throw errorOf('bad_avatar');
+      req.avatar = await channelSeal(ch.key, ch.id, { a: avatar });
+    }
+    const r = await this._request(req);
     await this._serial(async () => {
       const all = await this.contacts();
       await this._applyChannelInfo(all, r.channel);
@@ -2758,7 +2781,7 @@ export class MessengerClient extends Emitter {
    * Изменить группу (только администратор): { name, add: [...], remove: [...], admins: [...] }.
    * Исключённые получают новое состояние и узнают, что их исключили.
    */
-  async updateGroup(chat, { name, add = [], remove = [], admins } = {}) {
+  async updateGroup(chat, { name, add = [], remove = [], admins, avatar } = {}) {
     const me = this.account.username;
     await this._serial(async () => {
       const all = await this.contacts();
@@ -2776,6 +2799,14 @@ export class MessengerClient extends Emitter {
       let adm = (Array.isArray(admins) ? this._normMembers(admins).concat(admins.includes(me) ? [me] : []) : g.admins).filter((a) => members.includes(a));
       if (!adm.length) adm = [me];
       const next = { id: g.id, name: nm, members, admins: [...new Set(adm)], v: Math.max(Date.now(), g.v + 1) };
+      // Фото группы: поставить новое может только администратор с Премиум, убрать — любой администратор
+      if (avatar === undefined) {
+        if (g.avatar) next.avatar = g.avatar;
+      } else if (avatar) {
+        if (!this.isPremium()) throw errorOf('premium_chat_photo');
+        if (!validAvatar(avatar)) throw errorOf('bad_avatar');
+        next.avatar = avatar;
+      }
       // Бывшие участники тоже получают новое состояние — так они узнают, что их исключили
       await this._ensureMembers(all, g.members.filter((m) => m !== me && !members.includes(m)));
       const outbox = (await this.storage.get('outbox')) || [];
@@ -2811,6 +2842,7 @@ export class MessengerClient extends Emitter {
   _queueGroupState(all, oldMembers, next, outbox) {
     const me = this.account.username;
     const content = { t: 'group', g: next.id, name: next.name, members: next.members, admins: next.admins, v: next.v, ts: Date.now() };
+    if (next.avatar) content.avatar = next.avatar;
     for (const m of new Set([...oldMembers, ...next.members])) {
       if (m === me || !all[m] || all[m].keyChanged) continue;
       if (next.members.includes(m)) this._shareProfileTo(all[m], outbox); // участники видят ваше имя и фото
@@ -2827,6 +2859,7 @@ export class MessengerClient extends Emitter {
     const old = rec.group || null;
     const events = groupEvents(old, next, by);
     rec.group = { id: next.id, name: next.name, members: next.members, admins: next.admins, v: next.v };
+    if (next.avatar) rec.group.avatar = next.avatar;
     if (!next.members.includes(me)) rec.group.left = true;
     rec.lastTs = Date.now();
     delete rec.hidden;

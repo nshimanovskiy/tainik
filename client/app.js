@@ -436,6 +436,8 @@ function groupEventText(e) {
       return t('{0} создал(а) группу «{1}»', byName(e.by), e.name);
     case 'renamed':
       return t('{0} переименовал(а) группу в «{1}»', byName(e.by), e.name);
+    case 'photo':
+      return e.on ? t('{0} обновил(а) фото группы', byName(e.by)) : t('{0} убрал(а) фото группы', byName(e.by));
     case 'added':
       return t('{0} добавил(а): {1}', byName(e.by), who);
     case 'removed':
@@ -6383,6 +6385,7 @@ async function renderChannelInfo() {
   $('ci-link-label').textContent = ch.public ? t('Публичная ссылка — нажмите, чтобы скопировать') : t('Ссылка-приглашение — по ней можно читать канал. Нажмите, чтобы скопировать');
   $('ci-link-row').hidden = !!ch.gone;
   $('ci-edit').hidden = !admin;
+  renderChatPhoto('ci', admin, !!ch.avatar);
   if (admin && document.activeElement !== $('ci-title-input') && document.activeElement !== $('ci-about-input')) {
     $('ci-title-input').value = ch.title;
     $('ci-about-input').value = ch.about;
@@ -6523,6 +6526,7 @@ async function renderGroup() {
   setName($('gd-name'), chat, client.isVerified(chat));
   $('gd-count').textContent = membersText(g);
   $('gd-rename').hidden = !admin;
+  renderChatPhoto('gd', admin, !!g.avatar);
   if (admin && document.activeElement !== $('gd-name-input')) $('gd-name-input').value = g.name;
   $('gd-add').hidden = !admin;
   $('gd-leave').hidden = !!g.left;
@@ -6571,6 +6575,34 @@ async function groupAction(chat, change) {
   }
 }
 $('gd-close').addEventListener('click', () => $('group-dialog').close());
+
+// ---------- Фото группы и канала: ставит администратор с Премиум, убрать может любой администратор ----------
+function renderChatPhoto(x, admin, has) {
+  $(x + '-photo').hidden = !admin;
+  if (!admin) return;
+  const prem = client.isPremium();
+  $(x + '-photo-pick').disabled = !prem;
+  $(x + '-photo-pick').lastChild.textContent = has ? t('Сменить фото') : t('Поставить фото');
+  $(x + '-photo-clear').hidden = !has;
+  $(x + '-photo-note').textContent = prem ? t('Фото увидят все участники.') : t('Поставить фото может администратор с подпиской Премиум.');
+}
+const setChatPhoto = (x, avatar) =>
+  x === 'gd' ? groupFor && groupAction(groupFor, { avatar }) : channelFor && channelAction(() => client.updateChannel(channelFor, { avatar }));
+for (const x of ['gd', 'ci']) {
+  $(x + '-photo-pick').addEventListener('click', () => $(x + '-photo-input').click());
+  $(x + '-photo-input').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const { avatar } = await makeAvatar(file);
+      await setChatPhoto(x, avatar);
+    } catch (err) {
+      toast(err.message);
+    }
+  });
+  $(x + '-photo-clear').addEventListener('click', () => confirm(t('Убрать фото?')) && setChatPhoto(x, null));
+}
 $('gd-rename-save').addEventListener('click', () => groupFor && groupAction(groupFor, { name: $('gd-name-input').value }));
 async function gdAdd() {
   const u = $('gd-add-input').value.trim().replace(/^@/, '').toLowerCase();

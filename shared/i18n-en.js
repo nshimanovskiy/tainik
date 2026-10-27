@@ -1165,4 +1165,12 @@ export default {
   "В звонке уже {0} участников — больше нельзя": "The call already has {0} participants — no more can join",
   "Присоединиться": "Join",
   "Вы в звонке": "You're in a call",
+  "{0} обновил(а) фото группы": "{0} updated the group photo",
+  "{0} убрал(а) фото группы": "{0} removed the group photo",
+  "Поставить фото": "Set photo",
+  "Фото увидят все участники.": "Everyone in the chat will see the photo.",
+  "Поставить фото может администратор с подпиской Премиум.": "An admin with Premium can set a photo.",
+  "Убрать фото?": "Remove the photo?",
+  "Не удалось загрузить фото": "Couldn't upload the photo",
+  "Фото группы или канала может поставить администратор с подпиской Премиум": "Only an admin with Premium can set a group or channel photo",
 };

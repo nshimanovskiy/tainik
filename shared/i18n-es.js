@@ -1092,4 +1092,12 @@ export default {
   "В звонке уже {0} участников — больше нельзя": "La llamada ya tiene {0} participantes; no caben más",
   "Присоединиться": "Unirse",
   "Вы в звонке": "Estás en una llamada",
+  "{0} обновил(а) фото группы": "{0} actualizó la foto del grupo",
+  "{0} убрал(а) фото группы": "{0} quitó la foto del grupo",
+  "Поставить фото": "Poner foto",
+  "Фото увидят все участники.": "Todos los participantes verán la foto.",
+  "Поставить фото может администратор с подпиской Премиум.": "Un administrador con Premium puede poner una foto.",
+  "Убрать фото?": "¿Quitar la foto?",
+  "Не удалось загрузить фото": "No se pudo subir la foto",
+  "Фото группы или канала может поставить администратор с подпиской Премиум": "Solo un administrador con Premium puede poner la foto de un grupo o canal",
 };
