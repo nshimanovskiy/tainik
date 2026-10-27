@@ -708,6 +708,16 @@ try {
   folderId = localStorage.getItem('tainik:folder') || null;
 } catch {}
 let folderList = [];
+/** Идёт ли в чате звонок: 'mine' — вы в нём, 'group' — в группе без вас, иначе null. */
+function callStateIn(chat) {
+  try {
+    const c = calls.call;
+    if (c && c.peer === chat && c.phase !== 'ended' && c.phase !== 'incoming') return 'mine';
+    if (isGroupChat(chat) && calls.groupCallIn(chat)) return 'group';
+  } catch {} // звонки ещё не готовы
+  return null;
+}
+
 async function renderContacts() {
   const gen = ++contactsGen;
   folderList = await client.folders();
@@ -767,7 +777,14 @@ async function renderContacts() {
     const av = el('span', 'avatar with-frame');
     paintAvatar(av, c.username);
     avWrap.append(av);
-    if (client.presenceOf(c.username)?.online) avWrap.append(el('span', 'online-dot'));
+    const inCall = callStateIn(c.username);
+    if (inCall) {
+      // Идёт звонок (ваш или в группе) — значок трубки вместо «в сети»
+      const dot = el('span', 'call-dot' + (inCall === 'mine' ? ' mine' : ''));
+      dot.title = inCall === 'mine' ? t('Вы в звонке') : t('Идёт групповой звонок');
+      dot.append(icon('phone'));
+      avWrap.append(dot);
+    } else if (client.presenceOf(c.username)?.online) avWrap.append(el('span', 'online-dot'));
     const body = el('div', 'c-body');
     const top = el('div', 'c-top');
     const cn = el('span', 'c-name');
@@ -4933,7 +4950,14 @@ const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in
 const audioPrefs = { mic: '', speaker: '', micGain: 100, peerVol: 100 }; // громкость — в процентах
 let remoteFx = null; // усиление звука собеседника больше 100%: { ctx, src, gain, stream }
 let micMeter = null; // { stream, ctx, raf }
-const calls = new CallManager({ client, onChange: renderCall, onRoster: (chat) => chat === current && renderGroupCallBar() });
+const calls = new CallManager({
+  client,
+  onChange: renderCall,
+  onRoster: (chat) => {
+    if (chat === current) renderGroupCallBar();
+    renderContacts();
+  },
+});
 audioPrefs.mic = (await settings.get('audio-in')) || '';
 audioPrefs.speaker = (await settings.get('audio-out')) || '';
 calls.micId = audioPrefs.mic;
@@ -5299,8 +5323,34 @@ function renderMini(c, main) {
   $('call-mini-mic').setAttribute('aria-pressed', String(micOff));
 }
 
+let listCallKey = '';
+let speakTimer = null;
+/** Кто говорит — подсветка аватара, плиток и кнопки микрофона (4 раза в секунду). */
+function renderSpeaking() {
+  const s = calls.speaking();
+  const c = calls.call;
+  $('call-avatar').classList.toggle('speaking', !!s?.peer);
+  for (const id of ['call-mic', 'call-mini-mic']) $(id).classList.toggle('speaking', !!s?.me);
+  $('call-mini').classList.toggle('speaking', !!(s?.peer || s?.peers.size));
+  for (const [a, tile] of gTiles) {
+    const on = !!s?.peers.has(a);
+    if (tile.node.classList.contains('speaking') === on) continue;
+    tile.node.classList.toggle('speaking', on);
+    tile.talk.hidden = !on;
+  }
+  if (!c || c.phase === 'ended') {
+    clearInterval(speakTimer);
+    speakTimer = null;
+  }
+}
 function renderCall(c) {
   syncNativeCall(c);
+  const key = c && c.phase !== 'ended' && c.phase !== 'incoming' ? `${c.id}:${c.peer}` : '';
+  if (key !== listCallKey) {
+    listCallKey = key;
+    renderContacts(); // значок звонка в списке чатов
+  }
+  if (key && !speakTimer) speakTimer = setInterval(renderSpeaking, 250);
   if ((c?.id ?? null) !== shownCallId) {
     shownCallId = c?.id ?? null;
     callMinimized = false;
@@ -5416,7 +5466,7 @@ function renderCall(c) {
 
 // ---------- Групповой звонок: плитки участников ----------
 // Плитки создаются один раз на участника и только обновляются — иначе видео перезапускалось бы.
-const gTiles = new Map(); // адрес → { node, video, label, avatar, audio }
+const gTiles = new Map(); // адрес → { node, video, label, avatar, talk, audio }
 function renderGroupGrid(c) {
   const grid = $('call-grid');
   const audio = $('gcall-audio');
@@ -5442,10 +5492,12 @@ function renderGroupGrid(c) {
       video.muted = true;
       const avatar = el('span', 'avatar gtile-avatar');
       const label = el('div', 'gtile-name');
-      node.append(avatar, video, label);
+      const talk = icon('mic', 'gtile-talk');
+      talk.hidden = true;
+      node.append(avatar, video, label, talk);
       const au = document.createElement('audio');
       au.autoplay = true;
-      tile = { node, video, label, avatar, audio: au };
+      tile = { node, video, label, avatar, talk, audio: au };
       gTiles.set(a, tile);
       grid.append(node);
       audio.append(au);

@@ -1164,4 +1164,5 @@ export default {
   "Звонок уже закончился": "The call has already ended",
   "В звонке уже {0} участников — больше нельзя": "The call already has {0} participants — no more can join",
   "Присоединиться": "Join",
+  "Вы в звонке": "You're in a call",
 };

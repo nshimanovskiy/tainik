@@ -1091,4 +1091,5 @@ export default {
   "Звонок уже закончился": "La llamada ya terminó",
   "В звонке уже {0} участников — больше нельзя": "La llamada ya tiene {0} participantes; no caben más",
   "Присоединиться": "Unirse",
+  "Вы в звонке": "Estás en una llamada",
 };

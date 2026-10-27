@@ -34,6 +34,8 @@ const ALIVE_EVERY = 25_000;
 const ROSTER_TTL = 70_000;
 const ALONE_TIMEOUT = 60_000; // все вышли — через минуту звонок завершается
 const OFFER_TIMEOUT = 30_000;
+const SPEAK_LEVEL = 0.04; // громкость, с которой участник «говорит» (0…1)
+const SPEAK_HOLD = 500;
 const ADDR_RE = /^[a-z0-9_]{3,32}:[1-9]\d{0,8}$/;
 const CALL_ID_RE = /^[0-9a-f]{8,40}$/;
 const addrOf = (name, device) => `${name}:${device}`;
@@ -404,6 +406,65 @@ export class CallManager {
     this._replace(c, T_SCREEN, null).catch(() => {});
     this._sendState();
     this._emit();
+  }
+
+  // ---------- Кто говорит ----------
+
+  /**
+   * Кто сейчас говорит: { me, peer, peers: Set(адрес) }. Уровень собеседников — из RTP
+   * (getSynchronizationSources, без WebAudio), свой — анализатором микрофона. Выключенный
+   * микрофон не «говорит».
+   */
+  speaking() {
+    const c = this.call;
+    if (!c || c.phase === 'ended' || c.phase === 'incoming') return null;
+    const out = { me: false, peer: false, peers: new Set() };
+    const level = (pc) => {
+      const src = pc?.getTransceivers()[T_AUDIO]?.receiver?.getSynchronizationSources?.()[0];
+      if (!src) return 0;
+      // Время последнего пакета: при тишине (DTX) пакеты не идут и уровень «застывает»
+      const ts = src.timestamp;
+      const fresh = Math.abs(ts - performance.now()) < 1000 || Math.abs(ts - (performance.timeOrigin + performance.now())) < 1000 || Math.abs(ts - Date.now()) < 1000;
+      return fresh ? src.audioLevel || 0 : 0;
+    };
+    // Речь прерывистая: «говорит» держится SPEAK_HOLD после последнего громкого кусочка
+    const now = Date.now();
+    const held = (key, loud) => {
+      c.spoke ||= new Map();
+      if (loud) c.spoke.set(key, now);
+      return now - (c.spoke.get(key) || 0) < SPEAK_HOLD;
+    };
+    if (c.group) {
+      for (const [a, p] of c.peers) if (held(a, p.connected && p.remoteState.mic && level(p.pc) > SPEAK_LEVEL) && p.remoteState.mic) out.peers.add(a);
+    } else if (c.pc) {
+      out.peer = held('peer', c.remoteState.mic && level(c.pc) > SPEAK_LEVEL) && c.remoteState.mic;
+    }
+    const micOn = !!c.local.mic?.enabled;
+    out.me = held('me', micOn && this._micLevel(c) > SPEAK_LEVEL) && micOn;
+    return out;
+  }
+
+  _micLevel(c) {
+    const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!AC || !c.local.mic) return 0;
+    if (!c.meter || c.meter.track !== c.local.mic) {
+      c.meter?.ctx.close().catch(() => {});
+      try {
+        const ctx = new AC();
+        const an = ctx.createAnalyser();
+        an.fftSize = 512;
+        ctx.createMediaStreamSource(new MediaStream([c.local.mic])).connect(an);
+        ctx.resume().catch(() => {});
+        c.meter = { ctx, an, buf: new Float32Array(an.fftSize), track: c.local.mic };
+      } catch {
+        return 0;
+      }
+    }
+    const { an, buf } = c.meter;
+    an.getFloatTimeDomainData(buf);
+    let sum = 0;
+    for (const v of buf) sum += v * v;
+    return Math.sqrt(sum / buf.length) * 3; // RMS примерно в шкале audioLevel
   }
 
   // ---------- Внутреннее ----------
@@ -1009,6 +1070,8 @@ export class CallManager {
       this.onRoster(c.peer);
     }
     for (const tr of Object.values(c.local)) tr?.stop();
+    c.meter?.ctx.close().catch(() => {});
+    c.meter = null;
     if (c.micFx) {
       c.micFx.track.stop();
       c.micFx.ctx.close().catch(() => {});
