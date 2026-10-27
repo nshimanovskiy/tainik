@@ -34,7 +34,7 @@ const PROVISION_TTL = 10 * 60 * 1000; // канал привязки живёт 
 const AUTH_CONTEXT = 'tainik/v3/auth';
 // authPerMin — на IP: за одним адресом (дом, офис) бывает много устройств и аккаунтов,
 // и после перезапуска сервера они входят разом
-const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 120, billingPerMin: 6, channelPerMin: 60 };
+const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 240, billingPerMin: 6, channelPerMin: 60 };
 // Каналы
 const CHANNEL_ID_RE = /^[0-9a-f]{32}$/;
 const GROUP_ID_RE = /^[0-9a-f]{24}$/;

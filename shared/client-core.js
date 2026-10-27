@@ -172,7 +172,7 @@ export function cleanAlias(a) {
 const TYPING_EVERY = 4000; // не чаще раза в 4 секунды на чат
 const TYPING_TTL = 6000; // гаснет сам через 6 секунд
 const TYPING_GROUP_MAX = 10; // в группах побольше — не рассылается
-const TYPING_PER_MIN = 40; // своих сигналов «печатает» в минуту (лимит сервера на мгновенные — 120)
+const TYPING_PER_MIN = 40; // своих сигналов «печатает» в минуту (лимит сервера на мгновенные — 240)
 
 // ---------- Записи о звонках ----------
 const CALL_RESULTS = ['answered', 'missed', 'declined', 'busy', 'no_answer', 'unavailable', 'failed', 'cancelled', 'elsewhere'];
@@ -181,6 +181,7 @@ export function cleanCallLog(c) {
   if (!c || c.t !== 'call' || !CALL_RESULTS.includes(c.result)) return null;
   const out = { t: 'call', direction: c.direction === 'out' ? 'out' : 'in', result: c.result, duration: Number.isSafeInteger(c.duration) && c.duration >= 0 ? Math.min(c.duration, 7 * 86400) : 0, video: c.video === true };
   if (c.result === 'missed') out.missed = true;
+  if (c.group === true) out.group = true; // групповой звонок (запись в чате группы)
   return out;
 }
 /** Насколько запись о звонке точная: «ответили на другом устройстве» уступает записи того устройства. */
@@ -3466,6 +3467,64 @@ export class MessengerClient extends Emitter {
     throw errorOf('mismatched_devices');
   }
 
+  // ---------- Групповые звонки ----------
+  // Сеть «каждый с каждым»: у каждой пары участников своё WebRTC-соединение, а его описание
+  // (SDP с отпечатком DTLS) идёт по парным E2E-сессиям — как в звонке 1:1. Сервер видит
+  // только, что участники группы обмениваются мгновенными сообщениями.
+
+  /**
+   * Сигнал группового звонка { kind, callId, … } участникам группы chat (без очереди, как сигналы 1:1).
+   * devices — { юзернейм: [устройство…] }: кому точно; others — что слать остальным участникам:
+   * 'all' (всем их устройствам: звонок и вход), 'online' (только тем, что в сети) или null (никому).
+   */
+  async sendGroupCall(chat, data, { devices = {}, others = null } = {}) {
+    if (!this.account || !isGroupChat(chat)) return;
+    const me = this.account.username;
+    // Участники, с которыми ещё не переписывались, заводятся скрытыми контактами — как при рассылке в группу
+    const all = await this._serial(async () => {
+      const all = await this.contacts();
+      const g = all[chat]?.group;
+      if (!g || g.left || g.removed) return all;
+      let added = false;
+      for (const m of g.members) {
+        if (m === me || all[m]) continue;
+        if (await this._ensureMember(all, m).catch(() => null)) added = true;
+      }
+      if (added) await this._saveContacts(all);
+      return all;
+    });
+    const g = all[chat]?.group;
+    if (!g || g.left || g.removed) return;
+    const content = { t: 'gcall', g: g.id, ts: Date.now(), ...data };
+    const jobs = [];
+    for (const name of g.members) {
+      const own = name === me;
+      if (!own && (!all[name]?.keys || all[name].keyChanged || this.isBlocked(name))) continue;
+      const exact = Array.isArray(devices[name]) ? devices[name].filter((d) => Number.isInteger(d) && d > 0 && !(own && d === this.account.deviceId)) : [];
+      if (others === 'all') {
+        jobs.push(this.sendEphemeral(name, content).catch(() => {}));
+        continue;
+      }
+      let list = exact;
+      if (others === 'online') list = [...new Set([...exact, ...(await this._onlineDevices(name).catch(() => []))])];
+      if (list.length) jobs.push(this.sendEphemeral(name, content, { deviceIds: list }).catch(() => {}));
+    }
+    await Promise.all(jobs);
+  }
+
+  _onGroupCallSignal(all, from, fromDevice, content, ephemeral) {
+    const age = Date.now() - Number(content?.ts || 0);
+    if (!ephemeral || !(age < 120_000 && age > -60_000)) return; // только вживую и свежие
+    const gid = String(content.g || '');
+    if (!GID_RE.test(gid)) return;
+    const chat = groupKey(gid);
+    const g = all[chat]?.group;
+    const me = this.account.username;
+    if (!g || g.left || g.removed || !g.members.includes(from) || !g.members.includes(me)) return;
+    if (!Number.isInteger(fromDevice) || fromDevice <= 0) return;
+    this.emit('gcall-signal', { chat, from, fromDevice, data: content });
+  }
+
   /** Серверы STUN/TURN для звонков (учётные данные TURN временные). */
   async getIceServers() {
     return (await this._request({ type: 'get-ice' })).iceServers || [];
@@ -3746,6 +3805,11 @@ export class MessengerClient extends Emitter {
         await this._applyProtect(await this.contacts(), c.chat, 'protect', c.on === true, c.ts);
         return ack(false);
       }
+      // Своё устройство присоединилось к групповому звонку или вышло из него
+      if (c?.t === 'gcall') {
+        this._onGroupCallSignal(await this.contacts(), me, res.fromDevice, c, ephemeral);
+        return ack(false);
+      }
       if (c?.t === 'sync-call' && typeof c.chat === 'string' && aliasable(c.chat) && c.msg) {
         await this._applyCallLog(c.chat, c.msg);
         return ack(false);
@@ -3911,6 +3975,13 @@ export class MessengerClient extends Emitter {
         const grp = chat && all[chat]?.group;
         if (grp && !grp.left && grp.members.includes(from)) this._setTyping(chat, from, true);
       } else if (known) this._setTyping(from, from, true);
+      return ack(false);
+    }
+    if (res.content?.t === 'gcall') {
+      // Групповой звонок: только от участника группы, в которой вы тоже состоите
+      if (!known) c.hidden = true; // участник группы, с которым нет личного чата
+      await this._saveContacts(all);
+      this._onGroupCallSignal(all, from, res.fromDevice, res.content, ephemeral);
       return ack(false);
     }
     if (res.content?.t === 'call') {

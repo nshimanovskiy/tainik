@@ -326,6 +326,16 @@ function setStatusIcon(node, status) {
 const STATUS_TEXT = { online: t('в сети'), connecting: t('подключение…'), offline: t('нет связи'), replaced: t('открыт в другом месте') };
 
 function callText(ct) {
+  if (ct.group) {
+    const kind = ct.video ? t('Групповой видеозвонок') : t('Групповой звонок');
+    if (ct.result === 'answered') {
+      const d = ct.duration || 0;
+      return `📞 ${kind} · ${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}`;
+    }
+    if (ct.result === 'missed') return `📞 ${kind} · ${t('пропущен')}`;
+    if (ct.result === 'no_answer') return `📞 ${kind} · ${t('никто не присоединился')}`;
+    return `📞 ${kind} · ${CALL_RESULT_TEXT[ct.result] || ct.result}`;
+  }
   const dir = ct.direction === 'out' ? t('Исходящий') : t('Входящий');
   const kind = ct.video ? t('видеозвонок') : t('звонок');
   if (ct.result === 'answered') {
@@ -1106,8 +1116,10 @@ async function renderHeader() {
   paintAvatar($('peer-avatar'), c.username);
   const v = $('peer-verify');
   const group = !!c.group || !!c.channel || !!c.system || !!c.support;
-  // В группе и канале нет звонков, кода безопасности и статуса «в сети»
-  for (const id of ['call-audio-btn', 'call-video-btn', 'safety-btn']) $(id).hidden = group;
+  // В канале и служебных чатах нет звонков; в группе — групповой звонок; кода безопасности и «в сети» нет
+  $('safety-btn').hidden = group;
+  for (const id of ['call-audio-btn', 'call-video-btn']) $(id).hidden = group && !c.group;
+  renderGroupCallBar();
   if (group) {
     v.className = 'peer-verify';
     v.textContent = c.system ? t('служебные уведомления') : c.support ? t('ответит администратор сервера') : c.channel ? channelSubText(c.channel) : membersText(c.group);
@@ -4921,7 +4933,7 @@ const canPickSpeaker = typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in
 const audioPrefs = { mic: '', speaker: '', micGain: 100, peerVol: 100 }; // громкость — в процентах
 let remoteFx = null; // усиление звука собеседника больше 100%: { ctx, src, gain, stream }
 let micMeter = null; // { stream, ctx, raf }
-const calls = new CallManager({ client, onChange: renderCall });
+const calls = new CallManager({ client, onChange: renderCall, onRoster: (chat) => chat === current && renderGroupCallBar() });
 audioPrefs.mic = (await settings.get('audio-in')) || '';
 audioPrefs.speaker = (await settings.get('audio-out')) || '';
 calls.micId = audioPrefs.mic;
@@ -4967,7 +4979,7 @@ async function applySpeaker() {
   calls.tones.setSink(audioPrefs.speaker);
   remoteFx?.ctx.setSinkId?.(audioPrefs.speaker).catch(() => remoteFx?.ctx.setSinkId?.('').catch(() => {}));
   if (!canPickSpeaker) return;
-  for (const node of [$('remote-audio')]) {
+  for (const node of [$('remote-audio'), ...$('gcall-audio').children]) {
     try {
       await node.setSinkId(audioPrefs.speaker);
     } catch {
@@ -5006,6 +5018,7 @@ function dropRemoteFx() {
 function applyPeerVolume() {
   const node = $('remote-audio');
   const vol = audioPrefs.peerVol / 100;
+  for (const a of $('gcall-audio').children) a.volume = Math.min(1, vol); // в групповом — до 100%
   const stream = node.srcObject;
   const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
   if (vol <= 1 || !stream || !AC) {
@@ -5172,6 +5185,14 @@ function fmtDur(ms) {
 function callStatusText(c) {
   if (c.phase === 'ended') return CALL_RESULT_TEXT[c.result] === t('звонок') ? t('Звонок завершён') : (CALL_RESULT_TEXT[c.result] || t('Звонок завершён')).replace(/^./, (x) => x.toUpperCase());
   if (c.reconnecting) return t('Переподключение…');
+  if (c.group) {
+    if (c.phase === 'incoming') return t('{0} приглашает в групповой звонок', nameOf(c.from));
+    if (c.phase === 'active') {
+      const n = c.peers.size + 1;
+      if (n === 1) return t('Ожидание участников…') + ' · ' + fmtDur(Date.now() - c.startedAt);
+      return t('Участников: {0}', n) + ' · ' + fmtDur(Date.now() - c.startedAt);
+    }
+  }
   switch (c.phase) {
     case 'preparing':
       return t('Подготовка…');
@@ -5233,7 +5254,7 @@ let nativeCallActive = false;
 let callNoticeUp = false;
 function syncNativeCall(c) {
   const active = !!c && ['preparing', 'outgoing', 'connecting', 'active'].includes(c.phase);
-  if (active !== nativeCallActive && desktop?.callActive) desktop.callActive(active, c?.peer || '');
+  if (active !== nativeCallActive && desktop?.callActive) desktop.callActive(active, c?.group ? nameOf(c.peer) : c?.peer || '');
   nativeCallActive = active;
   if (callNoticeUp && c?.phase !== 'incoming') {
     callNoticeUp = false;
@@ -5294,6 +5315,7 @@ function renderCall(c) {
     callTicker = null;
     for (const id of ['remote-main', 'remote-pip', 'local-pip', 'local-screen']) setVideo($(id), null, false);
     $('remote-audio').srcObject = null;
+    renderGroupGrid(null);
     dropRemoteFx();
     toggleCallDevMenu(false);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -5304,7 +5326,7 @@ function renderCall(c) {
   box.hidden = callMinimized;
   if (c.phase === 'ended' && callMinimized && endedToastFor !== c.id) {
     endedToastFor = c.id;
-    toast(`${c.peer}: ${callStatusText(c).toLowerCase()}`);
+    toast(`${c.group ? nameOf(c.peer) : c.peer}: ${callStatusText(c).toLowerCase()}`);
   }
   setName($('call-name'), c.peer, client.isVerified(c.peer));
   setName($('call-top-name'), c.peer, client.isVerified(c.peer));
@@ -5312,6 +5334,12 @@ function renderCall(c) {
   const status = callStatusText(c);
   $('call-status').textContent = status;
   $('call-top-status').textContent = status;
+  box.classList.toggle('group', !!c.group);
+  if (c.group) {
+    renderGroupCall(c);
+    return;
+  }
+  renderGroupGrid(null);
 
   // Звук собеседника
   if (c.remote.audio.getTracks().length && $('remote-audio').srcObject !== c.remote.audio) {
@@ -5378,15 +5406,160 @@ function renderCall(c) {
     if (!document.hasFocus() && notifiedCall !== c.id) {
       notifiedCall = c.id;
       callNoticeUp = true;
-      showNotice({ title: nameOf(c.peer), body: c.video ? t('Входящий видеозвонок') : t('Входящий звонок'), chat: c.peer, tag: 'call:' + c.peer, call: true });
+      const body = c.group ? callStatusText(c) : c.video ? t('Входящий видеозвонок') : t('Входящий звонок');
+      showNotice({ title: nameOf(c.peer), body, chat: c.peer, tag: 'call:' + c.peer, call: true });
     }
   } else {
     document.title = baseTitle();
   }
 }
 
+// ---------- Групповой звонок: плитки участников ----------
+// Плитки создаются один раз на участника и только обновляются — иначе видео перезапускалось бы.
+const gTiles = new Map(); // адрес → { node, video, label, avatar, audio }
+function renderGroupGrid(c) {
+  const grid = $('call-grid');
+  const audio = $('gcall-audio');
+  const peers = c?.group && c.phase !== 'ended' ? c.peers : new Map();
+  for (const [a, tile] of gTiles) {
+    if (peers.has(a)) continue;
+    tile.video.srcObject = null;
+    tile.audio.srcObject = null;
+    tile.node.remove();
+    tile.audio.remove();
+    gTiles.delete(a);
+  }
+  grid.hidden = !peers.size;
+  if (!peers.size) return;
+  grid.dataset.n = String(Math.min(peers.size, 9));
+  for (const [a, p] of peers) {
+    let tile = gTiles.get(a);
+    if (!tile) {
+      const node = el('div', 'gtile');
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.playsInline = true;
+      video.muted = true;
+      const avatar = el('span', 'avatar gtile-avatar');
+      const label = el('div', 'gtile-name');
+      node.append(avatar, video, label);
+      const au = document.createElement('audio');
+      au.autoplay = true;
+      tile = { node, video, label, avatar, audio: au };
+      gTiles.set(a, tile);
+      grid.append(node);
+      audio.append(au);
+      paintAvatar(avatar, p.name);
+      if (canPickSpeaker && audioPrefs.speaker) au.setSinkId(audioPrefs.speaker).catch(() => {});
+      au.volume = Math.min(1, audioPrefs.peerVol / 100);
+    }
+    // Звук участника
+    if (p.remote.audio.getTracks().length && tile.audio.srcObject !== p.remote.audio) {
+      tile.audio.srcObject = p.remote.audio;
+      tile.audio.play().catch(() => {});
+    }
+    // Экран важнее камеры
+    const screen = p.remoteState.screen && p.remote.screen.getTracks().length > 0;
+    const cam = p.remoteState.cam && p.remote.cam.getTracks().length > 0;
+    const stream = screen ? p.remote.screen : cam ? p.remote.cam : null;
+    setVideo(tile.video, stream, !!stream);
+    tile.video.classList.toggle('contain', screen);
+    tile.avatar.hidden = !!stream;
+    tile.node.classList.toggle('waiting', !p.connected);
+    tile.label.replaceChildren(document.createTextNode(nameOf(p.name)));
+    if (!p.remoteState.mic) tile.label.prepend(icon('mic-off'));
+    if (!p.connected || p.reconnecting) tile.label.append(el('span', 'gtile-state', p.reconnecting ? t('переподключение…') : t('соединение…')));
+  }
+}
+
+function renderGroupCall(c) {
+  renderGroupGrid(c);
+  const ended = c.phase === 'ended';
+  const tiles = c.phase === 'active' && c.peers.size > 0;
+  for (const id of ['remote-main', 'remote-pip']) setVideo($(id), null, false);
+  $('call-placeholder').hidden = tiles;
+  $('call-topbar').hidden = !tiles;
+  $('call-fullscreen').hidden = !tiles || android || !document.fullscreenEnabled;
+  setVideo($('local-pip'), streamOf(c.local.cam), !!c.local.cam && !ended);
+  setVideo($('local-screen'), streamOf(c.local.screen), !!c.local.screen && !ended);
+  $('sharing-badge').hidden = !c.local.screen || ended;
+  $('call-minimize').hidden = !canMinimize(c);
+  renderMini(c, null);
+
+  $('call-incoming').hidden = c.phase !== 'incoming';
+  if (c.phase === 'incoming' || ended) toggleCallDevMenu(false);
+  $('call-active').hidden = c.phase === 'incoming' || ended;
+  const mic = $('call-mic');
+  const micOff = !c.local.mic || !c.local.mic.enabled;
+  mic.classList.toggle('off', micOff);
+  mic.setAttribute('aria-pressed', String(micOff));
+  mic.querySelector('span').textContent = micOff ? t('Вкл. микрофон') : t('Микрофон');
+  $('call-cam').classList.toggle('on', !!c.local.cam);
+  $('call-cam').setAttribute('aria-pressed', String(!!c.local.cam));
+  $('call-screen').classList.toggle('on', !!c.local.screen);
+  $('call-screen').setAttribute('aria-pressed', String(!!c.local.screen));
+  $('call-cam').disabled = c.phase !== 'active';
+  $('call-screen').disabled = c.phase !== 'active' || !(navigator.mediaDevices?.getDisplayMedia);
+  $('call-screen').hidden = android;
+
+  if (c.phase === 'active' && !callTicker) {
+    callTicker = setInterval(() => {
+      if (calls.call?.phase === 'active') {
+        const st = callStatusText(calls.call);
+        $('call-status').textContent = st;
+        $('call-top-status').textContent = st;
+        $('call-mini-status').textContent = st;
+      }
+    }, 1000);
+  }
+  if (c.phase === 'incoming') {
+    document.title = t('📞 {0} — входящий звонок', nameOf(c.peer));
+    if (!document.hasFocus() && notifiedCall !== c.id) {
+      notifiedCall = c.id;
+      callNoticeUp = true;
+      showNotice({ title: nameOf(c.peer), body: callStatusText(c), chat: c.peer, tag: 'call:' + c.peer, call: true });
+    }
+  } else {
+    document.title = baseTitle();
+  }
+  if (current === c.peer) renderGroupCallBar();
+}
+
+// Полоска «Идёт групповой звонок» в чате группы
+async function renderGroupCallBar() {
+  const chat = current;
+  const bar = $('gcall-bar');
+  let r = null;
+  try {
+    r = chat && isGroupChat(chat) ? calls.groupCallIn(chat) : null;
+  } catch {} // звонки ещё не готовы (настройки читаются при запуске)
+  const g = r && (await client.contacts())[chat]?.group;
+  if (chat !== current) return;
+  if (!r || !g || g.left || g.removed) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  const names = [...new Set([...r.parts.values()].map((p) => p.name))].map((n) => (n === client.account?.username ? t('вы') : nameOf(n)));
+  $('gcall-bar-text').textContent = `${r.video ? t('Идёт групповой видеозвонок') : t('Идёт групповой звонок')} · ${names.join(', ')}`;
+  $('gcall-join').hidden = !!r.mine;
+}
+$('gcall-join').addEventListener('click', async () => {
+  if (!current) return;
+  try {
+    await calls.joinGroup(current, { video: false });
+  } catch (err) {
+    if (err.message !== 'cancelled') toast(err.message || t('Не удалось позвонить'));
+  }
+  renderGroupCallBar();
+});
+
 async function startCall(video) {
-  if (!current || isGroupChat(current)) return;
+  if (!current) return;
+  if (isGroupChat(current)) {
+    const g = (await client.contacts())[current]?.group;
+    if (!g || g.left || g.removed) return;
+  }
   try {
     await calls.start(current, { video });
   } catch (err) {
@@ -6358,6 +6531,7 @@ $('gd-add-input').addEventListener('keydown', (e) => e.key === 'Enter' && (e.pre
 async function leaveGroup(chat) {
   if (!confirm(t('Покинуть группу «{0}»? Вы перестанете получать её сообщения.', nameOf(chat)))) return;
   try {
+    if (calls.call?.peer === chat) await calls.hangup(); // сначала выйти из звонка группы
     await client.leaveGroup(chat);
   } catch (err) {
     toast(err.message);
@@ -6368,6 +6542,7 @@ async function deleteGroupChat(chat) {
   const ask = g && !g.left ? t('Удалить группу «{0}» из списка? Вы выйдете из неё, переписка пропадёт на всех ваших устройствах.', nameOf(chat)) : t('Удалить чат «{0}»? Переписка пропадёт на всех ваших устройствах.', nameOf(chat));
   if (!confirm(ask)) return;
   try {
+    if (calls.call?.peer === chat) await calls.hangup();
     if (g && !g.left) await client.leaveGroup(chat);
     await deleteChat(chat, false);
   } catch (err) {
@@ -6829,6 +7004,16 @@ async function startOthers() {
     c.on('read-sync', ({ contact, unread }) => !unread && clearOtherNotices(acc.id, contact));
     c.on('deleted', async ({ contact }) => !(await c.contacts())[contact]?.unread && clearOtherNotices(acc.id, contact));
     // Звонок на неактивный аккаунт: принять его можно только в активном — подсказываем
+    c.on('gcall-signal', ({ chat, from, data }) => {
+      if (data?.kind !== 'ring' || from === acc.username) return;
+      showNotice({
+        title: `${c.nameOf(chat)} → ${acc.username}`,
+        body: t('{0} начал групповой звонок. Откройте этот аккаунт, чтобы присоединиться', c.nameOf(from)),
+        chat: `${chat}@${acc.id}`,
+        tag: `msg:${acc.id}:${chat}`,
+        force: true,
+      });
+    });
     c.on('call-signal', ({ from, data }) => {
       if (data?.kind !== 'offer') return;
       showNotice({

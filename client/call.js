@@ -10,6 +10,15 @@
 // создаются сразу. Камеру и экран включают и выключают через replaceTrack(),
 // без повторного согласования SDP. Состояние (микрофон/камера/экран) и
 // завершение звонка передаются по DataChannel (тоже DTLS).
+//
+// Групповой звонок — сеть «каждый с каждым»: с каждым участником своё такое же соединение.
+// Сигналы (kind в { t: 'gcall' }) идут по парным E2E-сессиям участникам группы:
+//   ring  — начали звонок (всем устройствам участников), у остальных звонит;
+//   join  — присоединился (всем устройствам): каждый, кто уже в звонке, шлёт ему offer;
+//   offer/answer — описание соединения пары (только нужному устройству);
+//   alive — раз в ALIVE_EVERY старший участник напоминает тем, кто в сети, что звонок идёт и кто в нём;
+//   leave — вышел.
+// Сервер не участвует в звонке и не видит, кто с кем разговаривает, — только сами мгновенные сообщения.
 import { t } from '/shared/i18n.js';
 
 const RING_TIMEOUT = 45_000;
@@ -18,6 +27,16 @@ const DISCONNECT_GRACE = 10_000;
 const SCREEN_MAX_BITRATE = 3_000_000;
 const SCREEN_MAX_WIDTH = 1920;
 const SCREEN_MAX_HEIGHT = 1080;
+
+// Групповые звонки: каждый отправляет свой поток каждому, поэтому участников немного
+export const GROUP_CALL_MAX = 8;
+const ALIVE_EVERY = 25_000;
+const ROSTER_TTL = 70_000;
+const ALONE_TIMEOUT = 60_000; // все вышли — через минуту звонок завершается
+const OFFER_TIMEOUT = 30_000;
+const ADDR_RE = /^[a-z0-9_]{3,32}:[1-9]\d{0,8}$/;
+const CALL_ID_RE = /^[0-9a-f]{8,40}$/;
+const addrOf = (name, device) => `${name}:${device}`;
 
 const T_AUDIO = 0;
 const T_CAM = 1;
@@ -127,14 +146,18 @@ export class CallManager {
    * @param {import('../shared/client-core.js').MessengerClient} o.client
    * @param {Function} [o.onChange]  вызывается при любом изменении состояния
    */
-  constructor({ client, onChange = () => {} }) {
+  constructor({ client, onChange = () => {}, onRoster = () => {} }) {
     this.client = client;
     this.onChange = onChange;
+    this.onRoster = onRoster; // (chat) — изменился список идущих групповых звонков
     this.call = null;
+    this.rosters = new Map(); // чат группы → { callId, video, from, parts: Map(адрес → { name, device }), seen }
     this.micId = ''; // выбранный микрофон ('' — системный по умолчанию)
     this.micGain = 1; // громкость своего голоса для собеседника: 0…2 (1 — как есть)
     this.tones = new Tones();
     client.on('call-signal', (s) => this._onSignal(s).catch((e) => console.error('call', e)));
+    client.on('gcall-signal', (s) => this._onGroupSignal(s).catch((e) => console.error('gcall', e)));
+    setInterval(() => this._expireRosters(), 5000);
   }
 
   get busy() {
@@ -160,6 +183,7 @@ export class CallManager {
 
   async start(peer, { video = false } = {}) {
     if (this.busy) throw new Error(t('Уже идёт звонок'));
+    if (String(peer).startsWith('#')) return this._startGroup(peer, video);
     const c = (this.call = this._newCall({ peer, role: 'caller', video, phase: 'preparing' }));
     this._emit();
     try {
@@ -196,6 +220,7 @@ export class CallManager {
   async accept({ video = false } = {}) {
     const c = this.call;
     if (!c || c.phase !== 'incoming') return;
+    if (c.group) return this.joinGroup(c.peer, { video });
     this.tones.stop();
     clearTimeout(c.ringTimer);
     c.phase = 'connecting';
@@ -226,6 +251,7 @@ export class CallManager {
   decline() {
     const c = this.call;
     if (!c || c.phase !== 'incoming') return;
+    if (c.group) return this._end('declined'); // в группе отказ никому не сообщается
     this._signal('decline', {}, [c.peerDevice]).catch(() => {});
     this._end('declined');
   }
@@ -236,6 +262,7 @@ export class CallManager {
     const c = this.call;
     if (!c || c.phase === 'ended') return;
     if (c.phase === 'incoming') return this.decline();
+    if (c.group) return this._leaveGroup();
     if (c.role === 'caller' && (c.phase === 'outgoing' || c.phase === 'preparing')) return this._cancelOutgoing('cancelled');
     this._sendCtl({ type: 'hangup' });
     if (c.peerDevice) this._signal('hangup', {}, [c.peerDevice]).catch(() => {});
@@ -269,7 +296,7 @@ export class CallManager {
       c.micFx.src = c.micFx.ctx.createMediaStreamSource(new MediaStream([track]));
       c.micFx.src.connect(c.micFx.gain);
     } else {
-      await c.pc?.getTransceivers()[T_AUDIO]?.sender.replaceTrack(track);
+      await this._replace(c, T_AUDIO, track);
     }
     c.local.mic = track;
     old.stop();
@@ -291,7 +318,7 @@ export class CallManager {
     }
     if (this.micGain === 1) return;
     const track = this._buildMicFx(c);
-    if (track) await c.pc?.getTransceivers()[T_AUDIO]?.sender.replaceTrack(track);
+    if (track) await this._replace(c, T_AUDIO, track);
   }
 
   _buildMicFx(c) {
@@ -328,16 +355,17 @@ export class CallManager {
 
   async toggleCamera() {
     const c = this.call;
-    if (!c?.pc) return;
-    const sender = c.pc.getTransceivers()[T_CAM]?.sender;
+    if (!c || !(c.pc || (c.group && c.phase === 'active'))) return;
     if (c.local.cam) {
       c.local.cam.stop();
       c.local.cam = null;
-      await sender?.replaceTrack(null);
+      await this._replace(c, T_CAM, null);
     } else {
       const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
-      c.local.cam = s.getVideoTracks()[0];
-      await sender?.replaceTrack(c.local.cam);
+      const track = s.getVideoTracks()[0];
+      if (this.call !== c || c.phase === 'ended') return track?.stop();
+      c.local.cam = track;
+      await this._replace(c, T_CAM, c.local.cam);
     }
     this._sendState();
     this._emit();
@@ -345,8 +373,7 @@ export class CallManager {
 
   async toggleScreen() {
     const c = this.call;
-    if (!c?.pc) return;
-    const sender = c.pc.getTransceivers()[T_SCREEN]?.sender;
+    if (!c || !(c.pc || (c.group && c.phase === 'active'))) return;
     if (c.local.screen) {
       this._stopScreen();
       return;
@@ -363,14 +390,8 @@ export class CallManager {
     track.contentHint = 'detail'; // текст на экране важнее плавности
     track.addEventListener('ended', () => this.call === c && this._stopScreen());
     c.local.screen = track;
-    await sender?.replaceTrack(track);
-    try {
-      const p = sender.getParameters();
-      if (!p.encodings?.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = SCREEN_MAX_BITRATE;
-      p.degradationPreference = 'maintain-resolution';
-      await sender.setParameters(p);
-    } catch {}
+    await this._replace(c, T_SCREEN, track);
+    for (const pc of this._pcs(c)) await this._tuneScreen(pc.getTransceivers()[T_SCREEN]?.sender);
     this._sendState();
     this._emit();
   }
@@ -380,12 +401,34 @@ export class CallManager {
     if (!c?.local.screen) return;
     c.local.screen.stop();
     c.local.screen = null;
-    c.pc?.getTransceivers()[T_SCREEN]?.sender.replaceTrack(null).catch(() => {});
+    this._replace(c, T_SCREEN, null).catch(() => {});
     this._sendState();
     this._emit();
   }
 
   // ---------- Внутреннее ----------
+
+  /** Все соединения звонка: одно в звонке 1:1, по одному на участника в групповом. */
+  _pcs(c) {
+    if (c.group) return [...c.peers.values()].map((p) => p.pc).filter(Boolean);
+    return c.pc ? [c.pc] : [];
+  }
+
+  /** Заменить отправляемую дорожку (звук, камера или экран) во всех соединениях звонка. */
+  async _replace(c, idx, track) {
+    await Promise.all(this._pcs(c).map((pc) => pc.getTransceivers()[idx]?.sender.replaceTrack(track).catch(() => {})));
+  }
+
+  async _tuneScreen(sender) {
+    if (!sender) return;
+    try {
+      const p = sender.getParameters();
+      if (!p.encodings?.length) p.encodings = [{}];
+      p.encodings[0].maxBitrate = SCREEN_MAX_BITRATE;
+      p.degradationPreference = 'maintain-resolution';
+      await sender.setParameters(p);
+    } catch {}
+  }
 
   _newCall(o) {
     return {
@@ -493,7 +536,17 @@ export class CallManager {
   _sendState() {
     const c = this.call;
     if (!c) return;
-    this._sendCtl({ type: 'state', mic: !!c.local.mic?.enabled, cam: !!c.local.cam, screen: !!c.local.screen });
+    const st = { type: 'state', mic: !!c.local.mic?.enabled, cam: !!c.local.cam, screen: !!c.local.screen };
+    if (c.group) for (const p of c.peers.values()) this._sendTo(p.dc, st);
+    else this._sendCtl(st);
+  }
+
+  _sendTo(dc, obj) {
+    if (dc && dc.readyState === 'open') {
+      try {
+        dc.send(JSON.stringify(obj));
+      } catch {}
+    }
   }
 
   _onCtl(raw) {
@@ -577,6 +630,364 @@ export class CallManager {
     }
   }
 
+  // ---------- Групповой звонок ----------
+
+  _myAddr() {
+    const a = this.client.account;
+    return a ? addrOf(a.username, a.deviceId) : '';
+  }
+
+  /** Идущий звонок в группе: { callId, video, from, parts: Map, mine } или null. */
+  groupCallIn(chat) {
+    const c = this.call;
+    if (c?.group && c.peer === chat && c.phase !== 'ended' && c.phase !== 'incoming') {
+      const parts = new Map([[this._myAddr(), { name: this.client.account.username, device: this.client.account.deviceId }]]);
+      for (const [a, p] of c.peers) parts.set(a, { name: p.name, device: p.device });
+      return { callId: c.id, video: c.video, from: c.from || this.client.account.username, parts, mine: true };
+    }
+    const r = this.rosters.get(chat);
+    return r && r.parts.size ? r : null;
+  }
+
+  _newGroupCall(o) {
+    const c = this._newCall(o);
+    c.group = o.peer.slice(1);
+    c.peers = new Map(); // адрес → участник
+    c.from = o.from || null;
+    c.everJoined = false; // кто-то, кроме вас, был в звонке
+    return c;
+  }
+
+  async _startGroup(chat, video) {
+    // В группе уже идёт звонок — присоединиться к нему, а не начинать второй
+    if (this.groupCallIn(chat)) return this.joinGroup(chat, { video });
+    const c = (this.call = this._newGroupCall({ peer: chat, role: 'caller', video, phase: 'preparing' }));
+    this._emit();
+    try {
+      await this._getLocalMedia(video);
+      if (this.call !== c) return;
+      c.phase = 'active';
+      c.startedAt = Date.now();
+      this._sendState();
+      // Никто не присоединился — звонок заканчивается сам
+      c.waitTimer = setTimeout(() => this.call === c && !c.everJoined && !c.peers.size && this._end('no_answer'), RING_TIMEOUT + 15_000);
+      this._emit();
+      this.onRoster(chat);
+      await this.client.sendGroupCall(chat, { kind: 'ring', callId: c.id, video }, { others: 'all' });
+      this._startAlive(c);
+    } catch (e) {
+      if (this.call === c) this._end('failed', e);
+      throw e;
+    }
+  }
+
+  /** Присоединиться к идущему звонку группы (или ответить на входящий). */
+  async joinGroup(chat, { video = false } = {}) {
+    let c = this.call;
+    if (c?.group && c.peer === chat && c.phase === 'incoming') {
+      this.tones.stop();
+      clearTimeout(c.ringTimer);
+      c.video = video;
+      c.phase = 'connecting';
+    } else {
+      if (this.busy) throw new Error(t('Уже идёт звонок'));
+      const r = this.groupCallIn(chat);
+      if (!r) throw new Error(t('Звонок уже закончился'));
+      if (r.parts.size >= GROUP_CALL_MAX) throw new Error(t('В звонке уже {0} участников — больше нельзя', GROUP_CALL_MAX));
+      c = this.call = this._newGroupCall({ id: r.callId, peer: chat, role: 'callee', video, phase: 'connecting', from: r.from });
+    }
+    this._emit();
+    try {
+      await this._getLocalMedia(video);
+      if (this.call !== c) return;
+      c.phase = 'active';
+      c.startedAt = Date.now();
+      // Ждём, что участники пришлют offer; никто не ответил — звонка уже нет
+      c.waitTimer = setTimeout(() => this.call === c && !c.peers.size && this._end(c.everJoined ? 'answered' : 'failed'), OFFER_TIMEOUT);
+      this._emit();
+      this.onRoster(chat);
+      await this.client.sendGroupCall(chat, { kind: 'join', callId: c.id, video }, { others: 'all' });
+      this._startAlive(c);
+    } catch (e) {
+      if (this.call === c) this._end('failed', e);
+      throw e;
+    }
+  }
+
+  _leaveGroup() {
+    const c = this.call;
+    for (const p of c.peers.values()) this._sendTo(p.dc, { type: 'hangup' });
+    const sent = this.client.sendGroupCall(c.peer, { kind: 'leave', callId: c.id }, { others: 'all' }).catch(() => {});
+    this._end(c.everJoined ? 'answered' : c.role === 'caller' ? 'no_answer' : 'cancelled');
+    return sent;
+  }
+
+  /** Старший (по адресу) участник время от времени напоминает группе, что звонок идёт. */
+  _startAlive(c) {
+    clearInterval(c.aliveTimer);
+    c.aliveTimer = setInterval(() => {
+      if (this.call !== c || c.phase !== 'active') return clearInterval(c.aliveTimer);
+      const parts = [this._myAddr(), ...c.peers.keys()].sort();
+      if (parts[0] !== this._myAddr()) return;
+      this.client.sendGroupCall(c.peer, { kind: 'alive', callId: c.id, video: c.video, parts }, { others: 'online' }).catch(() => {});
+    }, ALIVE_EVERY);
+  }
+
+  _expireRosters() {
+    const now = Date.now();
+    for (const [chat, r] of this.rosters) {
+      const mine = this.call?.group && this.call.peer === chat && this.call.id === r.callId;
+      if (!mine && now - r.seen > ROSTER_TTL) {
+        this.rosters.delete(chat);
+        this.onRoster(chat);
+      }
+    }
+  }
+
+  /** Сведения о звонке группы от участника: кто в нём сейчас. */
+  _touchRoster(chat, callId, from, fromDevice, data) {
+    let r = this.rosters.get(chat);
+    if (!r || r.callId !== callId) {
+      // Другой звонок в той же группе: новее (ring) или напоминание о существующем — заменяет
+      r = { callId, video: !!data.video, from, parts: new Map(), seen: 0 };
+      this.rosters.set(chat, r);
+    }
+    if (data.kind === 'ring') r.from = from;
+    if (data.kind === 'alive' && Array.isArray(data.parts)) {
+      r.parts = new Map();
+      for (const a of data.parts.slice(0, GROUP_CALL_MAX * 2)) {
+        if (typeof a !== 'string' || !ADDR_RE.test(a)) continue;
+        const i = a.lastIndexOf(':');
+        r.parts.set(a, { name: a.slice(0, i), device: Number(a.slice(i + 1)) });
+      }
+    }
+    r.parts.set(addrOf(from, fromDevice), { name: from, device: fromDevice });
+    r.seen = Date.now();
+  }
+
+  async _onGroupSignal({ chat, from, fromDevice, data }) {
+    const kind = data.kind;
+    const callId = String(data.callId || '');
+    if (!CALL_ID_RE.test(callId)) return;
+    const me = this.client.account?.username;
+    const fromAddr = addrOf(from, fromDevice);
+    const c = this.call;
+    const inThis = !!c?.group && c.peer === chat && c.id === callId && c.phase !== 'ended';
+
+    if (kind === 'ring' || kind === 'join' || kind === 'alive') {
+      this._touchRoster(chat, callId, from, fromDevice, data);
+      this.onRoster(chat);
+      if (from === me) {
+        // Ответили на этом же аккаунте с другого устройства — здесь перестаём звонить
+        if (kind === 'join' && inThis && c.phase === 'incoming') this._end('elsewhere');
+        return;
+      }
+      if (inThis && c.phase === 'active' && kind === 'join') return this._connectPeer(c, from, fromDevice);
+      if (inThis && c.phase === 'active' && kind === 'alive') {
+        // Кого-то из участников мы не видим (сигнал входа не дошёл) — соединиться;
+        // offer шлёт тот, чей адрес меньше, чтобы не встречных два
+        const mine = this._myAddr();
+        for (const [a, p] of this.rosters.get(chat)?.parts || []) {
+          if (a === mine || c.peers.has(a) || p.name === me || a > mine) continue;
+          await this._connectPeer(c, p.name, p.device);
+        }
+        return;
+      }
+      if (kind === 'ring' && !this.busy) {
+        const n = (this.call = this._newGroupCall({ id: callId, peer: chat, role: 'callee', video: !!data.video, phase: 'incoming', from }));
+        n.ringTimer = setTimeout(() => this.call === n && n.phase === 'incoming' && this._end('missed'), RING_TIMEOUT);
+        this.tones.ring();
+        this._emit();
+      }
+      return;
+    }
+
+    if (kind === 'leave') {
+      const r = this.rosters.get(chat);
+      if (r?.callId === callId) {
+        r.parts.delete(fromAddr);
+        if (!r.parts.size) this.rosters.delete(chat);
+        this.onRoster(chat);
+      }
+      if (!inThis) return;
+      if (c.phase === 'incoming') {
+        // Звонящий передумал, а больше в звонке никого — звонок пропущен
+        if (!this.rosters.get(chat)?.parts.size) this._end('missed');
+        return;
+      }
+      const p = c.peers.get(fromAddr);
+      if (p) this._dropPeer(c, p);
+      return;
+    }
+
+    if (!inThis || c.phase !== 'active' || from === me) return;
+    if (typeof data.sdp !== 'string' || data.sdp.length > 60_000) return;
+    if (kind === 'offer') return this._answerPeer(c, from, fromDevice, data.sdp);
+    if (kind === 'answer') {
+      const p = c.peers.get(fromAddr);
+      if (!p || p.role !== 'offerer' || p.answered) return;
+      p.answered = true;
+      clearTimeout(p.offerTimer);
+      try {
+        await p.pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+      } catch {
+        this._dropPeer(c, p);
+      }
+    }
+  }
+
+  _newPeer(c, name, device, role) {
+    const p = {
+      addr: addrOf(name, device),
+      name,
+      device,
+      role,
+      pc: null,
+      dc: null,
+      answered: false,
+      connected: false,
+      reconnecting: false,
+      remote: { audio: new MediaStream(), cam: new MediaStream(), screen: new MediaStream() },
+      remoteState: { mic: true, cam: false, screen: false },
+    };
+    c.peers.set(p.addr, p);
+    return p;
+  }
+
+  async _groupPc(c, p) {
+    let iceServers = [];
+    try {
+      iceServers = await this.client.getIceServers();
+    } catch {}
+    const pc = (p.pc = new RTCPeerConnection({ iceServers, bundlePolicy: 'max-bundle' }));
+    p.dc = pc.createDataChannel('ctl', { negotiated: true, id: 0 });
+    p.dc.onopen = () => this._sendTo(p.dc, { type: 'state', mic: !!c.local.mic?.enabled, cam: !!c.local.cam, screen: !!c.local.screen });
+    p.dc.onmessage = (e) => {
+      let m;
+      try {
+        m = JSON.parse(e.data);
+      } catch {
+        return;
+      }
+      if (c.peers.get(p.addr) !== p) return;
+      if (m.type === 'state') {
+        p.remoteState = { mic: !!m.mic, cam: !!m.cam, screen: !!m.screen };
+        this._emit();
+      } else if (m.type === 'hangup') {
+        this._dropPeer(c, p);
+      }
+    };
+    if (p.role === 'offerer') {
+      pc.addTransceiver(this._sendTrack(c) || 'audio', { direction: 'sendrecv' });
+      pc.addTransceiver(c.local.cam || 'video', { direction: 'sendrecv' });
+      pc.addTransceiver(c.local.screen || 'video', { direction: 'sendrecv' });
+    }
+    pc.ontrack = (e) => {
+      const idx = pc.getTransceivers().indexOf(e.transceiver);
+      const target = idx === T_AUDIO ? p.remote.audio : idx === T_CAM ? p.remote.cam : idx === T_SCREEN ? p.remote.screen : null;
+      if (!target) return;
+      for (const tr of target.getTracks()) target.removeTrack(tr);
+      target.addTrack(e.track);
+      e.track.onmute = e.track.onunmute = () => this._emit();
+      this._emit();
+    };
+    pc.onconnectionstatechange = () => {
+      if (c.peers.get(p.addr) !== p || this.call !== c) return;
+      const st = pc.connectionState;
+      if (st === 'connected') {
+        clearTimeout(p.dropTimer);
+        clearTimeout(c.waitTimer);
+        clearTimeout(c.aloneTimer);
+        p.connected = true;
+        p.reconnecting = false;
+        c.everJoined = true;
+        this._emit();
+      } else if (st === 'disconnected') {
+        p.reconnecting = true;
+        this._emit();
+        clearTimeout(p.dropTimer);
+        p.dropTimer = setTimeout(() => this._dropPeer(c, p), DISCONNECT_GRACE);
+      } else if (st === 'failed') {
+        this._dropPeer(c, p);
+      }
+    };
+  }
+
+  /** Новый участник: мы уже в звонке — шлём ему offer. */
+  async _connectPeer(c, name, device) {
+    const a = addrOf(name, device);
+    if (c.peers.has(a) || c.peers.size >= GROUP_CALL_MAX - 1) return;
+    const p = this._newPeer(c, name, device, 'offerer');
+    this._emit();
+    try {
+      await this._groupPc(c, p);
+      if (c.peers.get(a) !== p) return;
+      if (c.local.screen) await this._tuneScreen(p.pc.getTransceivers()[T_SCREEN]?.sender);
+      await p.pc.setLocalDescription(await p.pc.createOffer());
+      await waitIceGathering(p.pc);
+      if (c.peers.get(a) !== p || this.call !== c) return;
+      await this.client.sendGroupCall(c.peer, { kind: 'offer', callId: c.id, sdp: p.pc.localDescription.sdp }, { devices: { [name]: [device] } });
+      p.offerTimer = setTimeout(() => !p.answered && this._dropPeer(c, p), OFFER_TIMEOUT);
+    } catch (e) {
+      console.error('gcall offer', e);
+      this._dropPeer(c, p);
+    }
+  }
+
+  /** Offer от участника: отвечаем. Встречные offer — побеждает тот, чей адрес меньше. */
+  async _answerPeer(c, name, device, sdp) {
+    const a = addrOf(name, device);
+    const old = c.peers.get(a);
+    if (old) {
+      if (old.role === 'offerer' && !old.answered && this._myAddr() < a) return; // наш offer главнее — ждём ответа на него
+      this._closePeer(old); // встречный offer или участник переподключился
+      c.peers.delete(a);
+    }
+    if (c.peers.size >= GROUP_CALL_MAX - 1) return;
+    const p = this._newPeer(c, name, device, 'answerer');
+    p.answered = true;
+    this._emit();
+    try {
+      await this._groupPc(c, p);
+      await p.pc.setRemoteDescription({ type: 'offer', sdp });
+      const trs = p.pc.getTransceivers();
+      for (const tr of trs) tr.direction = 'sendrecv';
+      await trs[T_AUDIO]?.sender.replaceTrack(this._sendTrack(c));
+      await trs[T_CAM]?.sender.replaceTrack(c.local.cam || null);
+      await trs[T_SCREEN]?.sender.replaceTrack(c.local.screen || null);
+      if (c.local.screen) await this._tuneScreen(trs[T_SCREEN]?.sender);
+      await p.pc.setLocalDescription(await p.pc.createAnswer());
+      await waitIceGathering(p.pc);
+      if (c.peers.get(a) !== p || this.call !== c) return;
+      await this.client.sendGroupCall(c.peer, { kind: 'answer', callId: c.id, sdp: p.pc.localDescription.sdp }, { devices: { [name]: [device] } });
+    } catch (e) {
+      console.error('gcall answer', e);
+      this._dropPeer(c, p);
+    }
+  }
+
+  _closePeer(p) {
+    clearTimeout(p.dropTimer);
+    clearTimeout(p.offerTimer);
+    try {
+      p.dc?.close();
+    } catch {}
+    try {
+      p.pc?.close();
+    } catch {}
+  }
+
+  _dropPeer(c, p) {
+    if (c.peers.get(p.addr) !== p) return;
+    this._closePeer(p);
+    c.peers.delete(p.addr);
+    this._emit();
+    if (this.call !== c || c.phase === 'ended' || c.peers.size) return;
+    // Остались одни: подождать — вдруг кто-то вернётся или присоединится
+    clearTimeout(c.aloneTimer);
+    c.aloneTimer = setTimeout(() => this.call === c && !c.peers.size && this._leaveGroup(), ALONE_TIMEOUT);
+  }
+
   _end(result, error = null) {
     const c = this.call;
     if (!c || c.phase === 'ended') return;
@@ -584,6 +995,19 @@ export class CallManager {
     clearTimeout(c.dropTimer);
     this.tones.stop();
     if (result !== 'elsewhere' && result !== 'missed') this.tones.end();
+    if (c.group) {
+      clearTimeout(c.waitTimer);
+      clearTimeout(c.aloneTimer);
+      clearInterval(c.aliveTimer);
+      for (const p of [...c.peers.values()]) this._closePeer(p);
+      c.peers.clear();
+      const r = this.rosters.get(c.peer);
+      if (r?.callId === c.id) {
+        r.parts.delete(this._myAddr());
+        if (!r.parts.size) this.rosters.delete(c.peer);
+      }
+      this.onRoster(c.peer);
+    }
     for (const tr of Object.values(c.local)) tr?.stop();
     if (c.micFx) {
       c.micFx.track.stop();
@@ -609,6 +1033,7 @@ export class CallManager {
         duration: c.duration,
         video: c.video,
         missed: result === 'missed',
+        group: !!c.group,
       })
       .catch(() => {});
     setTimeout(() => {

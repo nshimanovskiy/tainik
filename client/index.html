@@ -160,6 +160,10 @@
           </button>
           <button type="button" id="pin-close" class="icon-btn" aria-label="Открепить" title="Открепить"><i class="ic" data-icon="close"></i></button>
         </div>
+        <div id="gcall-bar" class="banner gcall-bar" hidden>
+          <span class="gcall-bar-text"><i class="ic" data-icon="phone"></i><span id="gcall-bar-text"></span></span>
+          <button type="button" id="gcall-join" class="primary">Присоединиться</button>
+        </div>
         <div id="key-banner" class="banner danger" hidden>
           <div>
             <b>Ключ собеседника изменился.</b>
@@ -1029,6 +1033,8 @@
     <div class="call-stage">
       <video id="remote-main" class="remote-main" autoplay playsinline muted></video>
       <video id="remote-pip" class="pip remote-pip fit-aspect" autoplay playsinline muted hidden title="Поменять местами"></video>
+      <div id="call-grid" class="call-grid" hidden></div>
+      <div id="gcall-audio" hidden></div>
       <div id="call-placeholder" class="call-placeholder">
         <span class="avatar call-avatar" id="call-avatar"></span>
         <div id="call-name" class="call-name"></div>
