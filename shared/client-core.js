@@ -169,6 +169,7 @@ export function cleanAlias(a) {
   return out.name || out.avatar ? out : null;
 }
 // ---------- «Печатает…» ----------
+const SEND_PER_SEC = 20; // отправок из очереди в секунду (лимит сервера — 30 сообщений в секунду на соединение)
 const TYPING_EVERY = 4000; // не чаще раза в 4 секунды на чат
 const TYPING_TTL = 6000; // гаснет сам через 6 секунд
 const TYPING_GROUP_MAX = 10; // в группах побольше — не рассылается
@@ -1292,6 +1293,14 @@ export class MessengerClient extends Emitter {
         // Перегрузка при регистрации/привязке — отказ с причиной; у вошедшего — повтор позже (соединение закроет сервер)
         if (this._firstReady && (['username_taken', 'auth_failed', 'bad_username', 'bad_keys', 'unknown_account', 'too_many_devices'].includes(msg.code) || (busy && this._authExtra))) {
           return this._fatal(msg.code);
+        }
+        // Сервер притормозил: отправка не потеряна — повторим чуть позже (без cid — старый сервер: все, что «в пути»)
+        if (msg.code === 'rate_limited' && !msg.reqId) {
+          if (msg.cid) this._inflight.delete(msg.cid);
+          else this._inflight.clear();
+          clearTimeout(this._repump);
+          this._repump = setTimeout(() => this._pumpOutbox(), 1200);
+          return;
         }
         if (msg.cid) return this._serial(() => this._failOutbox(msg.cid));
         this.emit('error', { code: msg.code, text: ERROR_TEXT[msg.code] || msg.code });
@@ -3561,7 +3570,22 @@ export class MessengerClient extends Emitter {
     const req = { type: 'send', to: name, id: item.id, cid, messages, notify };
     // Сообщение в группе: серверу — id группы, чтобы в пуше было её название (оно ему известно из реестра групп)
     if (notify && item.content?.t === 'gmsg' && GID_RE.test(String(item.content.g))) req.group = item.content.g;
+    await this._pace();
     if (!this._send(req)) this._inflight.delete(cid);
+  }
+
+  /**
+   * Не больше SEND_PER_SEC отправок в секунду: сервер принимает до 30 сообщений в секунду с соединения,
+   * а рассылка в большую группу (по сообщению на участника) иначе упиралась бы в этот предел.
+   */
+  async _pace() {
+    for (;;) {
+      const now = Date.now();
+      this._sendLog = (this._sendLog || []).filter((x) => now - x < 1000);
+      if (this._sendLog.length < SEND_PER_SEC) break;
+      await new Promise((r) => setTimeout(r, 1000 - (now - this._sendLog[0]) + 5));
+    }
+    this._sendLog.push(Date.now());
   }
 
   /** Закреплённая личность получателя (для себя — своя). Бросает key_changed, если ключ изменился. */

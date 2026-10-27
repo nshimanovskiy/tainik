@@ -91,16 +91,7 @@ test('сообщество: каналы, сообщения по каналам
   assert.equal(MessengerClient.parseInvite('ссылка: ' + link + ' ').admins[0], 'alice');
   const joined = waitFor(dan, 'group', (d) => d.chat === chat && d.group.members.includes('dan'), 'dan: вступил');
   assert.equal(await dan.joinByInvite(link), null);
-  try {
-    await joined;
-  } catch (e) {
-    // Временная диагностика: что видит каждая сторона
-    const ga = await alice.groupOf(chat);
-    const out = ((await dan.storage.get('outbox')) || []).map((x) => [x.to, x.content?.t, x.attempts]);
-    const aout = ((await alice.storage.get('outbox')) || []).map((x) => [x.to, x.content?.t, x.attempts]);
-    const dc = await dan.contacts();
-    throw new Error(`${e.message} | alice members=${ga.members} invites=${ga.invites.map((i) => i.s)} link=${link} | dan outbox=${JSON.stringify(out)} alice outbox=${JSON.stringify(aout)} | dan contacts=${Object.keys(dc)} dan group=${JSON.stringify(dc[chat]?.group || null)} | statuses ${alice.status}/${dan.status}`);
-  }
+  await joined;
   assert.ok(isCommunity(await dan.groupOf(chat)));
   // Отозванное приглашение больше не работает
   const g2 = await alice.groupOf(chat);

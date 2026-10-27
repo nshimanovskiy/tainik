@@ -1542,12 +1542,17 @@ export function startServer({
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
           if (!take(state.msgs, RATE.msgsPerSec, 1000)) {
-            // С номером запроса — чтобы приложение сразу узнало об отказе, а не ждало ответа до таймаута
+            // С номером запроса (или отправки) — чтобы приложение сразу узнало об отказе и повторило,
+            // а не ждало ответа до таймаута или переподключения
             let reqId;
+            let cid;
             try {
-              reqId = JSON.parse(text)?.reqId;
+              ({ reqId, cid } = JSON.parse(text) || {});
             } catch {}
-            return error(conn, 'rate_limited', Number.isSafeInteger(reqId) ? { reqId } : {});
+            const ref = {};
+            if (Number.isSafeInteger(reqId)) ref.reqId = reqId;
+            if (typeof cid === 'string' && cid.length <= 200) ref.cid = cid;
+            return error(conn, 'rate_limited', ref);
           }
           let msg;
           try {
