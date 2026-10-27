@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Tainik</title>
+<link rel="stylesheet" href="toast.css">
+</head>
+<body>
+  <div id="card" class="card" role="alert">
+    <div class="row">
+      <span id="avatar" class="avatar"></span>
+      <div class="body">
+        <div class="top"><b id="title"></b><span id="account" class="account"></span></div>
+        <div id="text" class="text"></div>
+      </div>
+      <button id="close" class="close" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <div id="actions" class="actions"></div>
+    <form id="reply" class="reply" hidden>
+      <input id="reply-input" maxlength="4000" autocomplete="off" spellcheck="true">
+      <button id="reply-send" class="send" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5L20 4.5l-5 15.5-3.2-6.7zM11.8 13.3L20 4.5"/></svg></button>
+    </form>
+  </div>
+  <script src="toast.js"></script>
+</body>
+</html>

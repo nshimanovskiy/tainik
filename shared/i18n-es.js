@@ -1139,4 +1139,9 @@ export default {
   "Нужно название канала": "Falta el nombre del canal",
   "Ссылка-приглашение не подходит": "El enlace de invitación no es válido",
   "общий": "general",
+  "Так будут выглядеть уведомления о новых сообщениях": "Así se verán las notificaciones de mensajes nuevos",
+  "Вид уведомлений": "Estilo de notificaciones",
+  "Карточки Тайника — как в Telegram": "Tarjetas de Tainik, como en Telegram",
+  "Показать пример": "Mostrar un ejemplo",
+  "Системные уведомления": "Notificaciones del sistema",
 };

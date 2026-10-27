@@ -4666,6 +4666,25 @@ function setUnread(n) {
   else if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
 }
 
+/**
+ * Как выглядит карточка уведомления на компьютере: фото чата или буква на цветном круге (как в
+ * списке чатов) и, для другого аккаунта, его имя. chat — как в уведомлении (чужой аккаунт — с '@id').
+ */
+function noticeLook(chat) {
+  if (!chat) return {};
+  const at = chat.lastIndexOf('@');
+  const id = at > 0 ? chat.slice(at + 1) : null;
+  const base = at > 0 ? chat.slice(0, at) : chat;
+  const other = id && id !== activeId ? others.get(id) : null;
+  const c = other?.client || client;
+  if (!c.account) return {};
+  const look = { letter: [...(c.nameOf(base) || '?')][0].toUpperCase(), hue: hue(base) };
+  if (isSystemChat(base)) look.letter = 'Т';
+  const photo = c.avatarOf(base);
+  if (photo) look.avatar = photo;
+  if (other) look.account = '@' + other.acc.username;
+  return look;
+}
 async function notifPrefs() {
   const v = await settings.get('notify');
   const enabled = desktop ? v !== '0' : v === '1' && webNotif && Notification.permission === 'granted';
@@ -4686,7 +4705,7 @@ function serviceWorker() {
 
 async function showNotice({ title, body, chat, tag, call = false, force = false, reply = false, msg = '' }) {
   if (!(await notifPrefs()).enabled) return;
-  if (desktop) return desktop.notify({ title, body, chat, call, force, reply, msg });
+  if (desktop) return desktop.notify({ title, body, chat, call, force, reply, msg, ...noticeLook(chat) });
   const opts = { body, tag, renotify: true, icon: '/icon-192.png', badge: '/badge-72.png', data: { chat }, requireInteraction: call };
   const reg = await serviceWorker();
   try {
@@ -4923,6 +4942,10 @@ async function fillNotifSettings() {
   $('notif-enabled').checked = enabled;
   $('notif-preview').checked = preview;
   $('notif-preview').disabled = !enabled;
+  // Вид уведомлений — только в приложении для компьютера (на телефоне и в браузере — системные)
+  $('notif-style-box').hidden = !desktop || android;
+  $('notif-style').value = (await settings.get('notice-style')) === 'system' ? 'system' : 'app';
+  $('notif-style').disabled = $('notif-test').disabled = !enabled;
   let hint;
   if (android) hint = t('Пока включена работа в фоне, приложение само держит связь с вашим сервером — без Google и других push-сервисов.');
   else if (desktop) hint = t('Приложение получает сообщения, пока запущено, в том числе свёрнутым в трей.');
@@ -4958,6 +4981,20 @@ $('notif-enabled').addEventListener('change', async (e) => {
   await fillNotifSettings();
 });
 $('notif-preview').addEventListener('change', (e) => settings.set('notify-preview', e.target.checked ? '1' : '0'));
+$('notif-style').addEventListener('change', (e) => settings.set('notice-style', e.target.value === 'system' ? 'system' : 'app'));
+$('notif-test').addEventListener('click', () => {
+  const me = client.account?.username;
+  if (!me) return;
+  desktop?.notify({ title: nameOf(me), body: t('Так будут выглядеть уведомления о новых сообщениях'), chat: me, force: true, ...noticeLook(me) });
+});
+// Кнопки «Ответить» и «Отклонить» в карточке входящего звонка
+desktop?.onNoticeAction?.(async (chat, act) => {
+  const c = calls.call;
+  if (!c || c.phase !== 'incoming' || c.peer !== chat) return;
+  if (act === 'accept') {
+    await calls.accept({ video: false }).catch((e) => toast(e.message));
+  } else if (act === 'decline') calls.decline();
+});
 for (const id of ['bg-tray', 'bg-autostart']) {
   $(id).addEventListener('change', async (e) => {
     try {

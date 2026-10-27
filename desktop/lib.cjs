@@ -78,9 +78,9 @@ class SecureStore {
 }
 
 /** Безопасно сопоставляет URL app://app/... с файлом внутри папки renderer. */
-function resolveAppPath(rendererDir, url) {
+function resolveAppPath(rendererDir, url, host = 'app') {
   const u = new URL(url);
-  if (u.protocol !== 'app:' || u.host !== 'app') return null;
+  if (u.protocol !== 'app:' || u.host !== host) return null;
   let rel;
   try {
     rel = decodeURIComponent(u.pathname);
@@ -136,4 +136,7 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-module.exports = { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry };
+// Окно уведомления (app://toast): только свои скрипт и стили, картинки — data:-URL аватара
+const TOAST_CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; base-uri 'none'; form-action 'none'";
+
+module.exports = { SecureStore, resolveAppPath, MIME, CSP, TOAST_CSP, linuxAutostartEntry };

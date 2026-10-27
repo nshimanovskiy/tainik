@@ -19,15 +19,18 @@ const {
   nativeImage,
   powerMonitor,
   net,
+  screen,
 } = require('electron');
 const { spawn } = require('node:child_process');
 const { Updater, updateKind, serverBase, macInstallScript } = require('./updater.cjs');
 const { t, setLangSource, langFromLocale, knownLang } = require('./i18n.cjs');
-const { SecureStore, resolveAppPath, MIME, CSP, linuxAutostartEntry } = require('./lib.cjs');
+const { SecureStore, resolveAppPath, MIME, CSP, TOAST_CSP, linuxAutostartEntry } = require('./lib.cjs');
+const { Toasts } = require('./toasts.cjs');
 const { cleanProxy, startRelay, testProxy } = require('./proxy.cjs');
 // Хранилище v3 (несколько устройств) несовместимо с v2 — отдельный файл
 
 const RENDERER_DIR = path.join(__dirname, 'renderer');
+const TOAST_DIR = path.join(__dirname, 'toast');
 const APP_ORIGIN = 'app://app';
 
 // app:// — «защищённый» источник: в нём доступны WebCrypto и IndexedDB
@@ -337,12 +340,45 @@ function setBackground(on) {
   }
 }
 
-// Уведомления: по одному на чат (новое заменяет старое); ссылки держим, иначе сборщик мусора
+// Уведомления Тайника — свои карточки в углу экрана, как в Telegram (toasts.cjs); системные —
+// если так выбрано в настройках («notice-style» = 'system') или своих окон сделать нельзя.
+let toasts = null;
+const noticeMsg = new Map(); // ключ карточки → id сообщения, на которое отвечаем
+function appToasts() {
+  if (settings['notice-style'] === 'system' || !screen?.getPrimaryDisplay) return null;
+  toasts ||= new Toasts({
+    BrowserWindow,
+    screen,
+    ipcMain,
+    preload: path.join(__dirname, 'toast-preload.cjs'),
+    url: 'app://toast/toast.html',
+    labels: () => ({ close: t('Закрыть'), placeholder: t('Ответить…'), send: t('Отправить'), reply: t('Ответить'), accept: t('Принять'), decline: t('Отклонить') }),
+    onAction: (key, act, text) => {
+      const call = key.startsWith('call:');
+      const chat = key.slice(call ? 5 : 4);
+      if (act === 'reply') return chat && win?.webContents.send('notice-reply', { chat, text, msg: noticeMsg.get(key) || '' });
+      if (act === 'decline') return win?.webContents.send('notice-action', { chat, act });
+      showWindow();
+      if (chat) win?.webContents.send('open-chat', chat);
+      if (act === 'accept') win?.webContents.send('notice-action', { chat, act });
+    },
+  });
+  return toasts;
+}
+
+// Системные уведомления: по одному на чат (новое заменяет старое); ссылки держим, иначе сборщик мусора
 // уберёт объект и клик по уведомлению перестанет работать.
 const notices = new Map();
-function showNotice({ title, body, chat, call, reply, msg = '' }) {
-  if (!Notification.isSupported()) return;
+function showNotice({ title, body, chat, call, reply, msg = '', look = {} }) {
   const key = (call ? 'call:' : 'msg:') + chat;
+  const own = appToasts();
+  if (own) {
+    noticeMsg.set(key, msg);
+    if (noticeMsg.size > 200) noticeMsg.delete(noticeMsg.keys().next().value);
+    own.show(key, { ...look, title, body, call, canReply: !!reply && !!chat });
+    return;
+  }
+  if (!Notification.isSupported()) return;
   notices.get(key)?.close();
   // Ответ прямо из уведомления — поле ввода есть у уведомлений macOS
   const canReply = !!reply && !!chat && !call && isMac;
@@ -421,6 +457,7 @@ function registerIpc() {
       if (typeof k !== 'string' || k.startsWith('_') || (v !== null && typeof v !== 'string')) throw new Error('bad setting');
       settings[k] = v;
       saveSettings();
+      if (k === 'notice-style' && v === 'system') toasts?.dismissAll(); // переключились на системные
       if (k === 'lang') updateTrayMenu(); // трей — на новом языке
     })
   );
@@ -455,7 +492,8 @@ function registerIpc() {
     // Чат: юзернейм, группа '#…' или канал '!…' (у другого аккаунта — с '@id')
     const chat = /^([a-z0-9_]{3,32}|#[0-9a-f]{24}|![0-9a-f]{32}|~tainik)(@(main|a[0-9a-f]{8}))?$/.test(n.chat) ? n.chat : '';
     const msg = typeof n.msg === 'string' && /^[A-Za-z0-9+/=_-]{1,64}$/.test(n.msg) ? n.msg : '';
-    showNotice({ title: String(n.title || t('Тайник')).slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call, reply: !!n.reply, msg });
+    const look = { avatar: n.avatar, letter: n.letter, hue: n.hue, account: n.account }; // проверяет toasts.cjs
+    showNotice({ title: String(n.title || t('Тайник')).slice(0, 64), body: String(n.body || '').slice(0, 200), chat, call: !!n.call, reply: !!n.reply, msg, look });
     if (win) {
       // Входящий звонок: показываем окно из трея (без перехвата фокуса), иначе мигаем на панели задач
       if (n.call && !win.isVisible()) win.showInactive();
@@ -466,8 +504,13 @@ function registerIpc() {
   ipcMain.on('dismiss-notice', (event, n) => {
     if (!fromApp(event) || !n || typeof n !== 'object') return;
     const key = (n.call ? 'call:' : 'msg:') + String(n.chat || '');
-    notices.get(key)?.close();
-    notices.delete(key);
+    // Звонок закончился (чат не указан) — убрать все уведомления о звонках
+    const keys = n.call && !n.chat ? [...new Set([...notices.keys(), ...(toasts?.keys() || [])])].filter((k) => k.startsWith('call:')) : [key];
+    for (const k of keys) {
+      notices.get(k)?.close();
+      notices.delete(k);
+      toasts?.dismiss(k);
+    }
   });
   ipcMain.on('badge', (event, n) => {
     if (!fromApp(event)) return;
@@ -486,14 +529,16 @@ function registerIpc() {
 
 function registerAppProtocol() {
   protocol.handle('app', async (request) => {
-    const file = resolveAppPath(RENDERER_DIR, request.url);
+    // app://toast/… — окна уведомлений (отдельный источник: доступа к хранилищу у них нет)
+    const toast = new URL(request.url).host === 'toast';
+    const file = toast ? resolveAppPath(TOAST_DIR, request.url, 'toast') : resolveAppPath(RENDERER_DIR, request.url);
     if (!file) return new Response('Forbidden', { status: 403 });
     try {
       const body = await fs.promises.readFile(file);
       return new Response(body, {
         headers: {
           'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
-          'Content-Security-Policy': CSP,
+          'Content-Security-Policy': toast ? TOAST_CSP : CSP,
           'X-Content-Type-Options': 'nosniff',
           'Cache-Control': 'no-cache',
         },

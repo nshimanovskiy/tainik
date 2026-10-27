@@ -1,0 +1,50 @@
+/* Уведомление Тайника: карточка в углу экрана, как в Telegram Desktop */
+:root { color-scheme: light dark; --bg: #ffffff; --ink: #1d2421; --muted: #6c746f; --line: #e2ded5; --accent: #1f6f5c; --accent-ink: #fff; --danger: #d64541; --hover: rgba(0,0,0,.06); }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #1b2220; --ink: #e8efec; --muted: #9aa6a1; --line: #2e3734; --accent: #3fae8c; --accent-ink: #0d1210; --hover: rgba(255,255,255,.07); }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; font: 14px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); user-select: none; }
+.card {
+  position: absolute; left: 6px; right: 6px; top: 6px; display: flex; flex-direction: column; gap: 8px; padding: 12px 12px 12px 14px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 6px 22px rgba(0,0,0,.28);
+  cursor: pointer; opacity: 0; transform: translateX(24px); transition: opacity .18s ease, transform .22s cubic-bezier(.2,.8,.2,1);
+}
+.card.in { opacity: 1; transform: none; }
+.card.out { opacity: 0; transform: translateX(24px); }
+.row { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.avatar {
+  width: 46px; height: 46px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  color: #fff; font-weight: 600; font-size: 19px; background-size: cover; background-position: center;
+}
+.body { flex: 1; min-width: 0; }
+.top { display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.top b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14.5px; }
+.account { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none; max-width: 40%; }
+.text { color: var(--muted); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word; margin-top: 2px; }
+.close { align-self: flex-start; width: 26px; height: 26px; padding: 5px; border: 0; border-radius: 50%; background: none; color: var(--muted); cursor: pointer; flex: none; opacity: 0; transition: opacity .12s; }
+.card:hover .close, .close:focus-visible { opacity: 1; }
+.close:hover { background: var(--hover); color: var(--ink); }
+svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.actions { display: flex; gap: 8px; }
+.actions:empty { display: none; }
+.actions button {
+  flex: 1; border: 0; border-radius: 10px; padding: 8px 10px; font: inherit; font-weight: 600; cursor: pointer;
+  background: var(--hover); color: var(--ink);
+}
+.actions button.plain { flex: none; padding: 6px 14px; font-weight: 500; font-size: 13px; color: var(--accent); }
+.actions { padding-left: 58px; }
+.card.call .actions { padding-left: 0; }
+.actions button.ok { background: var(--accent); color: var(--accent-ink); }
+.actions button.danger { background: var(--danger); color: #fff; }
+.reply { display: flex; gap: 6px; }
+.reply input {
+  flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit;
+  background: transparent; color: var(--ink); outline: none;
+}
+.reply input:focus { border-color: var(--accent); }
+.send { width: 36px; height: 36px; padding: 8px; border: 0; border-radius: 50%; background: var(--accent); color: var(--accent-ink); cursor: pointer; flex: none; }
+.card.call .avatar { box-shadow: 0 0 0 3px var(--accent); animation: ring 1.4s ease-in-out infinite; }
+@keyframes ring { 50% { box-shadow: 0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } .card.call .avatar { animation: none; } }

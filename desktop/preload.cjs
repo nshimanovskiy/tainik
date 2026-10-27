@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld('desktop', {
       force: !!n?.force,
       reply: !!n?.reply, // можно ответить прямо из уведомления (macOS)
       msg: String(n?.msg ?? '').slice(0, 64), // на какое сообщение отвечаем
+      // Вид карточки уведомления Тайника: фото (data:-URL) или буква на цветном круге, аккаунт
+      avatar: typeof n?.avatar === 'string' ? n.avatar.slice(0, 40000) : '',
+      letter: String(n?.letter ?? '').slice(0, 4),
+      hue: Number(n?.hue) || 0,
+      account: String(n?.account ?? '').slice(0, 40),
     }),
   dismissNotice: (n) => ipcRenderer.send('dismiss-notice', { chat: String(n?.chat ?? ''), call: !!n?.call }),
   onOpenChat: (handler) => {
@@ -41,6 +46,11 @@ contextBridge.exposeInMainWorld('desktop', {
   onReply: (handler) => {
     ipcRenderer.removeAllListeners('notice-reply');
     ipcRenderer.on('notice-reply', (_e, r) => handler(String(r?.chat ?? ''), String(r?.text ?? ''), String(r?.msg ?? '')));
+  },
+  // Кнопки в карточке звонка: handler(chat, act) — 'accept' | 'decline'
+  onNoticeAction: (handler) => {
+    ipcRenderer.removeAllListeners('notice-action');
+    ipcRenderer.on('notice-action', (_e, r) => handler(String(r?.chat ?? ''), String(r?.act ?? '')));
   },
   // Счётчик непрочитанных: значок в доке/панели задач и подсказка у значка в трее
   setBadge: (n) => ipcRenderer.send('badge', Number(n) || 0),

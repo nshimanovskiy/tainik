@@ -1212,4 +1212,9 @@ export default {
   "Нужно название канала": "Channel name is required",
   "Ссылка-приглашение не подходит": "This invite link isn't valid",
   "общий": "general",
+  "Так будут выглядеть уведомления о новых сообщениях": "This is how new message notifications will look",
+  "Вид уведомлений": "Notification style",
+  "Карточки Тайника — как в Telegram": "Tainik cards — like Telegram",
+  "Показать пример": "Show a sample",
+  "Системные уведомления": "System notifications",
 };

@@ -34,6 +34,11 @@ const EN = {
   'недопустимое имя файла': 'invalid file name',
   'контрольная сумма не совпала — файл повреждён или подменён': 'checksum mismatch — the file is damaged or was tampered with',
   'Обновление не скачалось: ': 'The update didn’t download: ',
+  'Закрыть': 'Close',
+  'Отправить': 'Send',
+  'Ответить': 'Reply',
+  'Принять': 'Accept',
+  'Отклонить': 'Decline',
 };
 
 const ES = {
@@ -65,6 +70,11 @@ const ES = {
   "недопустимое имя файла": "nombre de archivo no válido",
   "контрольная сумма не совпала — файл повреждён или подменён": "la suma de verificación no coincide — el archivo está dañado o ha sido manipulado",
   "Обновление не скачалось: ": "La actualización no se descargó: ",
+  'Закрыть': 'Cerrar',
+  'Отправить': 'Enviar',
+  'Ответить': 'Responder',
+  'Принять': 'Aceptar',
+  'Отклонить': 'Rechazar',
 };
 const JA = {
   "Тайник": "Tainik",
@@ -95,6 +105,11 @@ const JA = {
   "недопустимое имя файла": "無効なファイル名",
   "контрольная сумма не совпала — файл повреждён или подменён": "チェックサムが一致しません — ファイルが破損しているか、改ざんされています",
   "Обновление не скачалось: ": "アップデートをダウンロードできませんでした：",
+  'Закрыть': '閉じる',
+  'Отправить': '送信',
+  'Ответить': '返信',
+  'Принять': '応答',
+  'Отклонить': '拒否',
 };
 const DICTS = { en: EN, es: ES, ja: JA };
 const LANG_CODES = ['ru', 'en', 'es', 'ja'];
