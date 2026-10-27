@@ -18,7 +18,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm test
+      - name: npm test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+      # Упавшие тесты — в аннотацию запуска (логи можно и не скачивать)
+      - name: Упавшие тесты
+        if: failure()
+        run: |
+          body=$(grep -A25 -E '^\s*not ok' test.log | head -150 | sed -e 's/%/%25/g' | sed -e ':a;N;$!ba;s/\n/%0A/g')
+          echo "::error title=Упавшие тесты::${body}"
 
   deploy:
     needs: test
