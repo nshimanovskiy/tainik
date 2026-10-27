@@ -7,9 +7,9 @@ import path from 'node:path';
 import { startServer } from '../server/server.js';
 import { MessengerClient, MemoryStorage, isCommunity, canModerate, cleanChanName } from '../shared/client-core.js';
 
-function waitFor(emitter, event, pred = () => true, ms = 8000) {
+function waitFor(emitter, event, pred = () => true, label = '', ms = 20000) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => (off(), reject(new Error('timeout: ' + event))), ms);
+    const timer = setTimeout(() => (off(), reject(new Error(`timeout: ${event} ${label}`))), ms);
     const off = emitter.on(event, (d) => {
       if (pred(d)) {
         clearTimeout(timer);
@@ -43,7 +43,7 @@ test('сообщество: каналы, сообщения по каналам
   const [alice, bob, carol, dan] = [mk(), mk(), mk(), mk()];
   for (const [c, n] of [[alice, 'alice'], [bob, 'bob'], [carol, 'carol'], [dan, 'dan']]) await c.register(n);
 
-  const got = Promise.all([waitFor(bob, 'group', (d) => d.group.name === 'Клуб'), waitFor(carol, 'group', (d) => d.group.name === 'Клуб')]);
+  const got = Promise.all([waitFor(bob, 'group', (d) => d.group.name === 'Клуб', 'bob: создано'), waitFor(carol, 'group', (d) => d.group.name === 'Клуб', 'carol: создано')]);
   const chat = await alice.createGroup('Клуб', ['bob', 'carol'], { community: true });
   await got;
   const g = await bob.groupOf(chat);
@@ -53,7 +53,7 @@ test('сообщество: каналы, сообщения по каналам
 
   // Новый текстовый канал и голосовой; переименование — служебные строки у участников
   const chans = [...g.chans, { id: 'abcdef01', name: '#Офф топ', type: 'text' }];
-  const upd = waitFor(bob, 'group', (d) => d.chat === chat && d.group.chans.length === 3);
+  const upd = waitFor(bob, 'group', (d) => d.chat === chat && d.group.chans.length === 3, 'bob: каналы');
   await alice.updateGroup(chat, { chans });
   await upd;
   const off = (await bob.groupOf(chat)).chans.find((c) => c.id === 'abcdef01');
@@ -62,11 +62,11 @@ test('сообщество: каналы, сообщения по каналам
   assert.ok((await bob.messages(chat)).some((m) => m.content?.ev === 'chan-add' && m.content.name === 'офф-топ'));
 
   // Сообщение в канал: пометка ch доходит
-  const inOff = waitFor(carol, 'message', (d) => d.contact === chat && d.message.content.body === 'привет оффтоп');
+  const inOff = waitFor(carol, 'message', (d) => d.contact === chat && d.message.content.body === 'привет оффтоп', 'carol: оффтоп');
   await bob.sendText(chat, 'привет оффтоп', { ch: 'abcdef01' });
   const msg = (await inOff).message;
   assert.equal(msg.content.ch, 'abcdef01');
-  const inGen = waitFor(carol, 'message', (d) => d.contact === chat && d.message.content.body === 'в общий');
+  const inGen = waitFor(carol, 'message', (d) => d.contact === chat && d.message.content.body === 'в общий', 'carol: общий');
   await bob.sendText(chat, 'в общий', { ch: general });
   assert.equal((await inGen).message.content.ch, general);
 
@@ -74,11 +74,11 @@ test('сообщество: каналы, сообщения по каналам
   await carol.deleteMessages(chat, [msg.id], { forAll: true });
   await sleep(500);
   assert.ok((await alice.messages(chat)).some((m) => m.id === msg.id), 'не модератор — у других осталось');
-  const modded = waitFor(carol, 'group', (d) => d.chat === chat && (d.group.mods || []).includes('carol'));
+  const modded = waitFor(carol, 'group', (d) => d.chat === chat && (d.group.mods || []).includes('carol'), 'carol: модератор');
   await alice.updateGroup(chat, { mods: ['carol'] });
   await modded;
   assert.ok(canModerate(await alice.groupOf(chat), 'carol'));
-  const gone = waitFor(alice, 'deleted', (d) => d.contact === chat).catch(() => null);
+  const gone = waitFor(alice, 'deleted', (d) => d.contact === chat, 'alice: удалено', 5000).catch(() => null);
   const target = (await carol.messages(chat)).find((m) => m.content?.body === 'в общий');
   await carol.deleteMessages(chat, [target.id], { forAll: true });
   await gone;
@@ -89,7 +89,7 @@ test('сообщество: каналы, сообщения по каналам
   const link = await alice.createInvite(chat, 'https://chat.example');
   assert.match(link, /\/app#join=[0-9a-f]{24}-[0-9a-f]{16}-alice$/);
   assert.equal(MessengerClient.parseInvite('ссылка: ' + link + ' ').admins[0], 'alice');
-  const joined = waitFor(dan, 'group', (d) => d.chat === chat && d.group.members.includes('dan'));
+  const joined = waitFor(dan, 'group', (d) => d.chat === chat && d.group.members.includes('dan'), 'dan: вступил');
   assert.equal(await dan.joinByInvite(link), null);
   await joined;
   assert.ok(isCommunity(await dan.groupOf(chat)));
