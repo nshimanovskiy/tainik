@@ -184,6 +184,7 @@ function fakeElectron({ userData, appData, platform }) {
     shell: { openExternal() {} },
     dialog: { showErrorBox: (t, m) => log.errors.push(m), showMessageBoxSync: () => 1 },
     desktopCapturer: { getSources: async () => [] },
+    clipboard: { writeText: (t) => (log.clip = t) },
     systemPreferences: {},
   };
   const ours = { senderFrame: { url: 'app://app/index.html' } };
@@ -291,6 +292,12 @@ test('десктоп (Linux): закрытие окна — уход в трей
   let blocked = false;
   w.webContents.emit('before-input-event', { preventDefault: () => (blocked = true) }, { type: 'keyDown', control: true, key: '=' });
   assert.ok(blocked);
+
+  // Копирование — системным буфером обмена, только от нашей страницы
+  d.ipcOn['copy-text'](d.evil, 'чужое');
+  assert.equal(d.log.clip, undefined);
+  d.ipcOn['copy-text'](d.ours, 'https://chat.example/@alice');
+  assert.equal(d.log.clip, 'https://chat.example/@alice');
 
   // Счётчик непрочитанных
   d.ipcOn.badge(d.ours, 3);

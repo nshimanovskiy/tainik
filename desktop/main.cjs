@@ -20,6 +20,7 @@ const {
   powerMonitor,
   net,
   screen,
+  clipboard,
 } = require('electron');
 const { spawn } = require('node:child_process');
 const { Updater, updateKind, serverBase, macInstallScript } = require('./updater.cjs');
@@ -512,6 +513,11 @@ function registerIpc() {
       toasts?.dismiss(k);
     }
   });
+  // Копирование в буфер обмена — системным буфером, без разрешений страницы
+  ipcMain.on('copy-text', (event, text) => {
+    if (!fromApp(event) || typeof text !== 'string') return;
+    clipboard?.writeText(text.slice(0, 1_000_000));
+  });
   ipcMain.on('badge', (event, n) => {
     if (!fromApp(event)) return;
     setBadge(Math.max(0, Math.min(9999, Math.floor(Number(n) || 0))));
@@ -699,7 +705,7 @@ app.whenReady().then(async () => {
   if (!store) return;
   // Разрешены только уведомления, микрофон/камера (звонки, QR), захват экрана и выбор
   // устройства вывода звука — и только для страницы самого приложения
-  const allowed = new Set(['notifications', 'media', 'display-capture', 'speaker-selection']);
+  const allowed = new Set(['notifications', 'media', 'display-capture', 'speaker-selection', 'clipboard-sanitized-write']);
   const ours = (wc, origin) => {
     const u = origin || wc?.getURL?.() || '';
     return u.startsWith(APP_ORIGIN);

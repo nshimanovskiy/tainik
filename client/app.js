@@ -1376,7 +1376,9 @@ document.addEventListener('click', (e) => {
 /** Адрес сервера аккаунта (в вебе — этот сайт, в приложениях — сервер из настроек). */
 const serverHost = () => (desktop ? new URL(client._httpBase()).host : location.host).toLowerCase();
 /** Ссылка на свой профиль (или профиль name). */
-const profileLink = (name) => `${desktop ? client._httpBase() : location.origin}/@${name}`;
+/** Адрес сайта сервера для ссылок (в приложениях location.origin — app:// или адрес WebView). */
+const siteOrigin = () => (desktop ? client._httpBase() : location.origin);
+const profileLink = (name) => `${siteOrigin()}/@${name}`;
 /**
  * Открыть пользователя по имени из ссылки: свой чат, если он уже есть, иначе — добавить и открыть.
  * Нет такого пользователя — возможно, это публичный канал (@имя у них общие).
@@ -5679,7 +5681,7 @@ $('comm-chans').addEventListener('click', async (e) => {
 $('comm-invite').addEventListener('click', async () => {
   if (!current) return;
   try {
-    const link = await client.createInvite(current, location.origin);
+    const link = await client.createInvite(current, siteOrigin());
     await copyText(link);
     toast(t('Ссылка-приглашение скопирована. Отозвать её можно в настройках сообщества'), 5000);
   } catch (err) {
@@ -6624,7 +6626,7 @@ async function renderChannelInfo() {
   $('ci-about-row').hidden = !ch.about;
   $('ci-about').replaceChildren();
   linkNodes($('ci-about'), ch.about);
-  const link = client.channelLink(ch, location.origin);
+  const link = client.channelLink(ch, siteOrigin());
   $('ci-link').textContent = ch.public ? '@' + ch.handle : link;
   $('ci-link-label').textContent = ch.public ? t('Публичная ссылка — нажмите, чтобы скопировать') : t('Ссылка-приглашение — по ней можно читать канал. Нажмите, чтобы скопировать');
   $('ci-link-row').hidden = !!ch.gone;
@@ -6684,10 +6686,10 @@ $('ci-link-row').addEventListener('click', async () => {
   const ch = channelFor && (await client.channelOf(channelFor));
   if (!ch) return;
   try {
-    await copyText(client.channelLink(ch, location.origin));
+    await copyText(client.channelLink(ch, siteOrigin()));
     toast(t('Ссылка скопирована'));
   } catch {
-    toast(client.channelLink(ch, location.origin), 8000);
+    toast(client.channelLink(ch, siteOrigin()), 8000);
   }
 });
 $('ci-save').addEventListener('click', () => channelFor && channelAction(() => client.updateChannel(channelFor, { title: $('ci-title-input').value, about: $('ci-about-input').value })));
@@ -6876,7 +6878,7 @@ function renderCommunitySettings(chat, g, admin) {
   $('gd-invites').replaceChildren(
     ...(admin ? g.invites : []).map((i) => {
       const li = el('li', 'gd-invite');
-      const link = client.inviteLink(g, i.s, location.origin);
+      const link = client.inviteLink(g, i.s, siteOrigin());
       const txt = el('code', 'ci-link', link);
       const copy = el('button', 'ghost', t('Скопировать'));
       copy.type = 'button';
@@ -6909,7 +6911,7 @@ $('gd-chan-name').addEventListener('keydown', (e) => e.key === 'Enter' && (e.pre
 $('gd-invite-new').addEventListener('click', async () => {
   if (!groupFor) return;
   try {
-    const link = await client.createInvite(groupFor, location.origin);
+    const link = await client.createInvite(groupFor, siteOrigin());
     await copyText(link).catch(() => {});
     toast(t('Ссылка-приглашение создана и скопирована'));
   } catch (err) {

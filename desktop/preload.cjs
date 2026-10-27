@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.removeAllListeners('notice-action');
     ipcRenderer.on('notice-action', (_e, r) => handler(String(r?.chat ?? ''), String(r?.act ?? '')));
   },
+  // Скопировать текст в системный буфер обмена (true — передано приложению)
+  copyText: (text) => (ipcRenderer.send('copy-text', String(text ?? '')), true),
   // Счётчик непрочитанных: значок в доке/панели задач и подсказка у значка в трее
   setBadge: (n) => ipcRenderer.send('badge', Number(n) || 0),
   // Работа в фоне: { tray, autostart, autostartSupported }

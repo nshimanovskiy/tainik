@@ -1386,3 +1386,6 @@ dialog.sheet[open] { animation: sheet-up var(--t) var(--ease-out); }
 .gd-invite code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .gd-invite button { padding: 5px 10px; font-size: 12.5px; }
 #gd-chan-type { width: auto; }
+/* Иконки без отступа справа: одни в кружке или рядом с текстом уже через gap */
+.call-dot .ic, .chan-ico .ic, .gtile-talk.ic, .gtile-name .ic, .comm-chan .ic, .comm-invite .ic,
+.chat-photo-row .ic, .gcall-bar-text .ic { margin-right: 0; }
