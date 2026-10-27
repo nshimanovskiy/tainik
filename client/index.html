@@ -104,7 +104,7 @@
       <form id="add-form" class="add-form" autocomplete="off">
         <input id="add-input" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм собеседника">
         <button class="icon-btn accent" title="Добавить" aria-label="Добавить">+</button>
-        <button type="button" id="new-group-btn" class="icon-btn" title="Новая группа" aria-label="Новая группа"><i class="ic" data-icon="group"></i></button>
+        <button type="button" id="new-group-btn" class="icon-btn" title="Новая группа или сообщество" aria-label="Новая группа или сообщество"><i class="ic" data-icon="group"></i></button>
         <button type="button" id="new-channel-btn" class="icon-btn" title="Каналы: найти или создать" aria-label="Каналы"><i class="ic" data-icon="channel"></i></button>
       </form>
       <p id="add-error" class="error small" role="alert"></p>
@@ -160,6 +160,11 @@
           </button>
           <button type="button" id="pin-close" class="icon-btn" aria-label="Открепить" title="Открепить"><i class="ic" data-icon="close"></i></button>
         </div>
+        <nav id="comm-bar" class="comm-bar" hidden aria-label="Каналы сообщества">
+          <div class="comm-head">Каналы</div>
+          <div id="comm-chans" class="comm-chans"></div>
+          <button type="button" id="comm-invite" class="ghost comm-invite" hidden><i class="ic" data-icon="link"></i>Пригласить</button>
+        </nav>
         <div id="gcall-bar" class="banner gcall-bar" hidden>
           <span class="gcall-bar-text"><i class="ic" data-icon="phone"></i><span id="gcall-bar-text"></span></span>
           <button type="button" id="gcall-join" class="primary">Присоединиться</button>
@@ -748,6 +753,7 @@
         <input id="ng-add" placeholder="Добавить по юзернейму" spellcheck="false" autocapitalize="none" aria-label="Юзернейм участника">
         <button type="button" id="ng-add-btn" class="primary">Добавить</button>
       </div>
+      <label class="check"><input type="checkbox" id="ng-community"><span><b>Сообщество</b> — текстовые и голосовые каналы, модераторы и вступление по ссылке-приглашению, как в Discord</span></label>
       <p id="ng-error" class="error small" role="alert"></p>
       <p class="hint">Сообщения в группе шифруются отдельно для каждого участника — сервер их не видит. Серверу известны номер группы, её название и участники (ради галочки и панели администратора). До 50 участников.</p>
       <div class="dialog-actions">
@@ -913,6 +919,23 @@
           </div>
         </div>
         <p class="set-note" id="gd-note"></p>
+        <div id="gd-comm" hidden>
+          <h3 class="set-sub">Каналы</h3>
+          <ul id="gd-chans" class="set-group gd-members gd-chans"></ul>
+          <div class="set-group set-pad" id="gd-chan-add" hidden>
+            <div class="add-form flush">
+              <input id="gd-chan-name" maxlength="32" placeholder="Название канала" aria-label="Название канала" autocomplete="off">
+              <select id="gd-chan-type" class="dev-select" aria-label="Тип канала"><option value="text">Текстовый</option><option value="voice">Голосовой</option></select>
+              <button type="button" id="gd-chan-add-btn" class="primary">Добавить</button>
+            </div>
+          </div>
+          <h3 class="set-sub">Приглашения</h3>
+          <div class="set-group set-pad">
+            <ul id="gd-invites" class="gd-invites"></ul>
+            <button type="button" id="gd-invite-new" class="ghost">Создать ссылку-приглашение</button>
+            <p class="small muted" id="gd-invite-note"></p>
+          </div>
+        </div>
         <div class="set-group">
           <button type="button" class="set-row danger" id="gd-leave"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="logout"></i></span><span class="set-label">Покинуть группу</span></button>
           <button type="button" class="set-row danger" id="gd-delete"><span class="set-ico" aria-hidden="true"><i class="ic" data-icon="trash"></i></span><span class="set-label">Удалить чат</span></button>

@@ -1,4 +1,4 @@
-import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, isSupportChat, GROUP_MAX, PROFILE_CHANNELS_MAX, PROFILE_VIDEO_MAX, PROFILE_VIDEO_SEC } from '/shared/client-core.js';
+import { MessengerClient, ERROR_TEXT, AVATAR_SIZE, validAvatar, PHOTO_SIZE, validPhoto, isGroupChat, isChannelChat, isSystemChat, isSupportChat, isCommunity, canModerate, cleanChanName, COMMUNITY_CHANS_MAX, GROUP_MAX, PROFILE_CHANNELS_MAX, PROFILE_VIDEO_MAX, PROFILE_VIDEO_SEC } from '/shared/client-core.js';
 import { formatLinkCode } from '/shared/protocol/provision.js';
 import { qrEncode } from '/shared/qr.js';
 import { IdbStorage, settings as webSettings } from './idb-storage.js';
@@ -94,6 +94,20 @@ const client = new MessengerClient({ url: DEFAULT_SERVER, storage: storageFor(ac
 let ownUnread = 0;
 const others = new Map(); // id → { acc, client, unread } — остальные аккаунты, работают в фоне
 let current = null;
+// Сообщество: выбранный текстовый канал открытого чата и его сообщения (для меток непрочитанного)
+let commChanNow = null;
+let commLast = null;
+const commChan = new Map(); // чат → выбранный текстовый канал
+// Когда канал последний раз открывали (на этом устройстве): для точек «есть новое»
+let chanSeen = null;
+const chanSeenReady = (async () => {
+  try {
+    chanSeen = JSON.parse((await settings.get('chan-seen')) || '{}') || {};
+  } catch {
+    chanSeen = {};
+  }
+})();
+let chanSeenSave = null;
 
 // ---------- На экране или в фоне ----------
 // «В сети» собеседники видят, только пока приложение открыто на экране. В фоне (Android,
@@ -428,6 +442,9 @@ function previewOf(m) {
 // ---------- Группы: подписи ----------
 const whoName = (u) => (u === client.account?.username ? t('вы') : nameOf(u));
 const byName = (u) => (u === client.account?.username ? t('Вы') : nameOf(u));
+function chanLabel(c) {
+  return c.type === 'voice' ? `«${c.name}»` : `#${c.name}`;
+}
 /** Служебная строка группы: создана, переименована, добавлены, исключены, вышел. */
 function groupEventText(e) {
   const who = (e.who || []).map(whoName).join(', ');
@@ -436,6 +453,16 @@ function groupEventText(e) {
       return t('{0} создал(а) группу «{1}»', byName(e.by), e.name);
     case 'renamed':
       return t('{0} переименовал(а) группу в «{1}»', byName(e.by), e.name);
+    case 'chan-add':
+      return t('{0} создал(а) канал {1}', byName(e.by), chanLabel(e));
+    case 'chan-del':
+      return t('{0} удалил(а) канал {1}', byName(e.by), chanLabel(e));
+    case 'chan-rename':
+      return t('{0} переименовал(а) канал {1} в {2}', byName(e.by), chanLabel({ ...e, name: e.old }), chanLabel(e));
+    case 'mod':
+      return e.on ? t('{0} назначил(а) модератором: {1}', byName(e.by), who) : t('{0} снял(а) модератора: {1}', byName(e.by), who);
+    case 'admin':
+      return t('{0} назначил(а) администратором: {1}', byName(e.by), who);
     case 'photo':
       return e.on ? t('{0} обновил(а) фото группы', byName(e.by)) : t('{0} убрал(а) фото группы', byName(e.by));
     case 'added':
@@ -715,13 +742,20 @@ function callStateIn(chat) {
   try {
     const c = calls.call;
     if (c && c.peer === chat && c.phase !== 'ended' && c.phase !== 'incoming') return 'mine';
-    if (isGroupChat(chat) && calls.groupCallIn(chat)) return 'group';
+    if (isGroupChat(chat) && (calls.groupCallIn(chat) || calls.voiceIn(chat).size)) return 'group';
   } catch {} // звонки ещё не готовы
   return null;
 }
 
+const groupCache = new Map(); // чат → состояние группы (для синхронных подписей: звонки, каналы)
+client.on('contacts', (all) => {
+  groupCache.clear();
+  for (const c of Object.values(all || {})) if (c.group) groupCache.set(c.username, c.group);
+});
+
 async function renderContacts() {
   const gen = ++contactsGen;
+  for (const c of Object.values(await client.contacts())) if (c.group) groupCache.set(c.username, c.group);
   folderList = await client.folders();
   if (folderId && !folderList.some((f) => f.id === folderId)) folderId = null;
   const folder = folderList.find((f) => f.id === folderId) || null;
@@ -791,7 +825,7 @@ async function renderContacts() {
     const top = el('div', 'c-top');
     const cn = el('span', 'c-name');
     setName(cn, c.username, client.isVerified(c.username));
-    if (c.group) cn.prepend(icon('group', 'g-ico'));
+    if (c.group) cn.prepend(icon(isCommunity(c.group) ? 'community' : 'group', 'g-ico'));
     if (c.channel) cn.prepend(icon('channel', 'g-ico'));
     top.append(cn);
     if (client.isBlocked(c.username)) top.append(withIcon('shield warn', 'block', t('заблокирован')));
@@ -978,6 +1012,11 @@ $('add-form').addEventListener('submit', async (e) => {
   const raw = $('add-input').value.trim();
   $('add-error').textContent = '';
   if (!raw) return;
+  // Ссылка-приглашение в сообщество
+  if (MessengerClient.parseInvite(raw)) {
+    $('add-input').value = '';
+    return joinInvite(raw);
+  }
   // Вставили ссылку https://сервер/@имя (или сервер/@имя) — берём имя из неё
   const link = profileLinkOf(/^https?:\/\//i.test(raw) ? raw : 'https://' + raw);
   const name = (link ? link.name : raw).replace(/^@/, '').toLowerCase();
@@ -1137,11 +1176,15 @@ async function renderHeader() {
   const group = !!c.group || !!c.channel || !!c.system || !!c.support;
   // В канале и служебных чатах нет звонков; в группе — групповой звонок; кода безопасности и «в сети» нет
   $('safety-btn').hidden = group;
-  for (const id of ['call-audio-btn', 'call-video-btn']) $(id).hidden = group && !c.group;
+  // В сообществе вместо звонков — голосовые каналы
+  for (const id of ['call-audio-btn', 'call-video-btn']) $(id).hidden = group && !(c.group && !isCommunity(c.group));
   renderGroupCallBar();
   if (group) {
     v.className = 'peer-verify';
     v.textContent = c.system ? t('служебные уведомления') : c.support ? t('ответит администратор сервера') : c.channel ? channelSubText(c.channel) : membersText(c.group);
+    // Сообщество: открытый текстовый канал
+    const curCh = isCommunity(c.group) && commChan.get(current) ? c.group.chans.find((x) => x.id === curChan(current, c.group)) : isCommunity(c.group) ? textChans(c.group)[0] : null;
+    if (curCh) v.textContent = `#${curCh.name} · ${membersText(c.group)}`;
     $('peer-presence').textContent = '';
     $('key-banner').hidden = true;
     updateComposer(c);
@@ -1805,9 +1848,23 @@ async function renderChat() {
   if (!current) return;
   const gen = ++chatGen;
   await renderHeader();
-  const list = await client.messages(current);
+  let list = await client.messages(current);
   const ch = isChannelChat(current) ? await client.channelOf(current) : null;
+  const comm = isGroupChat(current) ? (await client.contacts())[current]?.group : null;
   if (gen !== chatGen) return;
+  // Сообщество: в ленте — только выбранный текстовый канал
+  if (isCommunity(comm)) {
+    commChanNow = curChan(current, comm);
+    commLast = list;
+    const def = textChans(comm)[0]?.id;
+    list = list.filter((m) => (m.dir === 'sys' ? commChanNow === def : msgChan(m, comm) === commChanNow));
+    markChanSeen(current, commChanNow);
+    renderCommBar(comm);
+  } else {
+    commChanNow = null;
+    commLast = null;
+    renderCommBar(null);
+  }
   renderPin();
   const ol = $('messages');
   const note = isSystemChat(current)
@@ -1863,7 +1920,7 @@ $('composer').addEventListener('submit', async (e) => {
   const replyTo = reply?.id || null;
   setReply(null);
   try {
-    await client.sendText(current, text, { replyTo });
+    await client.sendText(current, text, { replyTo, ch: commChanNow });
   } catch (err) {
     ta.value = text;
     toast(err.message);
@@ -2231,6 +2288,7 @@ function cancelUpload(key) {
 }
 
 function queueFile(chat, file, caption, replyTo, preset = null) {
+  const ch = chat === current ? commChanNow : null; // канал сообщества — тот, что открыт сейчас
   const kind = kindOf(String(file.type || '').toLowerCase());
   const up = { key: 'u' + ++upSeq, chat, name: file.name || 'file', size: file.size, kind, progress: 0, started: false, ctrl: new AbortController() };
   if (kind === 'image') up.preview = URL.createObjectURL(file);
@@ -2250,6 +2308,7 @@ function queueFile(chat, file, caption, replyTo, preset = null) {
       await client.sendFile(chat, file, meta, {
         caption,
         replyTo,
+        ch,
         signal: up.ctrl.signal,
         onProgress: (p) => ((up.progress = p), updateUpload(up)),
         // Свой файл не скачиваем обратно — он уже есть на этом устройстве
@@ -4821,6 +4880,14 @@ function consumeChatLink() {
     history.replaceState(null, '', location.pathname + location.search);
     return openChannels(ref);
   }
+  // Приглашение в сообщество: /app#join=<id>-<секрет>-<администраторы>
+  if (location.hash.startsWith('#join=') && client.account) {
+    const link = location.hash;
+    history.replaceState(null, '', location.pathname + location.search);
+    if (client.status === 'online') return joinInvite(link);
+    const off = client.on('status', (st) => st === 'online' && (off(), joinInvite(link)));
+    return;
+  }
   // Ссылка на пользователя: /@имя → /app#u=имя (переадресует сервер)
   if (location.hash.startsWith('#u=') && client.account) {
     let name = '';
@@ -4956,7 +5023,11 @@ const calls = new CallManager({
   client,
   onChange: renderCall,
   onRoster: (chat) => {
-    if (chat === current) renderGroupCallBar();
+    if (chat === current) {
+      renderGroupCallBar();
+      const g = groupCache.get(chat);
+      if (isCommunity(g)) renderCommBar(g);
+    }
     renderContacts();
   },
 });
@@ -5212,6 +5283,11 @@ function callStatusText(c) {
   if (c.phase === 'ended') return CALL_RESULT_TEXT[c.result] === t('звонок') ? t('Звонок завершён') : (CALL_RESULT_TEXT[c.result] || t('Звонок завершён')).replace(/^./, (x) => x.toUpperCase());
   if (c.reconnecting) return t('Переподключение…');
   if (c.group) {
+    if (c.vc && c.phase === 'active') {
+      const vc = groupCache.get(c.peer)?.chans?.find((x) => x.id === c.vc);
+      const n = c.peers.size + 1;
+      return `${vc ? vc.name : t('Голосовой канал')} · ${n === 1 ? t('вы одни') : t('Участников: {0}', n)}`;
+    }
     if (c.phase === 'incoming') return t('{0} приглашает в групповой звонок', nameOf(c.from));
     if (c.phase === 'active') {
       const n = c.peers.size + 1;
@@ -5463,6 +5539,134 @@ function renderCall(c) {
     }
   } else {
     document.title = baseTitle();
+  }
+}
+
+// ---------- Сообщества: каналы ----------
+// Текстовые каналы — фильтр ленты по пометке ch у сообщений; голосовые — комнаты (calls.joinVoice).
+function textChans(g) {
+  return (g?.chans || []).filter((c) => c.type === 'text');
+}
+function curChan(chat, g) {
+  const list = textChans(g);
+  const sel = commChan.get(chat);
+  return list.some((c) => c.id === sel) ? sel : list[0]?.id || null;
+}
+/** Канал сообщения: его пометка, если такой текстовый канал есть, иначе первый. */
+function msgChan(m, g) {
+  const ch = m.content?.ch;
+  return ch && g.chans.some((c) => c.id === ch && c.type === 'text') ? ch : textChans(g)[0]?.id;
+}
+function markChanSeen(chat, ch) {
+  if (!chanSeen || !ch) return;
+  chanSeen[`${chat}/${ch}`] = Date.now();
+  clearTimeout(chanSeenSave);
+  chanSeenSave = setTimeout(() => settings.set('chan-seen', JSON.stringify(chanSeen)).catch(() => {}), 1500);
+}
+function chanHasNew(chat, ch, g, list) {
+  const key = `${chat}/${ch}`;
+  if (!chanSeen) return false;
+  if (!(key in chanSeen)) chanSeen[key] = Date.now(); // новый канал — новым считается только то, что придёт дальше
+  const since = chanSeen[key];
+  return (list || []).some((m) => m.dir === 'in' && m.ts > since && msgChan(m, g) === ch);
+}
+
+function renderCommBar(g) {
+  const bar = $('comm-bar');
+  $('chat-view').classList.toggle('community', isCommunity(g));
+  if (!isCommunity(g) || !current) {
+    bar.hidden = true;
+    return;
+  }
+  bar.hidden = false;
+  const me = client.account.username;
+  let voice = new Map();
+  let myCall = null;
+  try {
+    voice = calls.voiceIn(current);
+    myCall = calls.call?.vc && calls.call.peer === current && calls.call.phase !== 'ended' ? calls.call.vc : null;
+  } catch {}
+  const nodes = [];
+  for (const c of g.chans) {
+    const b = el('button', 'comm-chan' + (c.type === 'voice' ? ' voice' : '') + (c.id === commChanNow ? ' active' : '') + (c.id === myCall ? ' in' : ''));
+    b.type = 'button';
+    b.dataset.ch = c.id;
+    b.append(icon(c.type === 'voice' ? 'speaker' : 'hash'), el('span', 'comm-name', c.name));
+    if (c.type === 'text' && c.id !== commChanNow && chanHasNew(current, c.id, g, commLast)) b.append(el('span', 'comm-dot'));
+    const people = voice.get(c.id) || [];
+    if (c.type === 'voice' && people.length) b.append(el('span', 'comm-count', String(new Set(people.map((p) => p.name)).size)));
+    nodes.push(b);
+    if (c.type === 'voice' && people.length) {
+      // Кто сидит в голосовом канале
+      const ul = el('div', 'comm-voice-users');
+      for (const name of [...new Set(people.map((p) => p.name))]) {
+        const row = el('span', 'comm-voice-user');
+        const av = el('span', 'avatar');
+        paintAvatar(av, name);
+        row.append(av, el('span', '', name === me ? t('вы') : nameOf(name)));
+        ul.append(row);
+      }
+      nodes.push(ul);
+    }
+  }
+  $('comm-chans').replaceChildren(...nodes);
+  $('comm-chans').querySelector('.comm-chan.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  $('comm-invite').hidden = !g.admins.includes(me) || !!g.left;
+  // В шапке — название канала
+  const cur = g.chans.find((c) => c.id === commChanNow);
+  if (cur) $('peer-verify').textContent = `#${cur.name} · ${membersText(g)}`;
+}
+chanSeenReady.then(() => current && isGroupChat(current) && renderChat());
+
+$('comm-chans').addEventListener('click', async (e) => {
+  const b = e.target.closest('.comm-chan');
+  if (!b || !current) return;
+  const g = await client.groupOf(current);
+  const c = g?.chans?.find((x) => x.id === b.dataset.ch);
+  if (!c) return;
+  if (c.type === 'text') {
+    if (commChanNow === c.id) return;
+    commChan.set(current, c.id);
+    setReply(null);
+    return renderChat();
+  }
+  // Голосовой: зайти (или вернуться к разговору, если уже в нём)
+  if (calls.call?.vc === c.id && calls.call.peer === current && calls.call.phase !== 'ended') return expandCall();
+  if (g.left) return;
+  try {
+    await calls.joinVoice(current, c.id);
+  } catch (err) {
+    if (err.message !== 'cancelled') toast(err.message || t('Не удалось подключиться'));
+  }
+});
+$('comm-invite').addEventListener('click', async () => {
+  if (!current) return;
+  try {
+    const link = await client.createInvite(current, location.origin);
+    await copyText(link);
+    toast(t('Ссылка-приглашение скопирована. Отозвать её можно в настройках сообщества'), 5000);
+  } catch (err) {
+    toast(err.message);
+  }
+});
+// Шапка сообщества высотой с шапку чата: колонка каналов на широком экране — под ней
+new ResizeObserver(() => $('chat-view').style.setProperty('--head-h', $('chat-view').querySelector('.chat-head').offsetHeight + 'px')).observe($('chat-view').querySelector('.chat-head'));
+
+// Вступление по ссылке-приглашению
+async function joinInvite(link) {
+  const inv = MessengerClient.parseInvite(link);
+  if (!inv) return toast(ERROR_TEXT.bad_invite);
+  try {
+    const chat = await client.joinByInvite(link);
+    if (chat) return openChat(chat);
+    toast(t('Заявка отправлена. Вас добавят, как только администратор сообщества будет в сети'), 6000);
+    const off = client.on('group', ({ chat: c, group }) => {
+      if (c !== '#' + inv.gid || !group.members.includes(client.account.username)) return;
+      off();
+      openChat(c);
+    });
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -5883,7 +6087,9 @@ $('msg-menu').addEventListener('click', async (e) => {
     const group = isGroupChat(current);
     const chan = isChannelChat(current);
     // В группе «у всех» — только для своих сообщений, в канале — для владельца и администраторов
-    $('del-all').closest('label').hidden = isSystemChat(current) || isSupportChat(current) || (chan ? !isChAdmin(await client.channelOf(current)) : group && m?.dir !== 'out');
+    // Администратор и модератор сообщества удаляют у всех и чужие сообщения
+    const mod = group && m?.dir === 'in' && canModerate(await client.groupOf(current), client.account.username);
+    $('del-all').closest('label').hidden = isSystemChat(current) || isSupportChat(current) || (chan ? !isChAdmin(await client.channelOf(current)) : group && m?.dir !== 'out' && !mod);
     $('del-peer').textContent = chan ? t('всех подписчиков') : group ? t('всех участников') : nameOf(current);
     $('del-all').checked = false;
     $('delete-dialog').dataset.id = id;
@@ -6231,6 +6437,7 @@ function renderPickList(all) {
 }
 async function openNewGroup() {
   ngPicked.clear();
+  $('ng-community').checked = false;
   $('ng-name').value = '';
   $('ng-add').value = '';
   $('ng-error').textContent = '';
@@ -6262,7 +6469,7 @@ $('ng-create').addEventListener('click', async () => {
   if (ngPicked.size + 1 > GROUP_MAX) return ($('ng-error').textContent = ERROR_TEXT.group_too_big);
   $('ng-create').disabled = true;
   try {
-    const chat = await client.createGroup($('ng-name').value, [...ngPicked]);
+    const chat = await client.createGroup($('ng-name').value, [...ngPicked], { community: $('ng-community').checked });
     $('newgroup-dialog').close();
     await openChat(chat);
   } catch (err) {
@@ -6527,14 +6734,19 @@ async function renderGroup() {
   $('gd-count').textContent = membersText(g);
   $('gd-rename').hidden = !admin;
   renderChatPhoto('gd', admin, !!g.avatar);
+  renderCommunitySettings(chat, g, admin);
   if (admin && document.activeElement !== $('gd-name-input')) $('gd-name-input').value = g.name;
   $('gd-add').hidden = !admin;
   $('gd-leave').hidden = !!g.left;
   $('gd-note').textContent = g.left
     ? t('Вы больше не участник: новые сообщения сюда не приходят. История осталась только у вас.')
-    : admin
-      ? t('Вы администратор: можете добавлять и исключать участников, назначать администраторов и менять название.')
-      : t('Менять состав и название могут администраторы группы.');
+    : isCommunity(g)
+      ? admin
+        ? t('Вы администратор сообщества: участники, роли, каналы и приглашения — здесь. Модераторы удаляют чужие сообщения у всех.')
+        : t('Каналы, роли и состав сообщества меняют администраторы.')
+      : admin
+        ? t('Вы администратор: можете добавлять и исключать участников, назначать администраторов и менять название.')
+        : t('Менять состав и название могут администраторы группы.');
   const members = [...g.members].sort((a, b) => (a === me ? -1 : b === me ? 1 : g.admins.includes(b) - g.admins.includes(a)));
   $('gd-members').replaceChildren(
     ...members.map((u) => {
@@ -6545,7 +6757,8 @@ async function renderGroup() {
       const nm = el('span', 'm-name');
       setName(nm, u, client.isVerified(u));
       if (u === me) nm.append(document.createTextNode(' ' + t('(вы)')));
-      body.append(nm, el('span', 'm-sub', '@' + u + (g.admins.includes(u) ? ' · ' + t('администратор') : '')));
+      const role = g.admins.includes(u) ? t('администратор') : (g.mods || []).includes(u) ? t('модератор') : '';
+      body.append(nm, el('span', 'm-sub', '@' + u + (role ? ' · ' + role : '')));
       li.append(av, body);
       if (u !== me) {
         av.classList.add('clickable');
@@ -6560,7 +6773,16 @@ async function renderGroup() {
         const rb = el('button', 'ghost danger', t('Исключить'));
         rb.type = 'button';
         rb.addEventListener('click', () => confirm(t('Исключить {0} из группы?', nameOf(u))) && groupAction(chat, { remove: [u] }));
-        acts.append(ab, rb);
+        acts.append(ab);
+        // Сообщество: модератор — удаляет чужие сообщения у всех
+        if (isCommunity(g) && !isAdm) {
+          const isMod = (g.mods || []).includes(u);
+          const mb = el('button', 'ghost', isMod ? t('Снять модератора') : t('Сделать модератором'));
+          mb.type = 'button';
+          mb.addEventListener('click', () => groupAction(chat, { mods: isMod ? g.mods.filter((m) => m !== u) : [...(g.mods || []), u] }));
+          acts.append(mb);
+        }
+        acts.append(rb);
         li.append(acts);
       }
       return li;
@@ -6574,6 +6796,89 @@ async function groupAction(chat, change) {
     toast(err.user ? t('Нет пользователя @{0}', err.user) : err.message);
   }
 }
+
+// Сообщество в «О группе»: каналы (администраторы создают, переименовывают, удаляют) и приглашения
+function renderCommunitySettings(chat, g, admin) {
+  const comm = isCommunity(g) && !g.left;
+  $('gd-comm').hidden = !comm;
+  if (!comm) return;
+  $('gd-chans').replaceChildren(
+    ...g.chans.map((c) => {
+      const li = el('li');
+      const ico = el('span', 'avatar chan-ico');
+      ico.append(icon(c.type === 'voice' ? 'speaker' : 'hash'));
+      const body = el('div', 'm-body');
+      body.append(el('span', 'm-name', c.name), el('span', 'm-sub', c.type === 'voice' ? t('голосовой канал') : t('текстовый канал')));
+      li.append(ico, body);
+      if (admin) {
+        const acts = el('div', 'm-acts');
+        const ren = el('button', 'ghost', t('Переименовать'));
+        ren.type = 'button';
+        ren.addEventListener('click', () => {
+          const name = prompt(t('Новое название канала'), c.name);
+          if (name == null) return;
+          const nm = cleanChanName(name, c.type);
+          if (!nm) return toast(ERROR_TEXT.chan_name);
+          groupAction(chat, { chans: g.chans.map((x) => (x.id === c.id ? { ...x, name: nm } : x)) });
+        });
+        acts.append(ren);
+        // Последний текстовый канал не удаляется: сообщениям нужен хотя бы один
+        if (!(c.type === 'text' && textChans(g).length === 1)) {
+          const del = el('button', 'ghost danger', t('Удалить'));
+          del.type = 'button';
+          del.addEventListener('click', () => confirm(t('Удалить канал {0}? Его сообщения останутся в первом канале.', chanLabel(c))) && groupAction(chat, { chans: g.chans.filter((x) => x.id !== c.id) }));
+          acts.append(del);
+        }
+        li.append(acts);
+      }
+      return li;
+    })
+  );
+  $('gd-chan-add').hidden = !admin || g.chans.length >= COMMUNITY_CHANS_MAX;
+  const me = client.account.username;
+  $('gd-invites').replaceChildren(
+    ...(admin ? g.invites : []).map((i) => {
+      const li = el('li', 'gd-invite');
+      const link = client.inviteLink(g, i.s, location.origin);
+      const txt = el('code', 'ci-link', link);
+      const copy = el('button', 'ghost', t('Скопировать'));
+      copy.type = 'button';
+      copy.addEventListener('click', () => copyText(link).then(() => toast(t('Скопировано')), () => toast(t('Не удалось скопировать'))));
+      const rev = el('button', 'ghost danger', t('Отозвать'));
+      rev.type = 'button';
+      rev.addEventListener('click', () => confirm(t('Отозвать ссылку? По ней больше нельзя будет вступить.')) && client.revokeInvite(chat, i.s).catch((e) => toast(e.message)));
+      li.append(txt, copy, rev);
+      return li;
+    })
+  );
+  $('gd-invite-new').hidden = !admin;
+  $('gd-invite-note').textContent = admin
+    ? t('По ссылке человек отправляет заявку администраторам; кто-то из вас, будучи в сети, добавит его автоматически. До {0} ссылок.', 5)
+    : g.admins.includes(me)
+      ? ''
+      : t('Пригласить по ссылке могут администраторы сообщества.');
+}
+$('gd-chan-add-btn').addEventListener('click', async () => {
+  const g = groupFor && (await client.groupOf(groupFor));
+  if (!isCommunity(g)) return;
+  const type = $('gd-chan-type').value === 'voice' ? 'voice' : 'text';
+  const name = cleanChanName($('gd-chan-name').value, type);
+  if (!name) return toast(ERROR_TEXT.chan_name);
+  const id = [...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  $('gd-chan-name').value = '';
+  await groupAction(groupFor, { chans: [...g.chans, { id, name, type }] });
+});
+$('gd-chan-name').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), $('gd-chan-add-btn').click()));
+$('gd-invite-new').addEventListener('click', async () => {
+  if (!groupFor) return;
+  try {
+    const link = await client.createInvite(groupFor, location.origin);
+    await copyText(link).catch(() => {});
+    toast(t('Ссылка-приглашение создана и скопирована'));
+  } catch (err) {
+    toast(err.message);
+  }
+});
 $('gd-close').addEventListener('click', () => $('group-dialog').close());
 
 // ---------- Фото группы и канала: ставит администратор с Премиум, убрать может любой администратор ----------

@@ -215,6 +215,39 @@ function cleanProfile(p) {
 export const GROUP_MAX = 50; // участников, вместе с создателем
 export const GROUP_NAME_MAX = 64;
 const GID_RE = /^[0-9a-f]{24}$/;
+
+// ---------- Сообщества (как серверы Discord) ----------
+// Сообщество — та же группа (до GROUP_MAX, рассылка по парным сессиям), у которой в состоянии
+// ещё есть каналы: текстовые (сообщения с пометкой ch) и голосовые (групповой звонок канала,
+// в который просто заходят), модераторы и приглашения. Всё это — внутри E2E-состояния группы.
+export const COMMUNITY_CHANS_MAX = 30;
+export const CHAN_NAME_MAX = 32;
+export const INVITES_MAX = 5;
+const CHAN_ID_RE = /^[0-9a-f]{8}$/;
+const INVITE_RE = /^[0-9a-f]{16}$/;
+export const isCommunity = (g) => g?.kind === 'community';
+/** Может ли участник модерировать (удалять чужие сообщения): администраторы и модераторы. */
+export const canModerate = (g, user) => !!g && (g.admins.includes(user) || (isCommunity(g) && (g.mods || []).includes(user)));
+export function cleanChanName(n, type = 'text') {
+  let s = cleanProfileText(n, CHAN_NAME_MAX).replace(/\n/g, ' ').trim();
+  if (type === 'text') s = s.replace(/^#+/, '').replace(/\s+/g, '-').toLowerCase();
+  return s;
+}
+function cleanChans(list) {
+  const out = [];
+  const seen = new Set();
+  for (const c of Array.isArray(list) ? list : []) {
+    if (!c || !CHAN_ID_RE.test(String(c.id)) || seen.has(c.id)) continue;
+    const type = c.type === 'voice' ? 'voice' : 'text';
+    const name = cleanChanName(c.name, type);
+    if (!name) continue;
+    seen.add(c.id);
+    out.push({ id: c.id, name, type });
+    if (out.length >= COMMUNITY_CHANS_MAX) break;
+  }
+  return out;
+}
+const newChanId = () => [...randomBytes(4)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const USER_RE = /^[a-z0-9_]{3,32}$/;
 export const isGroupChat = (chat) => typeof chat === 'string' && chat.startsWith('#');
 
@@ -360,6 +393,16 @@ function cleanGroup(g) {
   const admins = [...new Set((Array.isArray(g.admins) ? g.admins : []).map(String))].filter((a) => members.includes(a));
   const out = { id, name: cleanGroupName(g.name) || t('Группа'), members, admins: admins.length ? admins : [members[0]], v: g.v };
   if (validAvatar(g.avatar)) out.avatar = g.avatar; // фото группы ставит администратор с Премиум
+  if (g.kind === 'community') {
+    out.kind = 'community';
+    out.chans = cleanChans(g.chans);
+    if (!out.chans.some((c) => c.type === 'text')) out.chans.unshift({ id: '00000000', name: t('общий'), type: 'text' });
+    out.mods = [...new Set((Array.isArray(g.mods) ? g.mods : []).map(String))].filter((m) => members.includes(m) && !out.admins.includes(m));
+    out.invites = (Array.isArray(g.invites) ? g.invites : [])
+      .filter((i) => i && INVITE_RE.test(String(i.s)) && Number.isFinite(i.ts))
+      .slice(0, INVITES_MAX)
+      .map((i) => ({ s: i.s, ts: i.ts }));
+  }
   return out;
 }
 
@@ -369,6 +412,23 @@ function groupEvents(old, next, by) {
   const out = [];
   if (old.name !== next.name) out.push({ ev: 'renamed', by, name: next.name });
   if ((old.avatar || null) !== (next.avatar || null)) out.push({ ev: 'photo', by, on: !!next.avatar });
+  if (isCommunity(next)) {
+    const was = new Map((old.chans || []).map((c) => [c.id, c]));
+    for (const c of next.chans) {
+      const o = was.get(c.id);
+      if (!o) out.push({ ev: 'chan-add', by, name: c.name, type: c.type });
+      else if (o.name !== c.name) out.push({ ev: 'chan-rename', by, name: c.name, old: o.name, type: c.type });
+    }
+    for (const c of old.chans || []) if (!next.chans.some((x) => x.id === c.id)) out.push({ ev: 'chan-del', by, name: c.name, type: c.type });
+    const om = old.mods || [];
+    const nm = next.mods || [];
+    const upMods = nm.filter((m) => !om.includes(m));
+    const downMods = om.filter((m) => !nm.includes(m) && next.members.includes(m) && !next.admins.includes(m));
+    if (upMods.length) out.push({ ev: 'mod', by, who: upMods, on: true });
+    if (downMods.length) out.push({ ev: 'mod', by, who: downMods, on: false });
+  }
+  const upAdm = next.admins.filter((a) => !old.admins.includes(a) && old.members.includes(a));
+  if (upAdm.length && isCommunity(next)) out.push({ ev: 'admin', by, who: upAdm });
   const added = next.members.filter((m) => !old.members.includes(m));
   const removed = old.members.filter((m) => !next.members.includes(m));
   if (added.length) out.push({ ev: 'added', by, who: added });
@@ -409,6 +469,8 @@ function cleanText(c, tsFallback = Date.now()) {
   }
   // Отправитель запретил копирование, пересылку и сохранение (см. setProtect)
   if (c?.protect === true) out.protect = true;
+  // Канал сообщества, в который написано сообщение
+  if (typeof c?.ch === 'string' && CHAN_ID_RE.test(c.ch)) out.ch = c.ch;
   // Пересланное: от кого (имя для показа)
   if (typeof c?.fwd === 'string') {
     const fwd = cleanProfileText(c.fwd, NAME_MAX).replace(/\n/g, ' ');
@@ -495,6 +557,8 @@ export const ERROR_TEXT = {
   price_changed: t('Цена изменилась — посмотрите ещё раз'),
   gift_unavailable: t('Этому пользователю нельзя сделать подарок'),
   group_too_big: t('В группе может быть не больше 50 участников'),
+  bad_invite: t('Ссылка-приглашение не подходит'),
+  chan_name: t('Нужно название канала'),
   group_name: t('Введите название группы'),
   group_not_admin: t('Менять группу могут только её администраторы'),
   group_left: t('Вы больше не участник этой группы'),
@@ -2365,11 +2429,13 @@ export class MessengerClient extends Emitter {
     return true;
   }
 
-  async sendText(username, text, { replyTo = null } = {}) {
+  async sendText(username, text, { replyTo = null, ch = null } = {}) {
     text = String(text);
     if (!text.trim()) return;
     this._typingSent?.delete(String(username).toLowerCase()); // собеседник уже погасил «печатает» — следующий ввод сообщит сразу
-    await this._sendContent(username, { t: 'text', body: text }, replyTo);
+    const base = { t: 'text', body: text };
+    if (ch && isGroupChat(username) && CHAN_ID_RE.test(ch)) base.ch = ch;
+    await this._sendContent(username, base, replyTo);
   }
 
   /** Сообщение собеседнику и копия «отправлено» своим устройствам (общая часть sendText и sendFile). */
@@ -2757,7 +2823,7 @@ export class MessengerClient extends Emitter {
    * Создать группу. members — юзернеймы участников (без себя). Возвращает id чата группы ('#…').
    * Создатель — администратор.
    */
-  async createGroup(name, members = []) {
+  async createGroup(name, members = [], { community = false } = {}) {
     const me = this.account.username;
     const list = this._normMembers(members);
     const nm = cleanGroupName(name);
@@ -2768,6 +2834,17 @@ export class MessengerClient extends Emitter {
       const all = await this.contacts();
       await this._ensureMembers(all, list);
       const next = { id: gid, name: nm, members: [me, ...list], admins: [me], v: Date.now() };
+      if (community) {
+        Object.assign(next, {
+          kind: 'community',
+          chans: [
+            { id: newChanId(), name: t('общий'), type: 'text' },
+            { id: newChanId(), name: t('Голосовой'), type: 'voice' },
+          ],
+          mods: [],
+          invites: [],
+        });
+      }
       const outbox = (await this.storage.get('outbox')) || [];
       this._queueGroupState(all, [], next, outbox);
       await this.storage.set('outbox', outbox);
@@ -2781,7 +2858,7 @@ export class MessengerClient extends Emitter {
    * Изменить группу (только администратор): { name, add: [...], remove: [...], admins: [...] }.
    * Исключённые получают новое состояние и узнают, что их исключили.
    */
-  async updateGroup(chat, { name, add = [], remove = [], admins, avatar } = {}) {
+  async updateGroup(chat, { name, add = [], remove = [], admins, avatar, chans, mods, invites } = {}) {
     const me = this.account.username;
     await this._serial(async () => {
       const all = await this.contacts();
@@ -2807,6 +2884,15 @@ export class MessengerClient extends Emitter {
         if (!validAvatar(avatar)) throw errorOf('bad_avatar');
         next.avatar = avatar;
       }
+      if (isCommunity(g)) {
+        next.kind = 'community';
+        next.chans = chans === undefined ? g.chans : chans;
+        next.mods = mods === undefined ? g.mods : mods;
+        next.invites = invites === undefined ? g.invites : invites;
+        const clean = cleanGroup(next);
+        if (!clean.chans.length) throw errorOf('chan_name');
+        Object.assign(next, { chans: clean.chans, mods: clean.mods, invites: clean.invites });
+      }
       // Бывшие участники тоже получают новое состояние — так они узнают, что их исключили
       await this._ensureMembers(all, g.members.filter((m) => m !== me && !members.includes(m)));
       const outbox = (await this.storage.get('outbox')) || [];
@@ -2815,6 +2901,75 @@ export class MessengerClient extends Emitter {
       await this._applyGroupState(all, next, me);
     });
     this._pumpOutbox();
+  }
+
+  // ---------- Сообщества: приглашения ----------
+
+  /** Ссылка-приглашение в сообщество (администратор). Возвращает ссылку. */
+  async createInvite(chat, origin) {
+    const g = await this.groupOf(chat);
+    if (!isCommunity(g)) throw new Error(t('Нет такой группы'));
+    const s = [...randomBytes(8)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    const list = [{ s, ts: Date.now() }, ...(g.invites || [])].slice(0, INVITES_MAX);
+    await this.updateGroup(chat, { invites: list });
+    return this.inviteLink(await this.groupOf(chat), s, origin);
+  }
+
+  /** Ссылка по секрету приглашения: в ней id сообщества, секрет и кому слать заявку (администраторы). */
+  inviteLink(g, s, origin) {
+    const admins = g.admins.slice(0, 3).join(',');
+    return `${String(origin).replace(/\/$/, '')}/app#join=${g.id}-${s}-${admins}`;
+  }
+
+  async revokeInvite(chat, s) {
+    const g = await this.groupOf(chat);
+    if (!isCommunity(g)) return;
+    await this.updateGroup(chat, { invites: g.invites.filter((i) => i.s !== s) });
+  }
+
+  /** Разобрать ссылку-приглашение: { gid, s, admins } или null. */
+  static parseInvite(str) {
+    const m = /(?:^|[#&?])join=([0-9a-f]{24})-([0-9a-f]{16})-([a-z0-9_,]{3,110})(?:$|[&#\s])/.exec(String(str || '').trim());
+    if (!m) return null;
+    const admins = [...new Set(m[3].split(','))].filter((a) => USER_RE.test(a)).slice(0, 3);
+    return admins.length ? { gid: m[1], s: m[2], admins } : null;
+  }
+
+  /**
+   * Вступить по ссылке: заявка уходит администраторам (E2E); любой из них, когда будет в сети,
+   * добавит вас автоматически. Возвращает чат, если вы уже участник, иначе null.
+   */
+  async joinByInvite(link) {
+    const inv = MessengerClient.parseInvite(link);
+    if (!inv) throw errorOf('bad_invite');
+    const me = this.account.username;
+    const chat = groupKey(inv.gid);
+    const g = await this.groupOf(chat);
+    if (g && !g.left && g.members.includes(me)) return chat;
+    await this._serial(async () => {
+      const all = await this.contacts();
+      const outbox = (await this.storage.get('outbox')) || [];
+      let sent = 0;
+      for (const a of inv.admins) {
+        if (a === me) continue;
+        const c = await this._ensureMember(all, a).catch(() => null);
+        if (!c || c.keyChanged) continue;
+        outbox.push({ id: randomId(), to: a, kind: 'ctl', content: { t: 'cjoin', g: inv.gid, s: inv.s, ts: Date.now() }, attempts: 0 });
+        sent++;
+      }
+      if (!sent) throw errorOf('bad_invite');
+      await this.storage.set('outbox', outbox);
+      await this._saveContacts(all);
+    });
+    this._pumpOutbox();
+    return null;
+  }
+
+  async _admitByInvite(chat, who, s) {
+    const g = await this.groupOf(chat);
+    if (!isCommunity(g) || g.left || g.members.includes(who) || !g.invites.some((i) => i.s === s)) return;
+    if (g.members.length >= GROUP_MAX) return;
+    await this.updateGroup(chat, { add: [who] });
   }
 
   /** Выйти из группы: участники уберут вас из состава; история у вас остаётся (только чтение). */
@@ -2841,8 +2996,8 @@ export class MessengerClient extends Emitter {
   /** Новое состояние группы — всем её участникам (и бывшим) и своим устройствам. */
   _queueGroupState(all, oldMembers, next, outbox) {
     const me = this.account.username;
-    const content = { t: 'group', g: next.id, name: next.name, members: next.members, admins: next.admins, v: next.v, ts: Date.now() };
-    if (next.avatar) content.avatar = next.avatar;
+    const { id: _gid, left: _l, removed: _r, ...state } = next;
+    const content = { t: 'group', g: next.id, ...state, ts: Date.now() };
     for (const m of new Set([...oldMembers, ...next.members])) {
       if (m === me || !all[m] || all[m].keyChanged) continue;
       if (next.members.includes(m)) this._shareProfileTo(all[m], outbox); // участники видят ваше имя и фото
@@ -2858,8 +3013,7 @@ export class MessengerClient extends Emitter {
     const rec = (all[key] ||= { username: key, unread: 0, lastTs: Date.now(), pending: [] });
     const old = rec.group || null;
     const events = groupEvents(old, next, by);
-    rec.group = { id: next.id, name: next.name, members: next.members, admins: next.admins, v: next.v };
-    if (next.avatar) rec.group.avatar = next.avatar;
+    rec.group = { ...cleanGroup(next) };
     if (!next.members.includes(me)) rec.group.left = true;
     rec.lastTs = Date.now();
     delete rec.hidden;
@@ -2892,6 +3046,7 @@ export class MessengerClient extends Emitter {
     if (!g || !g.members.includes(who)) return;
     g.members = g.members.filter((m) => m !== who);
     g.admins = g.admins.filter((a) => a !== who);
+    if (g.mods) g.mods = g.mods.filter((m) => m !== who);
     if (!g.admins.length && g.members.length) g.admins = [g.members[0]];
     if (who === me) g.left = true;
     await this._saveContacts(all);
@@ -2925,6 +3080,7 @@ export class MessengerClient extends Emitter {
       }
       const sync = { t: 'sync-sent', to: chat, body: content.body, ts, reply: content.reply, fwd: content.fwd };
       if (content.file) sync.file = content.file;
+      if (content.ch) sync.ch = content.ch;
       outbox.push({ id, to: me, kind: 'sync', content: sync, attempts: 0 });
       await this.storage.set('outbox', outbox);
       await this._rememberGroupSent(id, chat);
@@ -2962,8 +3118,19 @@ export class MessengerClient extends Emitter {
     }
     const key = groupKey(gid);
     const g = all[key]?.group;
+    if (gc.t === 'cjoin') {
+      // Заявка по ссылке-приглашению: секрет есть в приглашениях — добавляем (если мы администратор)
+      await this._saveContacts(all);
+      const sec = String(gc.s || '');
+      if (isCommunity(g) && !g.left && g.admins.includes(me) && !g.members.includes(from) && !this.isBlocked(from) && g.invites.some((i) => i.s === sec)) {
+        setTimeout(() => this._admitByInvite(key, from, sec).catch(() => {}), 0); // сейчас идёт приём сообщения (_serial)
+      }
+      return false;
+    }
     if (gc.t === 'group') {
       const next = cleanGroup(gc);
+      // Участник со старой версией прислал состояние без каналов — сообщество им остаётся
+      if (next && isCommunity(g) && !isCommunity(next)) Object.assign(next, cleanGroup({ ...g, ...next, kind: 'community', chans: g.chans, mods: g.mods, invites: g.invites }));
       // Принимаем только более новое состояние и только от администратора (по нашему состоянию)
       const ok = next && (g ? next.v > g.v && (self || g.admins.includes(from)) : self || next.admins.includes(from));
       if (ok && (self || next.members.includes(me) || g)) await this._applyGroupState(all, next, from);
@@ -2984,7 +3151,9 @@ export class MessengerClient extends Emitter {
       await this._saveContacts(all);
       if (!g) return false;
       const ids = gc.ids.map(String).slice(0, MAX_DELETE);
-      const theirs = (await this.messages(key)).filter((m) => ids.includes(m.id) && m.from === from).map((m) => m.id);
+      // Чужие сообщения может удалить у всех администратор или модератор (по нашему состоянию группы)
+      const mod = canModerate(g, from);
+      const theirs = (await this.messages(key)).filter((m) => ids.includes(m.id) && (m.from === from || (mod && m.dir !== 'sys'))).map((m) => m.id);
       if (theirs.length) await this._removeMessages(key, theirs);
       return false;
     }
@@ -3081,7 +3250,7 @@ export class MessengerClient extends Emitter {
    * meta: { name, mime, kind?, w?, h?, dur?, thumb? }
    * o: { caption, replyTo, onProgress(0..1), signal, onReady(file) — файл загружен, сообщение сейчас уйдёт }
    */
-  async sendFile(username, source, meta = {}, { caption = '', replyTo = null, onProgress = () => {}, signal, onReady = () => {} } = {}) {
+  async sendFile(username, source, meta = {}, { caption = '', replyTo = null, onProgress = () => {}, signal, onReady = () => {}, ch = null } = {}) {
     const all = await this.contacts();
     if (!all[username]) throw new Error(t('Нет такого контакта'));
     if (isSystemChat(username)) throw new Error(t('В этот чат нельзя писать'));
@@ -3100,7 +3269,9 @@ export class MessengerClient extends Emitter {
     const { keyB64, id } = await this._upload(source, size, onProgress, signal);
     const file = cleanFile({ ...meta, id, key: keyB64, size, mime, name: safeName(meta.name ?? source.name), kind: meta.kind || kindOf(mime) });
     onReady(file);
-    await this._sendContent(username, { t: 'file', body: String(caption).slice(0, CAPTION_MAX), file }, replyTo);
+    const base = { t: 'file', body: String(caption).slice(0, CAPTION_MAX), file };
+    if (ch && isGroupChat(username) && CHAN_ID_RE.test(ch)) base.ch = ch;
+    await this._sendContent(username, base, replyTo);
     return file;
   }
 
@@ -3190,7 +3361,10 @@ export class MessengerClient extends Emitter {
     await this._serial(async () => {
       const me = this.account.username;
       // В группе «у всех» можно удалить только свои сообщения — запоминаем их до удаления
-      const mine = isGroupChat(username) ? (await this.messages(username)).filter((m) => m.dir === 'out' && ids.includes(m.id)).map((m) => m.id) : [];
+      const gNow = isGroupChat(username) ? (await this.contacts())[username]?.group : null;
+      const mod = canModerate(gNow, me) && !gNow?.left;
+      // Администратор и модератор сообщества удаляют у всех и чужие сообщения
+      const mine = isGroupChat(username) ? (await this.messages(username)).filter((m) => (m.dir === 'out' || (mod && m.dir === 'in')) && ids.includes(m.id)).map((m) => m.id) : [];
       await this._removeMessages(username, ids);
       // Ещё не отправленные сообщения — просто отменяем
       let outbox = (await this.storage.get('outbox')) || [];
@@ -3954,7 +4128,7 @@ export class MessengerClient extends Emitter {
     // Заблокирован: сервер такое уже не доставляет, а пришедшее до блокировки — отбрасываем
     // (расшифровали, чтобы не сбить храповик на случай разблокировки)
     if (this.isBlocked(from)) return ack(false);
-    if (['gmsg', 'group', 'group-leave', 'gdelete', 'gpin'].includes(res.content?.t)) {
+    if (['gmsg', 'group', 'group-leave', 'gdelete', 'gpin', 'cjoin'].includes(res.content?.t)) {
       if (!known) c.hidden = true; // участник группы, с которым нет личного чата
       return ack(await this._onGroupContent(all, from, res));
     }

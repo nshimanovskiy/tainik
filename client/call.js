@@ -39,6 +39,9 @@ const SPEAK_HOLD = 500;
 const ADDR_RE = /^[a-z0-9_]{3,32}:[1-9]\d{0,8}$/;
 const CALL_ID_RE = /^[0-9a-f]{8,40}$/;
 const addrOf = (name, device) => `${name}:${device}`;
+const VC_RE = /^[0-9a-f]{8}$/;
+/** Ключ списка участников: звонок группы — сам чат, голосовой канал сообщества — чат/канал. */
+const rosterKey = (chat, vc) => (vc ? `${chat}/${vc}` : chat);
 
 const T_AUDIO = 0;
 const T_CAM = 1;
@@ -153,7 +156,7 @@ export class CallManager {
     this.onChange = onChange;
     this.onRoster = onRoster; // (chat) — изменился список идущих групповых звонков
     this.call = null;
-    this.rosters = new Map(); // чат группы → { callId, video, from, parts: Map(адрес → { name, device }), seen }
+    this.rosters = new Map(); // чат группы (или чат/голосовой канал) → { callId, video, from, parts: Map(адрес → { name, device }), seen }
     this.micId = ''; // выбранный микрофон ('' — системный по умолчанию)
     this.micGain = 1; // громкость своего голоса для собеседника: 0…2 (1 — как есть)
     this.tones = new Tones();
@@ -698,16 +701,59 @@ export class CallManager {
     return a ? addrOf(a.username, a.deviceId) : '';
   }
 
-  /** Идущий звонок в группе: { callId, video, from, parts: Map, mine } или null. */
-  groupCallIn(chat) {
+  /** Идущий звонок в группе (или в голосовом канале vc сообщества): { callId, video, from, parts: Map, mine } или null. */
+  groupCallIn(chat, vc = null) {
     const c = this.call;
-    if (c?.group && c.peer === chat && c.phase !== 'ended' && c.phase !== 'incoming') {
+    if (c?.group && c.peer === chat && (c.vc || null) === (vc || null) && c.phase !== 'ended' && c.phase !== 'incoming') {
       const parts = new Map([[this._myAddr(), { name: this.client.account.username, device: this.client.account.deviceId }]]);
       for (const [a, p] of c.peers) parts.set(a, { name: p.name, device: p.device });
       return { callId: c.id, video: c.video, from: c.from || this.client.account.username, parts, mine: true };
     }
-    const r = this.rosters.get(chat);
+    const r = this.rosters.get(rosterKey(chat, vc));
     return r && r.parts.size ? r : null;
+  }
+
+  /** Голосовые каналы сообщества, в которых кто-то есть: Map(канал → участники { name, device }[]). */
+  voiceIn(chat) {
+    const out = new Map();
+    for (const k of this.rosters.keys()) {
+      const i = k.indexOf('/');
+      if (i < 0 || k.slice(0, i) !== chat) continue;
+      const vc = k.slice(i + 1);
+      const r = this.groupCallIn(chat, vc);
+      if (r) out.set(vc, [...r.parts.values()]);
+    }
+    const c = this.call;
+    if (c?.vc && c.peer === chat && c.phase !== 'ended' && c.phase !== 'incoming') out.set(c.vc, [...this.groupCallIn(chat, c.vc).parts.values()]);
+    return out;
+  }
+
+  /**
+   * Зайти в голосовой канал сообщества: без звонка — если там кто-то есть, присоединиться,
+   * иначе вы первый в комнате (остальные увидят вас в канале).
+   */
+  async joinVoice(chat, vc, { video = false } = {}) {
+    if (!VC_RE.test(String(vc))) return;
+    const c = this.call;
+    if (c?.vc === vc && c.peer === chat && c.phase !== 'ended') return;
+    if (this.busy) throw new Error(t('Уже идёт звонок'));
+    const r = this.groupCallIn(chat, vc);
+    if (r) return this.joinGroup(chat, { video, vc });
+    const n = (this.call = this._newGroupCall({ peer: chat, vc, role: 'caller', video, phase: 'preparing' }));
+    this._emit();
+    try {
+      await this._getLocalMedia(video);
+      if (this.call !== n) return;
+      n.phase = 'active';
+      n.startedAt = Date.now();
+      this._emit();
+      this.onRoster(chat);
+      await this.client.sendGroupCall(chat, { kind: 'join', callId: n.id, video, vc }, { others: 'all' });
+      this._startAlive(n);
+    } catch (e) {
+      if (this.call === n) this._end('failed', e);
+      throw e;
+    }
   }
 
   _newGroupCall(o) {
@@ -715,6 +761,7 @@ export class CallManager {
     c.group = o.peer.slice(1);
     c.peers = new Map(); // адрес → участник
     c.from = o.from || null;
+    c.vc = o.vc || null; // голосовой канал сообщества (в него заходят без звонка)
     c.everJoined = false; // кто-то, кроме вас, был в звонке
     return c;
   }
@@ -743,19 +790,19 @@ export class CallManager {
   }
 
   /** Присоединиться к идущему звонку группы (или ответить на входящий). */
-  async joinGroup(chat, { video = false } = {}) {
+  async joinGroup(chat, { video = false, vc = null } = {}) {
     let c = this.call;
-    if (c?.group && c.peer === chat && c.phase === 'incoming') {
+    if (!vc && c?.group && c.peer === chat && c.phase === 'incoming') {
       this.tones.stop();
       clearTimeout(c.ringTimer);
       c.video = video;
       c.phase = 'connecting';
     } else {
       if (this.busy) throw new Error(t('Уже идёт звонок'));
-      const r = this.groupCallIn(chat);
+      const r = this.groupCallIn(chat, vc);
       if (!r) throw new Error(t('Звонок уже закончился'));
       if (r.parts.size >= GROUP_CALL_MAX) throw new Error(t('В звонке уже {0} участников — больше нельзя', GROUP_CALL_MAX));
-      c = this.call = this._newGroupCall({ id: r.callId, peer: chat, role: 'callee', video, phase: 'connecting', from: r.from });
+      c = this.call = this._newGroupCall({ id: r.callId, peer: chat, vc, role: 'callee', video, phase: 'connecting', from: r.from });
     }
     this._emit();
     try {
@@ -764,10 +811,11 @@ export class CallManager {
       c.phase = 'active';
       c.startedAt = Date.now();
       // Ждём, что участники пришлют offer; никто не ответил — звонка уже нет
-      c.waitTimer = setTimeout(() => this.call === c && !c.peers.size && this._end(c.everJoined ? 'answered' : 'failed'), OFFER_TIMEOUT);
+      // (в голосовом канале — просто остаёмся в нём одни)
+      if (!c.vc) c.waitTimer = setTimeout(() => this.call === c && !c.peers.size && this._end(c.everJoined ? 'answered' : 'failed'), OFFER_TIMEOUT);
       this._emit();
       this.onRoster(chat);
-      await this.client.sendGroupCall(chat, { kind: 'join', callId: c.id, video }, { others: 'all' });
+      await this.client.sendGroupCall(chat, { kind: 'join', callId: c.id, video, ...(c.vc ? { vc: c.vc } : {}) }, { others: 'all' });
       this._startAlive(c);
     } catch (e) {
       if (this.call === c) this._end('failed', e);
@@ -778,7 +826,7 @@ export class CallManager {
   _leaveGroup() {
     const c = this.call;
     for (const p of c.peers.values()) this._sendTo(p.dc, { type: 'hangup' });
-    const sent = this.client.sendGroupCall(c.peer, { kind: 'leave', callId: c.id }, { others: 'all' }).catch(() => {});
+    const sent = this.client.sendGroupCall(c.peer, { kind: 'leave', callId: c.id, ...(c.vc ? { vc: c.vc } : {}) }, { others: 'all' }).catch(() => {});
     this._end(c.everJoined ? 'answered' : c.role === 'caller' ? 'no_answer' : 'cancelled');
     return sent;
   }
@@ -790,28 +838,28 @@ export class CallManager {
       if (this.call !== c || c.phase !== 'active') return clearInterval(c.aliveTimer);
       const parts = [this._myAddr(), ...c.peers.keys()].sort();
       if (parts[0] !== this._myAddr()) return;
-      this.client.sendGroupCall(c.peer, { kind: 'alive', callId: c.id, video: c.video, parts }, { others: 'online' }).catch(() => {});
+      this.client.sendGroupCall(c.peer, { kind: 'alive', callId: c.id, video: c.video, parts, ...(c.vc ? { vc: c.vc } : {}) }, { others: 'online' }).catch(() => {});
     }, ALIVE_EVERY);
   }
 
   _expireRosters() {
     const now = Date.now();
-    for (const [chat, r] of this.rosters) {
-      const mine = this.call?.group && this.call.peer === chat && this.call.id === r.callId;
+    for (const [k, r] of this.rosters) {
+      const mine = this.call?.group && this.call.id === r.callId && this.call.phase !== 'ended';
       if (!mine && now - r.seen > ROSTER_TTL) {
-        this.rosters.delete(chat);
-        this.onRoster(chat);
+        this.rosters.delete(k);
+        this.onRoster(k.split('/')[0]);
       }
     }
   }
 
   /** Сведения о звонке группы от участника: кто в нём сейчас. */
-  _touchRoster(chat, callId, from, fromDevice, data) {
-    let r = this.rosters.get(chat);
+  _touchRoster(key, callId, from, fromDevice, data) {
+    let r = this.rosters.get(key);
     if (!r || r.callId !== callId) {
       // Другой звонок в той же группе: новее (ring) или напоминание о существующем — заменяет
       r = { callId, video: !!data.video, from, parts: new Map(), seen: 0 };
-      this.rosters.set(chat, r);
+      this.rosters.set(key, r);
     }
     if (data.kind === 'ring') r.from = from;
     if (data.kind === 'alive' && Array.isArray(data.parts)) {
@@ -832,11 +880,14 @@ export class CallManager {
     if (!CALL_ID_RE.test(callId)) return;
     const me = this.client.account?.username;
     const fromAddr = addrOf(from, fromDevice);
+    const vc = VC_RE.test(String(data.vc || '')) ? data.vc : null;
+    const rk = rosterKey(chat, vc);
     const c = this.call;
-    const inThis = !!c?.group && c.peer === chat && c.id === callId && c.phase !== 'ended';
+    const inThis = !!c?.group && c.peer === chat && (c.vc || null) === vc && c.id === callId && c.phase !== 'ended';
+    if (kind === 'ring' && vc) return; // в голосовой канал не звонят
 
     if (kind === 'ring' || kind === 'join' || kind === 'alive') {
-      this._touchRoster(chat, callId, from, fromDevice, data);
+      this._touchRoster(rk, callId, from, fromDevice, data);
       this.onRoster(chat);
       if (from === me) {
         // Ответили на этом же аккаунте с другого устройства — здесь перестаём звонить
@@ -848,7 +899,7 @@ export class CallManager {
         // Кого-то из участников мы не видим (сигнал входа не дошёл) — соединиться;
         // offer шлёт тот, чей адрес меньше, чтобы не встречных два
         const mine = this._myAddr();
-        for (const [a, p] of this.rosters.get(chat)?.parts || []) {
+        for (const [a, p] of this.rosters.get(rk)?.parts || []) {
           if (a === mine || c.peers.has(a) || p.name === me || a > mine) continue;
           await this._connectPeer(c, p.name, p.device);
         }
@@ -864,16 +915,16 @@ export class CallManager {
     }
 
     if (kind === 'leave') {
-      const r = this.rosters.get(chat);
+      const r = this.rosters.get(rk);
       if (r?.callId === callId) {
         r.parts.delete(fromAddr);
-        if (!r.parts.size) this.rosters.delete(chat);
+        if (!r.parts.size) this.rosters.delete(rk);
         this.onRoster(chat);
       }
       if (!inThis) return;
       if (c.phase === 'incoming') {
         // Звонящий передумал, а больше в звонке никого — звонок пропущен
-        if (!this.rosters.get(chat)?.parts.size) this._end('missed');
+        if (!this.rosters.get(rk)?.parts.size) this._end('missed');
         return;
       }
       const p = c.peers.get(fromAddr);
@@ -987,7 +1038,7 @@ export class CallManager {
       await p.pc.setLocalDescription(await p.pc.createOffer());
       await waitIceGathering(p.pc);
       if (c.peers.get(a) !== p || this.call !== c) return;
-      await this.client.sendGroupCall(c.peer, { kind: 'offer', callId: c.id, sdp: p.pc.localDescription.sdp }, { devices: { [name]: [device] } });
+      await this.client.sendGroupCall(c.peer, { kind: 'offer', callId: c.id, sdp: p.pc.localDescription.sdp, ...(c.vc ? { vc: c.vc } : {}) }, { devices: { [name]: [device] } });
       p.offerTimer = setTimeout(() => !p.answered && this._dropPeer(c, p), OFFER_TIMEOUT);
     } catch (e) {
       console.error('gcall offer', e);
@@ -1020,7 +1071,7 @@ export class CallManager {
       await p.pc.setLocalDescription(await p.pc.createAnswer());
       await waitIceGathering(p.pc);
       if (c.peers.get(a) !== p || this.call !== c) return;
-      await this.client.sendGroupCall(c.peer, { kind: 'answer', callId: c.id, sdp: p.pc.localDescription.sdp }, { devices: { [name]: [device] } });
+      await this.client.sendGroupCall(c.peer, { kind: 'answer', callId: c.id, sdp: p.pc.localDescription.sdp, ...(c.vc ? { vc: c.vc } : {}) }, { devices: { [name]: [device] } });
     } catch (e) {
       console.error('gcall answer', e);
       this._dropPeer(c, p);
@@ -1044,6 +1095,7 @@ export class CallManager {
     c.peers.delete(p.addr);
     this._emit();
     if (this.call !== c || c.phase === 'ended' || c.peers.size) return;
+    if (c.vc) return; // голосовой канал: можно сидеть и одному
     // Остались одни: подождать — вдруг кто-то вернётся или присоединится
     clearTimeout(c.aloneTimer);
     c.aloneTimer = setTimeout(() => this.call === c && !c.peers.size && this._leaveGroup(), ALONE_TIMEOUT);
@@ -1062,10 +1114,11 @@ export class CallManager {
       clearInterval(c.aliveTimer);
       for (const p of [...c.peers.values()]) this._closePeer(p);
       c.peers.clear();
-      const r = this.rosters.get(c.peer);
+      const rk = rosterKey(c.peer, c.vc);
+      const r = this.rosters.get(rk);
       if (r?.callId === c.id) {
         r.parts.delete(this._myAddr());
-        if (!r.parts.size) this.rosters.delete(c.peer);
+        if (!r.parts.size) this.rosters.delete(rk);
       }
       this.onRoster(c.peer);
     }
@@ -1088,17 +1141,20 @@ export class CallManager {
     c.error = error ? String(error.message || error) : null;
     c.duration = c.startedAt ? Math.round((Date.now() - c.startedAt) / 1000) : 0;
     this._emit();
-    this.client
-      .logCall(c.peer, {
-        callId: c.id, // одна запись о звонке на всех своих устройствах
-        direction: c.role === 'caller' ? 'out' : 'in',
-        result,
-        duration: c.duration,
-        video: c.video,
-        missed: result === 'missed',
-        group: !!c.group,
-      })
-      .catch(() => {});
+    // Голосовой канал сообщества — комната, а не звонок: в историю не пишется
+    if (!c.vc) {
+      this.client
+        .logCall(c.peer, {
+          callId: c.id, // одна запись о звонке на всех своих устройствах
+          direction: c.role === 'caller' ? 'out' : 'in',
+          result,
+          duration: c.duration,
+          video: c.video,
+          missed: result === 'missed',
+          group: !!c.group,
+        })
+        .catch(() => {});
+    }
     setTimeout(() => {
       if (this.call === c) {
         this.call = null;

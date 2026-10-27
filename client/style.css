@@ -1336,3 +1336,53 @@ dialog.sheet[open] { animation: sheet-up var(--t) var(--ease-out); }
 .chat-photo-row button { display: inline-flex; align-items: center; gap: 6px; }
 .chat-photo-row .ic { width: 16px; height: 16px; }
 .chat-photo p { margin: 8px 0 0; }
+
+/* ---------- Сообщества: каналы ---------- */
+.comm-bar {
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px; overflow-x: auto; scrollbar-width: none;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+}
+.comm-bar::-webkit-scrollbar { display: none; }
+.comm-head { display: none; }
+.comm-chans { display: flex; gap: 6px; align-items: center; }
+.comm-chan {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 10px; flex: none;
+  background: none; color: var(--muted); font-size: 14px; white-space: nowrap; position: relative;
+}
+.comm-chan .ic { width: 16px; height: 16px; flex: none; }
+.comm-chan:hover { background: var(--hover, rgba(127,127,127,.12)); color: inherit; }
+.comm-chan.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.comm-chan.in { color: var(--ok); font-weight: 600; }
+.comm-name { overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+.comm-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.comm-count { font-size: 11.5px; background: var(--ok); color: #fff; border-radius: 9px; padding: 1px 6px; font-weight: 600; }
+.comm-voice-users { display: none; }
+.comm-invite { flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 13px; margin-left: auto; }
+.comm-invite .ic { width: 15px; height: 15px; }
+/* Широкий экран: каналы — колонкой слева, как в Discord */
+@media (min-width: 900px) {
+  #chat-view.community { padding-left: 232px; }
+  #chat-view.community .chat-head { margin-left: -232px; }
+  #chat-view.community .comm-bar {
+    position: absolute; left: 0; top: var(--head-h, 61px); bottom: 0; width: 232px; z-index: 2;
+    flex-direction: column; align-items: stretch; gap: 2px; padding: 12px 8px; overflow-y: auto; overflow-x: hidden;
+    border-bottom: 0; border-right: 1px solid var(--line);
+  }
+  #chat-view.community .comm-head { display: block; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 2px 10px 6px; }
+  #chat-view.community .comm-chans { flex-direction: column; align-items: stretch; gap: 2px; }
+  #chat-view.community .comm-chan { width: 100%; justify-content: flex-start; }
+  #chat-view.community .comm-name { max-width: none; flex: 1; text-align: left; }
+  #chat-view.community .comm-count { display: none; }
+  #chat-view.community .comm-voice-users { display: flex; flex-direction: column; gap: 2px; padding: 0 0 6px 30px; }
+  #chat-view.community .comm-invite { margin: 10px 0 0; justify-content: center; }
+}
+.comm-voice-user { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 2px 0; min-width: 0; }
+.comm-voice-user .avatar { width: 22px; height: 22px; font-size: 11px; flex: none; }
+.comm-voice-user span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chan-ico { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); }
+.chan-ico .ic { width: 20px; height: 20px; }
+.gd-invites { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.gd-invite { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gd-invite code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.gd-invite button { padding: 5px 10px; font-size: 12.5px; }
+#gd-chan-type { width: auto; }
