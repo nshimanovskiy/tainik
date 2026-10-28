@@ -1389,3 +1389,52 @@ dialog.sheet[open] { animation: sheet-up var(--t) var(--ease-out); }
 /* Иконки без отступа справа: одни в кружке или рядом с текстом уже через gap */
 .call-dot .ic, .chan-ico .ic, .gtile-talk.ic, .gtile-name .ic, .comm-chan .ic, .comm-invite .ic,
 .chat-photo-row .ic, .gcall-bar-text .ic { margin-right: 0; }
+
+/* ---------- GIF ---------- */
+.composer .gif-btn { flex: none; height: 42px; width: 40px; color: var(--muted); }
+.composer .gif-btn .ic { width: 25px; height: 25px; margin: 0; }
+.composer .gif-btn:hover:not(:disabled), .composer .gif-btn[aria-expanded="true"] { color: var(--accent); }
+.composer .gif-btn:disabled { opacity: .4; }
+.composer.recording > #gif-btn { display: none !important; }
+.gif-panel {
+  display: flex; flex-direction: column; height: min(380px, 52vh); min-height: 0;
+  border-top: 1px solid var(--line); background: var(--panel);
+}
+.gif-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px 4px 12px; }
+.gif-head .icon-btn .ic { margin: 0; }
+.gif-tabs { display: flex; gap: 4px; flex: 1; }
+.gif-tab { background: none; color: var(--muted); padding: 6px 12px; border-radius: 10px; font-weight: 500; }
+.gif-tab.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.gif-search { padding: 0 12px 8px; }
+.gif-search input { width: 100%; }
+.gif-grid {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 10px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); grid-auto-rows: 104px; grid-auto-flow: dense; gap: 6px;
+}
+.gif-tile {
+  position: relative; padding: 0; border-radius: 10px; overflow: hidden; background: var(--line); cursor: pointer;
+  display: grid; place-items: center; color: var(--muted);
+}
+.gif-tile img, .gif-tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gif-tile:hover { outline: 2px solid var(--accent); outline-offset: -2px; }
+.gif-tile.add { background: none; border: 1.5px dashed var(--line); font-size: 13px; text-align: center; padding: 8px; gap: 4px; align-content: center; }
+.gif-tile.add .ic { width: 22px; height: 22px; margin: 0; }
+.gif-tile.busy { opacity: .55; pointer-events: none; }
+.gif-act {
+  position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; padding: 4px; border-radius: 50%;
+  background: rgba(0,0,0,.55); color: #fff; display: grid; place-items: center; opacity: 0; transition: opacity .12s;
+}
+.gif-act .ic { width: 16px; height: 16px; margin: 0; }
+.gif-act.on { color: #ffd34d; }
+.gif-tile:hover .gif-act, .gif-act:focus-visible, .gif-act.on { opacity: 1; }
+@media (hover: none) { .gif-act { opacity: 1; } }
+.gif-empty { margin: auto; padding: 16px; text-align: center; color: var(--muted); font-size: 14px; }
+.gif-attr { margin: 0; padding: 4px 12px 8px; font-size: 11.5px; color: var(--muted); text-align: right; }
+.gif-more { grid-column: 1 / -1; height: 1px; }
+/* GIF в ленте: играет по кругу, без кнопки ▶ */
+.media.gif { position: relative; }
+.media.gif video.full { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.gif-badge {
+  position: absolute; left: 8px; top: 8px; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 700;
+  letter-spacing: .04em; background: rgba(0,0,0,.5); color: #fff; pointer-events: none;
+}

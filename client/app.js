@@ -365,7 +365,7 @@ function callText(ct) {
 const SIZE_UNITS = [t('Б'), t('КБ'), t('МБ'), t('ГБ')];
 const sizeText = (b) => fmtSize(b, SIZE_UNITS, LOCALE);
 const KIND_LABEL = { image: t('📷 Фото'), video: t('🎬 Видео'), audio: t('🎵 Аудио'), file: t('📄 Файл') };
-const AS_LABEL = { voice: t('🎤 Голосовое сообщение'), note: t('⏹ Видеосообщение') };
+const AS_LABEL = { voice: t('🎤 Голосовое сообщение'), note: t('⏹ Видеосообщение'), gif: 'GIF' };
 // Запись голосовых и видеосообщений: нужен MediaRecorder, для квадрата — ещё и захват холста
 const REC_OK = !!(window.MediaRecorder && navigator.mediaDevices?.getUserMedia);
 const NOTE_OK = REC_OK && typeof HTMLCanvasElement !== 'undefined' && !!HTMLCanvasElement.prototype.captureStream;
@@ -1295,6 +1295,8 @@ async function updateComposer(c) {
   // Поддержка: только текст — без вложений, голосовых и видеосообщений
   const support = !!c?.support;
   $('attach-btn').disabled ||= support;
+  $('gif-btn').disabled = $('attach-btn').disabled;
+  if ($('gif-btn').disabled) closeGifs();
   const noCall = blocked || client.status !== 'online' || !window.RTCPeerConnection;
   $('call-audio-btn').disabled = noCall;
   $('call-video-btn').disabled = noCall;
@@ -2003,6 +2005,7 @@ function fitBox(node, w, h) {
 function mediaNode(f) {
   if (f.as === 'voice') return voiceNode(f);
   if (f.as === 'note') return noteNode(f);
+  if (f.as === 'gif') return gifNode(f);
   if (f.kind === 'image' || f.kind === 'video') {
     const box = el('button', 'media ' + f.kind);
     box.type = 'button';
@@ -2045,6 +2048,44 @@ function mediaNode(f) {
   info.append(el('span', 'file-name', f.name), el('span', 'file-size', sizeText(f.size)));
   card.append(icon(f.kind === 'audio' ? 'music' : 'file', 'file-icon'), info, el('span', 'ring'));
   return card;
+}
+
+/** GIF в ленте: картинка или беззвучный ролик, играет по кругу сам (как в Telegram). */
+function gifNode(f) {
+  const box = el('button', 'media gif ' + f.kind);
+  box.type = 'button';
+  box.dataset.act = 'open';
+  box.dataset.mediaId = f.id;
+  box.setAttribute('aria-label', `GIF, ${sizeText(f.size)}`);
+  fitBox(box, f.w, f.h);
+  if (f.thumb) {
+    const th = el('img', 'thumb');
+    th.alt = '';
+    th.src = f.thumb;
+    box.append(th);
+  }
+  const show = ({ url }) => {
+    let full;
+    if (f.kind === 'video') {
+      full = document.createElement('video');
+      Object.assign(full, { muted: true, loop: true, autoplay: true, playsInline: true });
+      full.className = 'full';
+      full.onloadeddata = () => box.classList.add('loaded');
+    } else {
+      full = el('img', 'full');
+      full.alt = 'GIF';
+      full.onload = () => box.classList.add('loaded');
+    }
+    full.onerror = () => box.classList.add('broken');
+    full.src = url;
+    box.prepend(full);
+    full.play?.().catch(() => {});
+  };
+  const cached = media.get(f.id);
+  if (cached?.url) show(cached);
+  else if (f.size <= AUTO_LOAD) loadMedia(f).then(show, () => box.classList.add('broken'));
+  box.append(el('span', 'gif-badge', 'GIF'), el('span', 'ring'));
+  return box;
 }
 
 // Просмотр
@@ -2295,7 +2336,7 @@ function queueFile(chat, file, caption, replyTo, preset = null) {
   const up = { key: 'u' + ++upSeq, chat, name: file.name || 'file', size: file.size, kind, progress: 0, started: false, ctrl: new AbortController() };
   if (kind === 'image') up.preview = URL.createObjectURL(file);
   // Записанное в чате: голосовое — карточкой, видеосообщение — квадратом с первым кадром
-  if (preset?.as) Object.assign(up, { as: preset.as, name: AS_LABEL[preset.as], preview: preset.thumb, w: preset.w, h: preset.h });
+  if (preset?.as) Object.assign(up, { as: preset.as, name: AS_LABEL[preset.as], preview: preset.thumb || up.preview, w: preset.w, h: preset.h });
   uploads.push(up);
   if (chat === current) {
     $('messages').append(uploadNode(up));
@@ -2317,6 +2358,8 @@ function queueFile(chat, file, caption, replyTo, preset = null) {
         onReady: (f) => {
           if (f.size <= MEDIA_CACHE / 4) putMedia(f.id, file.slice(0, file.size, blobType(f)));
           dropUpload(up);
+          // Отправленная GIF попадает в «Сохранённые» (как недавние в Telegram)
+          if (f.as === 'gif') client.saveGif(f).catch(() => {});
         },
       });
     } catch (err) {
@@ -2628,6 +2671,261 @@ $('as-camera').addEventListener('click', () => $('camera-input').click());
 $('as-files-pick').addEventListener('click', () => $('file-input').click());
 
 $('attach-btn').addEventListener('click', openAttachSheet);
+
+// ---------- GIF: панель над полем ввода ----------
+// «Сохранённые» — свои GIF (на всех ваших устройствах), «Поиск» — через ваш сервер (если на нём
+// задан ключ KLIPY или GIPHY). Нажатие — отправить; звёздочка — сохранить; крестик — убрать.
+const gifState = { tab: 'saved', q: '', next: null, loading: false, gen: 0, urls: [] };
+const GIF_LOCALE = { ru: 'ru_RU', en: 'en_US', es: 'es_ES', ja: 'ja_JP' };
+function gifUrl(blob) {
+  const u = URL.createObjectURL(blob);
+  gifState.urls.push(u);
+  return u;
+}
+function dropGifUrls() {
+  for (const u of gifState.urls) URL.revokeObjectURL(u);
+  gifState.urls = [];
+}
+function closeGifs() {
+  if ($('gif-panel').hidden) return;
+  $('gif-panel').hidden = true;
+  $('gif-btn').setAttribute('aria-expanded', 'false');
+  gifState.gen++;
+  $('gif-grid').replaceChildren();
+  dropGifUrls();
+}
+function openGifs() {
+  if (!current || $('gif-btn').disabled) return;
+  const ol = $('messages');
+  const atEnd = ol.scrollHeight - ol.scrollTop - ol.clientHeight < 40;
+  $('gif-panel').hidden = false;
+  if (atEnd) ol.scrollTop = ol.scrollHeight; // лента стала ниже — последние сообщения остаются видны
+  $('gif-btn').setAttribute('aria-expanded', 'true');
+  $('gif-tab-search').hidden = !client.gifSearch;
+  gifTab(gifState.tab === 'search' && client.gifSearch ? 'search' : 'saved');
+}
+$('gif-btn').addEventListener('click', () => ($('gif-panel').hidden ? openGifs() : closeGifs()));
+$('gif-close').addEventListener('click', closeGifs);
+for (const b of document.querySelectorAll('[data-gtab]')) b.addEventListener('click', () => gifTab(b.dataset.gtab));
+document.addEventListener('keydown', (e) => e.key === 'Escape' && !$('gif-panel').hidden && !document.querySelector('dialog[open]') && closeGifs());
+
+function gifTab(tab) {
+  gifState.tab = tab;
+  for (const b of document.querySelectorAll('[data-gtab]')) {
+    b.classList.toggle('active', b.dataset.gtab === tab);
+    b.setAttribute('aria-selected', String(b.dataset.gtab === tab));
+  }
+  $('gif-search-row').hidden = tab !== 'search';
+  $('gif-attr').hidden = tab !== 'search';
+  if (client.gifSearch) $('gif-attr').textContent = t('Поиск: {0}', client.gifSearch.provider);
+  if (tab === 'search') {
+    renderGifSearch(true);
+    if (!touchUI()) $('gif-q').focus();
+  } else renderSavedGifs();
+}
+
+function gifEmpty(text) {
+  $('gif-empty').hidden = !text;
+  $('gif-empty').textContent = text || '';
+}
+
+/** Плитка: картинка или ролик, по нажатию — onPick; act — кнопка в углу { icon, title, on, run }. */
+function gifTile({ load, w, h, title, onPick, act }) {
+  const tile = el('button', 'gif-tile');
+  tile.type = 'button';
+  tile.title = title || 'GIF';
+  tile.setAttribute('aria-label', title || 'GIF');
+  if (w && h) tile.style.gridRowEnd = w / h < 0.8 ? 'span 2' : '';
+  tile.append(el('span', 'ring'));
+  const gen = gifState.gen;
+  load()
+    .then(({ url, video }) => {
+      if (gen !== gifState.gen) return;
+      const m = video ? document.createElement('video') : el('img');
+      if (video) Object.assign(m, { muted: true, loop: true, autoplay: true, playsInline: true });
+      else m.alt = '';
+      m.src = url;
+      tile.replaceChildren(m, ...tile.querySelectorAll('.gif-act'));
+      m.play?.().catch(() => {});
+    })
+    .catch(() => tile.classList.add('broken'));
+  tile.addEventListener('click', (e) => {
+    if (e.target.closest('.gif-act')) return;
+    onPick(tile);
+  });
+  if (act) {
+    const a = el('span', 'gif-act' + (act.on ? ' on' : ''));
+    a.setAttribute('role', 'button');
+    a.tabIndex = 0;
+    a.title = act.title;
+    a.setAttribute('aria-label', act.title);
+    a.append(icon(act.icon));
+    const run = (e) => {
+      e.stopPropagation();
+      act.run(tile, a);
+    };
+    a.addEventListener('click', run);
+    a.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), run(e)));
+    tile.append(a);
+  }
+  return tile;
+}
+
+async function renderSavedGifs() {
+  const gen = ++gifState.gen;
+  dropGifUrls();
+  const list = await client.savedGifs();
+  if (gen !== gifState.gen || gifState.tab !== 'saved') return;
+  const add = el('button', 'gif-tile add');
+  add.type = 'button';
+  add.append(icon('plus'), el('span', '', t('Своя GIF')));
+  add.title = t('Добавить GIF или короткий ролик с устройства');
+  add.addEventListener('click', () => $('gif-input').click());
+  const tiles = list.map((f) =>
+    gifTile({
+      load: () => loadMedia(f).then(({ url }) => ({ url, video: f.kind === 'video' })),
+      w: f.w,
+      h: f.h,
+      title: 'GIF',
+      onPick: () => sendSavedGif(f),
+      act: { icon: 'close', title: t('Убрать из сохранённых'), run: () => client.removeGif(f.id).catch((e) => toast(e.message)) },
+    })
+  );
+  $('gif-grid').replaceChildren(add, ...tiles);
+  gifEmpty(list.length ? '' : t('Здесь будут GIF, которые вы отправили или сохранили. Свою можно добавить кнопкой «Своя GIF».'));
+}
+client.on('gifs', () => !$('gif-panel').hidden && gifState.tab === 'saved' && renderSavedGifs());
+
+async function sendSavedGif(f) {
+  const chat = current;
+  if (!chat) return;
+  const replyTo = reply?.id || null;
+  setReply(null);
+  closeGifs();
+  try {
+    await client.sendGif(chat, f, { replyTo, ch: chat === current ? commChanNow : null });
+    // Отправленная — первой в списке
+    client.saveGif(f).catch(() => {});
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+let gifTimer = null;
+$('gif-q').addEventListener('input', () => {
+  clearTimeout(gifTimer);
+  gifTimer = setTimeout(() => renderGifSearch(true), 450);
+});
+$('gif-q').addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), clearTimeout(gifTimer), renderGifSearch(true)));
+
+/** Результаты поиска (или подборка, если строка пустая); fresh — заново, иначе — следующая страница. */
+async function renderGifSearch(fresh) {
+  if (!client.gifSearch) return;
+  if (fresh) {
+    gifState.gen++;
+    dropGifUrls();
+    gifState.q = $('gif-q').value.trim();
+    gifState.next = null;
+    $('gif-grid').replaceChildren();
+    gifEmpty('');
+  } else if (!gifState.next || gifState.loading) return;
+  const gen = gifState.gen;
+  gifState.loading = true;
+  let r;
+  try {
+    r = await client.searchGifs(gifState.q, fresh ? null : gifState.next, GIF_LOCALE[LANG] || '');
+  } catch (err) {
+    if (gen === gifState.gen) gifEmpty(ERROR_TEXT[err.code] || err.message);
+    return;
+  } finally {
+    gifState.loading = false;
+  }
+  if (gen !== gifState.gen || gifState.tab !== 'search') return;
+  gifState.next = r.next;
+  $('gif-grid').querySelector('.gif-more')?.remove();
+  for (const it of r.results) {
+    const tile = gifTile({
+      load: () => client.fetchGifMedia(it.preview.u).then((b) => ({ url: gifUrl(b), video: /^video\//.test(b.type) })),
+      w: it.preview.w,
+      h: it.preview.h,
+      title: it.desc || 'GIF',
+      onPick: (tl) => sendFoundGif(it, tl),
+      act: { icon: 'star', title: t('Сохранить'), run: (tl, a) => saveFoundGif(it, tl, a) },
+    });
+    $('gif-grid').append(tile);
+  }
+  if (fresh && !r.results.length) gifEmpty(gifState.q ? t('Ничего не нашлось') : '');
+  if (r.next) {
+    const more = el('div', 'gif-more');
+    $('gif-grid').append(more);
+    gifMore.observe(more);
+  }
+}
+const gifMore = new IntersectionObserver((es) => es.some((e) => e.isIntersecting) && renderGifSearch(false), { root: $('gif-grid'), rootMargin: '200px' });
+
+/** Файл GIF из результата поиска: ролик MP4 (в разы меньше), иначе сама GIF. */
+async function foundGifFile(it) {
+  const src = it.mp4 || it.gif;
+  const blob = await client.fetchGifMedia(src.u);
+  const type = blob.type || (it.mp4 ? 'video/mp4' : 'image/gif');
+  const ext = type === 'video/mp4' ? 'mp4' : type === 'video/webm' ? 'webm' : type === 'image/webp' ? 'webp' : 'gif';
+  const file = new File([blob], `gif.${ext}`, { type });
+  const meta = { name: file.name, mime: type, kind: kindOf(type), as: 'gif' };
+  if (src.w && src.h) Object.assign(meta, { w: src.w, h: src.h });
+  return { file, meta };
+}
+
+async function sendFoundGif(it, tile) {
+  const chat = current;
+  if (!chat) return;
+  tile.classList.add('busy');
+  try {
+    const { file, meta } = await foundGifFile(it);
+    const replyTo = reply?.id || null;
+    setReply(null);
+    closeGifs();
+    queueFile(chat, file, '', replyTo, meta);
+  } catch (err) {
+    tile.classList.remove('busy');
+    toast(err.message || t('Не удалось загрузить GIF'));
+  }
+}
+
+async function saveFoundGif(it, tile, star) {
+  if (star.classList.contains('on')) return;
+  tile.classList.add('busy');
+  try {
+    const { file, meta } = await foundGifFile(it);
+    await client.uploadGif(file, meta);
+    star.classList.add('on');
+    toast(t('GIF сохранена'));
+  } catch (err) {
+    toast(err.message || t('Не удалось загрузить GIF'));
+  } finally {
+    tile.classList.remove('busy');
+  }
+}
+
+// Своя GIF с устройства: в «Сохранённые» (отправить её потом — одним нажатием)
+$('gif-input').addEventListener('change', async (e) => {
+  const files = [...(e.target.files || [])];
+  e.target.value = '';
+  for (const file of files) {
+    const type = String(file.type || '').toLowerCase();
+    if (!/^(image\/(gif|webp)|video\/(mp4|webm))$/.test(type)) {
+      toast(ERROR_TEXT.not_gif);
+      continue;
+    }
+    try {
+      const meta = await describeFile(file);
+      delete meta.thumb;
+      await client.uploadGif(file, { ...meta, as: 'gif' });
+    } catch (err) {
+      toast(`${file.name}: ${err.message}`);
+    }
+  }
+});
+
 for (const id of ['file-input', 'media-input', 'camera-input']) {
   $(id).addEventListener('change', (e) => {
     const files = [...(e.target.files || [])];
@@ -6005,6 +6303,8 @@ async function openMenu(id, x, y) {
   const m = await findMsg(id);
   if (menuFor !== id) return;
   menu.querySelector('[data-act="save"]').hidden = !m?.content?.file;
+  const gf = m?.content?.file;
+  menu.querySelector('[data-act="save-gif"]').hidden = !gf || !(gf.as === 'gif' || gf.mime === 'image/gif') || client.isGifSaved(gf.id);
   const sys = isSystemChat(current) || isSupportChat(current);
   menu.querySelector('[data-act="reply"]').hidden = isChannelChat(current) || sys;
   menu.querySelector('[data-act="pin"]').hidden = sys;
@@ -6028,7 +6328,7 @@ async function openMenu(id, x, y) {
   const locked = client.isProtected(current, m);
   menu.querySelector('[data-act="forward"]').hidden = !m || m.dir === 'sys' || sys || locked;
   menu.querySelector('[data-act="copy"]').hidden = (!!m?.content?.file && !m.content.body) || locked;
-  if (locked) menu.querySelector('[data-act="save"]').hidden = true;
+  if (locked) menu.querySelector('[data-act="save"]').hidden = menu.querySelector('[data-act="save-gif"]').hidden = true;
   menu.hidden = false;
   const w = menu.offsetWidth;
   const h = menu.offsetHeight;
@@ -6103,6 +6403,11 @@ $('msg-menu').addEventListener('click', async (e) => {
   if (b.dataset.act === 'stt-again') return transcribeMsg(id, { again: true });
   if (['forward', 'save', 'copy'].includes(b.dataset.act) && client.isProtected(current, await findMsg(id))) return toast(ERROR_TEXT.protected);
   if (b.dataset.act === 'forward') return openForward(id);
+  if (b.dataset.act === 'save-gif') {
+    const f = (await findMsg(id))?.content?.file;
+    if (!f) return;
+    return client.saveGif(f).then(() => toast(t('GIF сохранена')), (err) => toast(err.message));
+  }
   if (b.dataset.act === 'pin') {
     const c = (await client.contacts())[current];
     return client.pinMessage(current, c?.pinned?.id === id ? null : id).catch((err) => toast(err.message));

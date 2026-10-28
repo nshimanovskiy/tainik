@@ -230,6 +230,9 @@ sudo ./deploy/sign-profile.sh
 | `ADMIN_PATH` | `/adminadminadmin` | Адрес панели администратора |
 | `RELEASES_REPO` | `nshimanovskiy/tainik` | Репозиторий GitHub, чьи релизы сервер отдаёт на вкладке «Скачать» и для самообновления приложений; пусто — выключено |
 | `GITHUB_TOKEN` | — | Только для приватного репозитория: токен с доступом «Contents: Read-only» |
+| `GIF_API_KEY` | — | Ключ API поиска GIF: KLIPY (partner.klipy.com, бесплатный) или GIPHY (developers.giphy.com); пусто — поиск выключен, сохранённые и свои GIF работают |
+| `GIF_API` | `https://api.klipy.com` | Чей API: `https://api.klipy.com` или `https://api.giphy.com` |
+| `GIF_CONTENT_FILTER` | `medium` | Фильтр содержимого: `off`, `low`, `medium`, `high` |
 | `XROCKET_PAY_TOKEN` | — | API Token приложения xRocket Pay; пусто — подписка выключена |
 | `XROCKET_WEBHOOK_SECRET` | — | Webhook Token: проверка подписи уведомлений об оплате; пусто — только сверка опросом |
 | `XROCKET_TESTNET` | 0 | 1 — тестовая сеть xRocket (без настоящих денег) |

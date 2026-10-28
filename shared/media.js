@@ -101,6 +101,8 @@ export function cleanFile(f) {
   const dur = int(f.dur, 100 * 3600);
   if (dur !== undefined) out.dur = dur;
   if (typeof f.thumb === 'string' && f.thumb.length <= THUMB_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/]+=*$/.test(f.thumb)) out.thumb = f.thumb;
+  // GIF: картинка-анимация или беззвучный ролик, который в чате играет по кругу
+  if (f.as === 'gif' && ((out.kind === 'image' && /^image\/(gif|webp)$/.test(mime)) || (out.kind === 'video' && /^video\/(mp4|webm)$/.test(mime)))) out.as = 'gif';
   // Голосовое (аудио) и видеосообщение (квадратное видео) — записаны прямо в чате
   if ((f.as === 'voice' && out.kind === 'audio') || (f.as === 'note' && out.kind === 'video')) {
     out.as = f.as;

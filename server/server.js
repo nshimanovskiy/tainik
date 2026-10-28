@@ -14,6 +14,7 @@ import { createAdmin } from './admin.js';
 import { createWebclipHandler } from './webclip.js';
 import { createReleases } from './releases.js';
 import { createBlobs } from './blobs.js';
+import { createGifs } from './gifs.js';
 import { createNews } from './news.js';
 import { createBilling, parsePlans, parseCurrencies, parsePacks } from './billing.js';
 import { createShop, publicItem, SHOP_ID_RE } from './shop.js';
@@ -34,7 +35,9 @@ const PROVISION_TTL = 10 * 60 * 1000; // канал привязки живёт 
 const AUTH_CONTEXT = 'tainik/v3/auth';
 // authPerMin — на IP: за одним адресом (дом, офис) бывает много устройств и аккаунтов,
 // и после перезапуска сервера они входят разом
-const RATE = { msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 240, billingPerMin: 6, channelPerMin: 60 };
+const GIF_KEEP_MAX = 200; // сохранённых GIF на человека
+const GIF_KEEP_SIZE = 20 * 1024 * 1024; // байт (зашифрованный файл)
+const RATE = { gifsPerMin: 40, msgsPerSec: 30, bundlesPerMin: 30, provisionsPerMin: 5, authPerMin: 120, ephemeralPerMin: 240, billingPerMin: 6, channelPerMin: 60 };
 // Каналы
 const CHANNEL_ID_RE = /^[0-9a-f]{32}$/;
 const GROUP_ID_RE = /^[0-9a-f]{24}$/;
@@ -217,6 +220,9 @@ export function startServer({
   changelogPath = path.join(ROOT, 'CHANGELOG.md'),
   // Файлы распознавания речи (scripts/fetch-stt.mjs); нет папки — расшифровка голосовых недоступна
   sttDir = path.join(ROOT, 'stt'),
+  // Поиск GIF (server/gifs.js): { api: 'https://api.klipy.com' | 'https://api.giphy.com', key, contentFilter, fetch }.
+  // Без ключа поиск выключен; сохранённые и свои GIF работают и без него.
+  gifs: gifOpts = null,
 } = {}) {
   const store = new Store(dataDir, { maxOpks: MAX_OPKS, maxDevices: MAX_DEVICES });
   const online = new Map(); // "user.device" -> conn
@@ -562,6 +568,7 @@ export function startServer({
           coins: store.coinsOf(p.username),
           look: store.lookOf(p.username),
           shop: true, // сервер с магазином рамок и фонов (0.47)
+          gifs: gifs.enabled ? { provider: gifs.provider } : null, // поиск GIF (0.56)
           channels: store.channelsOf(p.username).map((id) => store.getChannel({ id })).filter(Boolean).map((c) => channelInfo(c, p.username)),
           billing: billingInfo(),
           blocks: store.blocksOf(p.username),
@@ -675,6 +682,28 @@ export function startServer({
         const visible = own || !presenceOf(to, state.user).hidden;
         const devices = visible ? store.deviceIds(to).filter((d) => online.has(addr(to, d)) && !(own && d === state.device)) : [];
         return send(conn, { type: 'online-devices', reqId: msg.reqId, to, devices });
+      }
+
+      // ----- GIF: поиск через провайдера и сохранённые (файл не удаляется по сроку) -----
+      case 'gif-search': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        if (!gifs.enabled) return error(conn, 'gifs_off', { reqId: msg.reqId });
+        if (!take(state.gifs, RATE.gifsPerMin, 60_000)) return error(conn, 'rate_limited', { reqId: msg.reqId });
+        // Не ждём ответа провайдера: сообщения этого соединения обрабатываются по очереди
+        gifs.search({ q: msg.q, pos: msg.pos, locale: msg.locale }).then(
+          (r) => send(conn, { type: 'gifs', reqId: msg.reqId, ...r }),
+          (e) => error(conn, e.code || 'gifs_unavailable', { reqId: msg.reqId })
+        );
+        return;
+      }
+      case 'gif-keep': {
+        if (!state.user) return error(conn, 'not_authenticated', { reqId: msg.reqId });
+        const id = String(msg.id || '');
+        if (!/^[0-9a-f]{32}$/.test(id)) return error(conn, 'bad_blob', { reqId: msg.reqId });
+        if (!store.keepBlob(state.user, id, msg.on !== false, { max: GIF_KEEP_MAX, maxSize: GIF_KEEP_SIZE })) {
+          return error(conn, store.getBlob(id) ? 'gif_limit' : 'bad_blob', { reqId: msg.reqId });
+        }
+        return send(conn, { type: 'ok', reqId: msg.reqId });
       }
 
       // ----- серверы ICE для звонков: STUN и временные учётные данные TURN -----
@@ -1426,6 +1455,7 @@ export function startServer({
     ttlDays: queueTtlDays,
     say,
   });
+  const gifs = createGifs({ ...(gifOpts || {}), say });
   const shop = createShop({ dataDir, store, say });
   if (shopSamples) shop.seedSamples();
 
@@ -1483,6 +1513,7 @@ export function startServer({
     if (webclip(req, res)) return; // профиль iPhone; /ios → страница установки
     if (releasesHandler && releasesHandler(req, res)) return; // /api/releases, /download/…
     if (blobs.handleHttp(req, res)) return; // /api/blob/… — зашифрованные вложения
+    if (gifs.handleHttp(req, res, ipOf(req))) return; // /api/gif/… — картинки поиска GIF
     if (shop.handleHttp(req, res)) return; // /api/shop/… — рамки и фоны из магазина
     if (handleDiag(req, res)) return; // /api/diag/… — проверка сети
     if (req.url === '/healthz') {
@@ -1538,7 +1569,7 @@ export function startServer({
       (conn) => {
         conn.meta = { ip, since: Date.now() }; // для панели администратора, на диск не пишется
         allConns.add(conn);
-        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], channel: [], support: [], diag: [], pids: [], watching: new Set() };
+        const state = { ip, user: null, device: null, pending: null, msgs: [], bundles: [], ephemeral: [], billing: [], channel: [], support: [], diag: [], gifs: [], pids: [], watching: new Set() };
         let chain = Promise.resolve(); // сообщения обрабатываются строго по порядку
         conn.on('message', (text) => {
           if (!take(state.msgs, RATE.msgsPerSec, 1000)) {
@@ -1682,6 +1713,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
           },
     domain: env.DOMAIN || null,
     sttDir: env.STT_DIR || undefined,
+    // Поиск GIF: ключ KLIPY (partner.klipy.com) или GIPHY (developers.giphy.com); без ключа — выключен
+    gifs: env.GIF_API_KEY
+      ? { api: (env.GIF_API || 'https://api.klipy.com').trim(), key: env.GIF_API_KEY.trim(), contentFilter: env.GIF_CONTENT_FILTER || 'medium' }
+      : null,
     news: env.NEWS_CHANNEL !== '0', // канал «Обновления Тайника»; NEWS_CHANNEL=0 — выключить
     shopSamples: env.SHOP_SAMPLES !== '0', // примеры рамок в магазине при первом запуске; SHOP_SAMPLES=0 — не добавлять
     uploads: { maxMb: Number(env.MAX_UPLOAD_MB) || 100, maxTotalGb: Number(env.MAX_STORAGE_GB) || 20 },

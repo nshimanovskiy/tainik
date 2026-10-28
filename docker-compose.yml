@@ -49,6 +49,11 @@ services:
       # Монеты — внутренняя валюта: пакеты «монеты:цена» и сколько монет стоит единица PREMIUM_CURRENCY
       COIN_PACKS: ${COIN_PACKS-100:1,550:5,1200:10}
       COINS_PER_UNIT: ${COINS_PER_UNIT:-100}
+      # Поиск GIF: ключ API KLIPY (partner.klipy.com, бесплатно) или GIPHY (developers.giphy.com).
+      # Без ключа поиск выключен, сохранённые и свои GIF работают. GIF_API — https://api.klipy.com или https://api.giphy.com
+      GIF_API_KEY: ${GIF_API_KEY:-}
+      GIF_API: ${GIF_API:-https://api.klipy.com}
+      GIF_CONTENT_FILTER: ${GIF_CONTENT_FILTER:-medium}
     ports:
       - "127.0.0.1:${TAINIK_PORT:-8787}:8080"
     volumes:

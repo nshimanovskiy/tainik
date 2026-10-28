@@ -81,7 +81,7 @@ export const PROFILE_SCHEMA = 3;
 // Формат своих настроек (папки, архив, закрепления, свои имена). Поднимается, когда синхронизируется
 // новое: после обновления устройство один раз обменивается полным состоянием со своими устройствами
 // (sync-state) — то, что старая версия отбросила, приходит снова.
-export const STATE_SCHEMA = 2; // 2 — запрет копирования (0.48.1)
+export const STATE_SCHEMA = 3; // 2 — запрет копирования (0.48.1), 3 — сохранённые GIF (0.56)
 const STATE_ALIAS_ROOM = 120_000; // символов под фото своих имён в одном sync-state
 export const PROFILE_VIDEO_SEC = 15;
 /** Свой фон профиля — видео, GIF (0.47.2) или фото JPEG, PNG, WebP (0.47.5). */
@@ -170,6 +170,22 @@ export function cleanAlias(a) {
 }
 // ---------- «Печатает…» ----------
 const SEND_PER_SEC = 20; // отправок из очереди в секунду (лимит сервера — 30 сообщений в секунду на соединение)
+// Сохранённые GIF: файлы-вложения (уже зашифрованные на сервере), список — на ваших устройствах
+export const GIFS_MAX = 200;
+export const GIF_FILE_MAX = 15 * 1024 * 1024;
+const cleanGifs = (list) => {
+  const out = [];
+  const seen = new Set();
+  for (const x of Array.isArray(list) ? list : []) {
+    const f = cleanFile(x);
+    if (!f || f.as !== 'gif' || seen.has(f.id)) continue;
+    delete f.thumb; // список уходит на все устройства целиком — без картинок
+    seen.add(f.id);
+    out.push(f);
+    if (out.length >= GIFS_MAX) break;
+  }
+  return out;
+};
 const TYPING_EVERY = 4000; // не чаще раза в 4 секунды на чат
 const TYPING_TTL = 6000; // гаснет сам через 6 секунд
 const TYPING_GROUP_MAX = 10; // в группах побольше — не рассылается
@@ -568,6 +584,12 @@ export const ERROR_TEXT = {
   you_blocked: t('Вы заблокировали этого пользователя. Разблокируйте, чтобы написать'),
   too_many_blocks: t('Заблокировано слишком много пользователей'),
   file_too_large: t('Файл слишком большой'),
+  not_gif: t('Это не GIF: подойдут GIF-анимация или короткий ролик MP4 или WebM'),
+  gifs_off: t('Поиск GIF не настроен на этом сервере'),
+  gifs_unavailable: t('Поиск GIF сейчас недоступен'),
+  gifs_busy: t('Поиск GIF перегружен, попробуйте через минуту'),
+  gif_limit: t('Сохранить можно до 200 GIF — удалите ненужные'),
+  bad_blob: t('Файл больше недоступен на сервере'),
   upload_quota: t('Достигнут дневной предел загрузки файлов'),
   storage_full: t('На сервере закончилось место для файлов'),
   bad_size: t('Пустой файл'),
@@ -1174,6 +1196,7 @@ export class MessengerClient extends Emitter {
         this._setPremium(msg.premium);
         this._setCoins(msg.coins);
         this.shopOn = !!msg.shop;
+        this.gifSearch = msg.gifs && typeof msg.gifs === 'object' ? { provider: String(msg.gifs.provider || '').slice(0, 40) } : null;
         this._setLook(msg.look);
         if (Array.isArray(msg.channels)) this._onChannels(msg.channels).catch((e) => console.error('channels', e));
         if (Array.isArray(msg.gifts) && msg.gifts.length) this._serial(() => this._onGifts(msg.gifts)).catch(() => {});
@@ -2030,6 +2053,8 @@ export class MessengerClient extends Emitter {
     const f = await this.storage.get('folders');
     const st = { t: 'sync-state', archive: [], top: [], alias: [], protect: [] };
     if (f?.v) st.folders = { v: f.v, list: f.list || [] };
+    const g = await this.storage.get('gifs');
+    if (g?.v) st.gifs = { v: g.v, list: g.list || [] };
     let room = STATE_ALIAS_ROOM;
     const all = Object.values(await this.contacts()).sort((a, b) => (b.lastTs || 0) - (a.lastTs || 0));
     for (const c of all) {
@@ -2051,6 +2076,7 @@ export class MessengerClient extends Emitter {
   /** Применить состояние с другого своего устройства: везде побеждает последнее изменение. */
   async _applyState(st) {
     if (st.folders) await this._applyFolders(st.folders.v, st.folders.list);
+    if (st.gifs) await this._applyGifs(st.gifs.v, st.gifs.list);
     const all = await this.contacts();
     let changed = false;
     const rows = (x) => (Array.isArray(x) ? x.slice(0, 5000) : []);
@@ -2385,6 +2411,114 @@ export class MessengerClient extends Emitter {
     this.emit('folders', clean);
     this._pumpOutbox();
     return clean;
+  }
+
+  // ---------- GIF ----------
+  // Поиск — через сервер (searchGifs, картинки по gifMediaUrl). Отправленная GIF — обычное
+  // зашифрованное вложение с пометкой as: 'gif'. «Сохранённые» — список таких вложений на ваших
+  // устройствах (sync-gifs); сервер не удаляет их файлы по сроку, пока они в списке (gif-keep).
+
+  /** Поиск GIF (пустой q — подборка): { results: [{ id, desc, preview, gif?, mp4? }], next }. */
+  async searchGifs(q = '', pos = null, locale = '') {
+    if (!this.gifSearch) throw errorOf('gifs_off');
+    const r = await this._request({ type: 'gif-search', q: String(q).slice(0, 100), pos: pos || undefined, locale });
+    return { results: Array.isArray(r.results) ? r.results : [], next: r.next || null };
+  }
+
+  /** Полный адрес картинки поиска (путь /api/gif/m/… от сервера). */
+  gifMediaUrl(p) {
+    return typeof p === 'string' && /^\/api\/gif\/m\/[A-Za-z0-9_.-]+$/.test(p) ? this._httpBase() + p : null;
+  }
+
+  /** Скачать картинку или ролик из поиска: Blob. */
+  async fetchGifMedia(p, { signal } = {}) {
+    const url = this.gifMediaUrl(p);
+    if (!url) throw errorOf('download_failed');
+    let res;
+    try {
+      res = await this.fetch(url, { signal });
+    } catch {
+      throw errorOf(signal?.aborted ? 'cancelled' : 'download_failed');
+    }
+    if (!res.ok) throw errorOf('download_failed');
+    const blob = await res.blob();
+    if (blob.size > GIF_FILE_MAX) throw errorOf('file_too_large');
+    return blob;
+  }
+
+  async savedGifs() {
+    const list = (await this.storage.get('gifs'))?.list || [];
+    this._gifIds = new Set(list.map((x) => x.id));
+    return list;
+  }
+
+  isGifSaved(id) {
+    return !!this._gifIds?.has(id);
+  }
+
+  /** Добавить вложение-GIF в «Сохранённые» (в начало списка). */
+  async saveGif(file) {
+    const f = cleanFile({ ...file, as: 'gif' });
+    if (!f || f.as !== 'gif') throw errorOf('not_gif');
+    if (f.size > GIF_FILE_MAX + 1024 * 1024) throw errorOf('file_too_large');
+    await this._request({ type: 'gif-keep', id: f.id, on: true });
+    let dropped = [];
+    await this._serial(async () => {
+      const cur = await this.savedGifs();
+      const next = [f, ...cur.filter((x) => x.id !== f.id)];
+      dropped = next.slice(GIFS_MAX).map((x) => x.id);
+      await this._setGifs(next.slice(0, GIFS_MAX));
+    });
+    for (const id of dropped) this._request({ type: 'gif-keep', id, on: false }).catch(() => {});
+    this._pumpOutbox();
+    return f;
+  }
+
+  async removeGif(id) {
+    await this._serial(async () => {
+      const cur = await this.savedGifs();
+      if (!cur.some((x) => x.id === id)) return;
+      await this._setGifs(cur.filter((x) => x.id !== id));
+    });
+    this._pumpOutbox();
+    this._request({ type: 'gif-keep', id, on: false }).catch(() => {});
+  }
+
+  /** Загрузить свою GIF (файл с устройства или из поиска) сразу в «Сохранённые», без отправки. */
+  async uploadGif(source, meta = {}, { onProgress = () => {}, signal } = {}) {
+    const size = source.size ?? source.length;
+    if (size > GIF_FILE_MAX) throw errorOf('file_too_large');
+    const mime = String(meta.mime || source.type || '').toLowerCase();
+    const { keyB64, id } = await this._upload(source, size, onProgress, signal);
+    const file = cleanFile({ ...meta, id, key: keyB64, size, mime, name: safeName(meta.name ?? source.name ?? 'gif'), kind: kindOf(mime), as: 'gif' });
+    if (!file || file.as !== 'gif') throw errorOf('not_gif');
+    return this.saveGif(file);
+  }
+
+  /** Отправить GIF из «Сохранённых» — без повторной загрузки, как пересылку. */
+  async sendGif(chat, file, { replyTo = null, ch = null } = {}) {
+    const f = cleanFile({ ...file, as: 'gif' });
+    if (!f) throw errorOf('not_gif');
+    const base = { t: 'file', body: '', file: f };
+    if (ch && isGroupChat(chat) && CHAN_ID_RE.test(ch)) base.ch = ch;
+    await this._sendContent(chat, base, replyTo);
+  }
+
+  async _setGifs(list) {
+    const v = Math.max(Date.now(), ((await this.storage.get('gifs'))?.v || 0) + 1);
+    await this.storage.set('gifs', { v, list });
+    this._gifIds = new Set(list.map((x) => x.id));
+    await this._queueToSelf({ t: 'sync-gifs', v, list });
+    this.emit('gifs', list);
+  }
+
+  async _applyGifs(v, list) {
+    const cur = await this.storage.get('gifs');
+    if (!Number.isFinite(v) || (cur?.v && cur.v >= v)) return;
+    const clean = cleanGifs(list);
+    await this.storage.set('gifs', { v, list: clean });
+    this._gifIds = new Set(clean.map((x) => x.id));
+    this.emit('gifs', clean);
   }
 
   async _applyFolders(v, list) {
@@ -4019,6 +4153,10 @@ export class MessengerClient extends Emitter {
       }
       if (c?.t === 'sync-folders') {
         await this._applyFolders(c.v, c.list);
+        return ack(false);
+      }
+      if (c?.t === 'sync-gifs') {
+        await this._applyGifs(c.v, c.list);
         return ack(false);
       }
       // Своё устройство после обновления прислало полное состояние настроек (и, возможно, просит наше)

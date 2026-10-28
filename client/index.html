@@ -207,12 +207,27 @@
           <b class="vol-val" id="tts-volume-val"></b>
           <button type="button" id="tts-stop" class="icon-btn" aria-label="Остановить" title="Остановить"><i class="ic" data-icon="close"></i></button>
         </div>
+        <div id="gif-panel" class="gif-panel" role="dialog" aria-label="GIF" hidden>
+          <div class="gif-head">
+            <div class="gif-tabs" role="tablist">
+              <button type="button" class="gif-tab" data-gtab="saved" role="tab">Сохранённые</button>
+              <button type="button" class="gif-tab" data-gtab="search" role="tab" id="gif-tab-search">Поиск</button>
+            </div>
+            <button type="button" id="gif-close" class="icon-btn" aria-label="Закрыть" title="Закрыть"><i class="ic" data-icon="close"></i></button>
+          </div>
+          <div id="gif-search-row" class="gif-search" hidden><input id="gif-q" type="search" placeholder="Поиск GIF" aria-label="Поиск GIF" autocomplete="off" spellcheck="false"></div>
+          <div id="gif-grid" class="gif-grid"></div>
+          <p id="gif-empty" class="gif-empty" hidden></p>
+          <p id="gif-attr" class="gif-attr" hidden></p>
+          <input type="file" id="gif-input" accept="image/gif,image/webp,video/mp4,video/webm" multiple hidden>
+        </div>
         <form id="composer" class="composer">
           <button type="button" id="attach-btn" class="icon-btn attach" aria-label="Прикрепить файл" title="Прикрепить файл"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 6.5v10.5a4.5 4.5 0 0 1-9 0V5.5a3 3 0 0 1 6 0V16a1.5 1.5 0 0 1-3 0V6.5H9V16a3 3 0 0 0 6 0V5.5a4.5 4.5 0 0 0-9 0V17a6 6 0 0 0 12 0V6.5z"/></svg></button>
           <input type="file" id="file-input" multiple hidden>
           <input type="file" id="media-input" accept="image/*,video/*" multiple hidden>
           <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
           <textarea id="text" rows="1" placeholder="Сообщение" aria-label="Сообщение"></textarea>
+          <button type="button" id="gif-btn" class="icon-btn gif-btn" aria-label="GIF" title="GIF" aria-expanded="false"><i class="ic" data-icon="gif"></i></button>
           <button type="button" id="voice-btn" class="icon-btn rec-btn" aria-label="Записать голосовое сообщение" title="Удерживайте, чтобы записать голосовое"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/></svg></button>
           <button type="button" id="note-btn" class="icon-btn rec-btn" aria-label="Записать видеосообщение" title="Удерживайте, чтобы записать видеосообщение"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h12a1 1 0 0 1 1 1v3.5l4.4-2.9A1 1 0 0 1 22 7.4v9.2a1 1 0 0 1-1.6.8L16 14.5V18a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 2v10h10V7z"/></svg></button>
           <button id="send-btn" class="primary send" aria-label="Отправить"><i class="ic" data-icon="send"></i></button>
@@ -640,6 +655,7 @@
     <button type="button" data-act="stt-again" role="menuitem"><i class="ic" data-icon="update"></i>Расшифровать заново</button>
     <button type="button" data-act="copy" role="menuitem"><i class="ic" data-icon="copy"></i>Копировать</button>
     <button type="button" data-act="save" role="menuitem"><i class="ic" data-icon="download"></i>Сохранить файл</button>
+    <button type="button" data-act="save-gif" role="menuitem"><i class="ic" data-icon="gif"></i>В сохранённые GIF</button>
     <button type="button" data-act="delete" role="menuitem" class="danger"><i class="ic" data-icon="trash"></i>Удалить</button>
   </div>
 

@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS blobs (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS blobs_created ON blobs(created_at);
+-- Сохранённые GIF: файл не удаляется по сроку, пока его кто-то хранит у себя (до GIF_KEEP_MAX на человека)
+CREATE TABLE IF NOT EXISTS blob_keeps (
+  blob        TEXT NOT NULL,
+  user        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  PRIMARY KEY (blob, user)
+);
+CREATE INDEX IF NOT EXISTS blob_keeps_user ON blob_keeps(user);
 -- Заблокированные администратором IP-адреса
 CREATE TABLE IF NOT EXISTS ip_bans (
   ip          TEXT PRIMARY KEY,
@@ -327,8 +335,9 @@ export class Store {
       getBlob: q('SELECT id, owner, size, received, done, token_hash, created_at, pin FROM blobs WHERE id = ?'),
       updBlob: q('UPDATE blobs SET received = ?, done = ? WHERE id = ?'),
       blobsTotal: q('SELECT COALESCE(SUM(size), 0) AS n FROM blobs'),
-      blobsExpired: q('SELECT id FROM blobs WHERE pin IS NULL AND (created_at < ? OR (done = 0 AND created_at < ?))'),
+      blobsExpired: q('SELECT id FROM blobs b WHERE pin IS NULL AND (created_at < ? OR (done = 0 AND created_at < ?)) AND NOT EXISTS (SELECT 1 FROM blob_keeps k WHERE k.blob = b.id)'),
       delBlob: q('DELETE FROM blobs WHERE id = ?'),
+      delBlobKeeps: q('DELETE FROM blob_keeps WHERE blob = ?'),
       blobStats: q('SELECT COUNT(*) AS n, COALESCE(SUM(size), 0) AS bytes FROM blobs WHERE done = 1'),
       addBan: q('INSERT INTO ip_bans(ip, note, created_at) VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET note = excluded.note'),
       delBan: q('DELETE FROM ip_bans WHERE ip = ?'),
@@ -474,6 +483,7 @@ export class Store {
   deleteUser(name) {
     this.db.prepare('DELETE FROM blocks WHERE blocked = ?').run(name);
     this.db.prepare('UPDATE blobs SET pin = NULL, created_at = 0 WHERE pin = ?').run('pv:' + name); // своё видео профиля
+    this.db.prepare('DELETE FROM blob_keeps WHERE user = ?').run(name); // сохранённые GIF
     return this.s.delUser.run(name).changes > 0;
   }
 
@@ -512,7 +522,35 @@ export class Store {
     return this.s.blobsExpired.all(createdBefore, partialBefore).map((r) => r.id);
   }
   deleteBlobs(ids) {
-    for (const id of ids) this.s.delBlob.run(id);
+    for (const id of ids) {
+      this.s.delBlob.run(id);
+      this.s.delBlobKeeps.run(id);
+    }
+  }
+  /**
+   * Сохранённая GIF: on — хранить файл, пока он у пользователя в «Сохранённых» (не дольше срока его
+   * блоба после удаления оттуда). Файл может быть чужим — пользователь получил его в чате: id файла
+   * случайный, знать его — значит уже иметь доступ к сообщению. false — нет такого файла, он
+   * больше maxSize или сохранено уже max файлов.
+   */
+  keepBlob(user, id, on, { max = 200, maxSize = 20 * 1024 * 1024 } = {}) {
+    return this.tx(() => {
+      if (!on) {
+        this.db.prepare('DELETE FROM blob_keeps WHERE blob = ? AND user = ?').run(id, user);
+        // Больше никто не хранит — дальше файл живёт обычный срок, отсчитанный заново
+        if (!this.db.prepare('SELECT 1 FROM blob_keeps WHERE blob = ?').get(id)) this.db.prepare('UPDATE blobs SET created_at = ? WHERE id = ? AND pin IS NULL').run(Date.now(), id);
+        return true;
+      }
+      const b = this.getBlob(id);
+      if (!b || !b.done || b.size > maxSize) return false;
+      if (this.db.prepare('SELECT 1 FROM blob_keeps WHERE blob = ? AND user = ?').get(id, user)) return true;
+      if (this.db.prepare('SELECT COUNT(*) n FROM blob_keeps WHERE user = ?').get(user).n >= max) return false;
+      this.db.prepare('INSERT INTO blob_keeps(blob, user, created_at) VALUES (?, ?, ?)').run(id, user, Date.now());
+      return true;
+    });
+  }
+  keptBlobs(user) {
+    return this.db.prepare('SELECT blob FROM blob_keeps WHERE user = ? ORDER BY created_at').all(user).map((r) => r.blob);
   }
   /**
    * Своё видео на фон профиля (Премиум): файл не удаляется по сроку, пока стоит в профиле
